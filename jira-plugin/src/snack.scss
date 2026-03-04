@@ -8,10 +8,6 @@ body ._JX {
     min-width: 50px;
     transform: translateX(-50%) translateY(100%) translateY(20px) !important;
     transition: transform 300ms !important;
-    &_show {
-      transition: transform 150ms !important;
-      transform: translateX(-50%) !important;
-    }
     background-color: #444444;
     padding: 14px 20px;
     border-radius: 50px;
@@ -19,6 +15,11 @@ body ._JX {
     border: 2px solid white;
     font-size: 16px;
     line-height: 22px;
+
+    &_show {
+      transition: transform 150ms !important;
+      transform: translateX(-50%) !important;
+    }
 
     &_icon {
       box-sizing: border-box !important;
