@@ -28,6 +28,7 @@ body ._JX {
       color: #172b4d;
       background-color: transparent;
       border: none;
+      cursor: pointer;
       vertical-align: middle;
       position: relative;
       top: 2px;
@@ -35,6 +36,11 @@ body ._JX {
       &:hover {
         color: #8993a4;
       }
+    }
+
+    #_JX_title_link {
+      font-size: 14px;
+      line-height: 1.3;
     }
   }
 
@@ -57,6 +63,7 @@ body ._JX {
   &_annotation {
     max-width: 600px;
     color: #24292f;
+    font-family: 'Nunito', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
     border: 1px solid #dde4e6;
     border-radius: 3px;
     background-color: white;
@@ -122,10 +129,16 @@ body ._JX {
     }
 
     &_text img {
+      cursor: pointer;
       max-width: 100%;
       max-height: 180px;
       height: auto;
       width: auto;
+    }
+
+    &_text {
+      font-size: 14px;
+      line-height: 1.35;
     }
 
     &_attachments {
@@ -133,6 +146,53 @@ body ._JX {
       margin-top: 10px;
       padding-top: 8px;
       overflow: hidden;
+    }
+  }
+
+  &_comments {
+    border-top: 1px solid #dde4e6;
+    margin-top: 6px;
+    padding-top: 4px;
+  }
+
+  &_comment {
+    border-bottom: 1px solid #dde4e6;
+    margin-bottom: 4px;
+    padding-bottom: 4px;
+
+    &:last-child {
+      border-bottom: none;
+      margin-bottom: 0;
+      padding-bottom: 0;
+    }
+  }
+
+  &_comment_meta {
+    color: #5e6c84;
+    font-size: 11px;
+    margin-bottom: 3px;
+    text-align: left;
+  }
+
+  &_comment_author {
+    color: #172b4d;
+    font-weight: bold;
+  }
+
+  &_comment_body {
+    font-size: 14px;
+    line-height: 1.35;
+    word-break: break-word;
+
+    a {
+      text-decoration: underline;
+    }
+
+    img {
+      cursor: pointer;
+      display: block;
+      margin-top: 6px;
+      max-width: 100%;
     }
   }
 
@@ -219,17 +279,34 @@ body ._JX {
     margin: 5px;
     border: 1px solid rgb(221, 228, 230) !important;
     cursor: pointer;
-    height: 145px;
-    width: 200px;
+    height: auto;
+    width: auto;
+    max-width: 100%;
     position: relative;
     overflow: hidden;
+
+    a,
+    img {
+      cursor: pointer !important;
+    }
+
+    > a > img:not(._JX_file_loader) {
+      display: block;
+      height: auto;
+      max-height: 100px;
+      max-width: 100%;
+      width: auto;
+    }
   }
 
   &_thumb_filename {
     position: absolute;
     white-space: nowrap;
-    width: 200px;
+    width: 100%;
     background-color: white;
+    color: #172b4d;
+    font-size: 14px;
+    line-height: 18px;
     max-height: 20px;
     text-overflow: ellipsis;
     overflow: hidden;
@@ -242,6 +319,30 @@ body ._JX {
     top: 23%;
     left: 35%;
     position: absolute;
+  }
+
+  &_preview_overlay {
+    align-items: center;
+    background: rgba(0, 0, 0, 0.84);
+    display: none;
+    inset: 0;
+    justify-content: center;
+    position: fixed;
+    z-index: 2147483647;
+
+    &.is-open {
+      display: flex;
+    }
+  }
+
+  &_preview_image {
+    max-height: 96vh;
+    max-width: 96vw;
+    object-fit: contain;
+  }
+
+  img._JX_previewable {
+    cursor: pointer !important;
   }
 }
 @media (prefers-color-scheme: dark) {

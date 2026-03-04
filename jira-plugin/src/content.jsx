@@ -2,7 +2,7 @@
 import size from 'lodash/size';
 import debounce from 'lodash/debounce';
 import Mustache from 'mustache';
-import {centerPopup, waitForDocument} from 'src/utils';
+import {waitForDocument} from 'src/utils';
 import {sendMessage, storageGet, storageSet} from 'src/chrome';
 import {snackBar} from 'src/snack';
 import config from 'options/config.js';
@@ -110,7 +110,6 @@ async function getImageDataUrl(url) {
 async function mainAsyncLocal() {
   const $ = require('jquery');
   const draggable = require('jquery-ui/ui/widgets/draggable');
-  const clipboard = require('clipboard/dist/clipboard');
 
   const config = await getConfig();
   const INSTANCE_URL = config.instanceUrl;
@@ -199,20 +198,70 @@ async function mainAsyncLocal() {
     await Promise.all(imageLoads);
   }
 
-  async function normalizeDescriptionHtml(descriptionHtml) {
-    if (!descriptionHtml) {
-      return descriptionHtml;
+  function escapeHtml(input) {
+    const node = document.createElement('div');
+    node.textContent = input || '';
+    return node.innerHTML;
+  }
+
+  function textToLinkedHtml(input) {
+    const escaped = escapeHtml(input || '');
+    const withLinks = escaped.replace(
+      /(https?:\/\/[^\s<]+)/g,
+      '<a href="$1" target="_blank" rel="noopener noreferrer">$1</a>'
+    );
+    return withLinks.replace(/\n/g, '<br/>');
+  }
+
+  function formatRelativeDate(created) {
+    const createdAt = new Date(created);
+    if (Number.isNaN(createdAt.getTime())) {
+      return '--';
     }
+    const diffMs = Date.now() - createdAt.getTime();
+    const twoDaysMs = 2 * 24 * 60 * 60 * 1000;
+    if (diffMs >= 0 && diffMs < twoDaysMs) {
+      const minuteMs = 60 * 1000;
+      const hourMs = 60 * minuteMs;
+      const dayMs = 24 * hourMs;
+      if (diffMs < hourMs) {
+        const minutes = Math.max(1, Math.floor(diffMs / minuteMs));
+        return `${minutes}m ago`;
+      }
+      if (diffMs < dayMs) {
+        const hours = Math.max(1, Math.floor(diffMs / hourMs));
+        return `${hours}h ago`;
+      }
+      const days = Math.max(1, Math.floor(diffMs / dayMs));
+      return `${days}d ago`;
+    }
+    return new Intl.DateTimeFormat(undefined, {
+      dateStyle: 'medium',
+      timeStyle: 'short'
+    }).format(createdAt);
+  }
+
+  async function normalizeRichHtml(html, options = {}) {
+    if (!html) {
+      return '';
+    }
+    const {imageMaxHeight} = options;
     const temp = document.createElement('div');
-    temp.innerHTML = descriptionHtml;
+    temp.innerHTML = html;
 
     const imageNodes = Array.from(temp.querySelectorAll('img[src]'));
     await Promise.all(imageNodes.map(async img => {
       const src = img.getAttribute('src');
       const absoluteSrc = toAbsoluteJiraUrl(src);
       const displaySrc = await getDisplayImageUrl(absoluteSrc);
-      if (displaySrc) {
-        img.setAttribute('src', displaySrc);
+      const resolvedSrc = displaySrc || absoluteSrc || src;
+      if (resolvedSrc) {
+        img.setAttribute('src', resolvedSrc);
+        img.setAttribute('data-jx-preview-src', resolvedSrc);
+        img.classList.add('_JX_previewable');
+      }
+      if (imageMaxHeight) {
+        img.style.maxHeight = `${imageMaxHeight}px`;
       }
     }));
 
@@ -223,9 +272,36 @@ async function mainAsyncLocal() {
       if (absoluteHref) {
         anchor.setAttribute('href', absoluteHref);
       }
+      anchor.setAttribute('target', '_blank');
+      anchor.setAttribute('rel', 'noopener noreferrer');
     });
 
     return temp.innerHTML;
+  }
+
+  async function buildCommentsForDisplay(issueData) {
+    const comments = [...(issueData.fields.comment?.comments || [])].sort((a, b) => {
+      return new Date(a.created).getTime() - new Date(b.created).getTime();
+    });
+    const renderedById = {};
+    ((issueData.renderedFields?.comment?.comments) || []).forEach(comment => {
+      if (comment && comment.id) {
+        renderedById[comment.id] = comment.body;
+      }
+    });
+
+    const result = [];
+    for (const comment of comments) {
+      const rendered = renderedById[comment.id];
+      const baseHtml = rendered || textToLinkedHtml(comment.body || '');
+      const bodyHtml = await normalizeRichHtml(baseHtml, {imageMaxHeight: 100});
+      result.push({
+        author: comment.author?.displayName || 'Unknown',
+        created: formatRelativeDate(comment.created),
+        bodyHtml
+      });
+    }
+    return result;
   }
 
   /***
@@ -405,48 +481,119 @@ async function mainAsyncLocal() {
   }
 
   const container = $('<div class="_JX_container">');
+  const previewOverlay = $(`
+    <div class="_JX_preview_overlay">
+      <img class="_JX_preview_image" />
+    </div>
+  `);
   $(document.body).append(container);
+  $(document.body).append(previewOverlay);
   new draggable({
     handle: '._JX_title, ._JX_status',
   }, container);
   
-  new clipboard('._JX_title_copy', {
-    text: function (trigger) {
-      return document.getElementById('_JX_title_link').text;
-    }
-  })
-  .on('success', e => { snackBar('Copied!');})
-  .on('error', e => { snackBar('There was an error!');});
+  function buildPrettyLinkPayload() {
+    const titleLink = document.getElementById('_JX_title_link');
+    const url = titleLink?.getAttribute('href') || '';
+    const ticket = titleLink?.getAttribute('data-ticket') || '';
+    const title = titleLink?.getAttribute('data-title') || '';
+    const label = `[${ticket}] ${title}`.trim();
+    const link = document.createElement('a');
+    link.href = url;
+    link.textContent = label;
+    return {
+      html: link.outerHTML,
+      text: url
+    };
+  }
 
-  $(document.body).on('click', '._JX_thumb', function previewThumb(e) {
-    const currentTarget = $(e.currentTarget);
-    if (currentTarget.data('_JX_loading')) {
+  function copyPrettyLinkFallback(html, text) {
+    return new Promise((resolve, reject) => {
+      const onCopy = event => {
+        event.preventDefault();
+        event.clipboardData.setData('text/html', html);
+        event.clipboardData.setData('text/plain', text);
+      };
+      document.addEventListener('copy', onCopy, {once: true});
+      const success = document.execCommand('copy');
+      if (!success) {
+        reject(new Error('Copy command failed'));
+        return;
+      }
+      resolve();
+    });
+  }
+
+  async function copyPrettyLink() {
+    const {html, text} = buildPrettyLinkPayload();
+    try {
+      if (navigator.clipboard && window.ClipboardItem && navigator.clipboard.write) {
+        await navigator.clipboard.write([
+          new ClipboardItem({
+            'text/html': new Blob([html], {type: 'text/html'}),
+            'text/plain': new Blob([text], {type: 'text/plain'})
+          })
+        ]);
+        snackBar('Copied!');
+        return;
+      }
+    } catch (ex) {
+      // fall through to fallback copy path
+    }
+
+    try {
+      await copyPrettyLinkFallback(html, text);
+      snackBar('Copied!');
+    } catch (ex) {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(text);
+        snackBar('Copied as text');
+      } else {
+        snackBar('There was an error!');
+      }
+    }
+  }
+
+  $(document.body).on('click', '._JX_title_copy', function (e) {
+    e.preventDefault();
+    copyPrettyLink().catch(() => snackBar('There was an error!'));
+  });
+
+  function closePreviewOverlay() {
+    previewOverlay.removeClass('is-open');
+    previewOverlay.find('img').attr('src', '');
+  }
+
+  async function openPreviewOverlay(imageUrl) {
+    if (!imageUrl) {
       return;
     }
-    if (!currentTarget.data('mimeType').startsWith('image')) {
+    const displaySrc = await getDisplayImageUrl(imageUrl);
+    previewOverlay.find('img').attr('src', displaySrc || imageUrl);
+    previewOverlay.addClass('is-open');
+  }
+
+  previewOverlay.on('click', function (e) {
+    if (e.target === previewOverlay[0]) {
+      closePreviewOverlay();
+    }
+  });
+
+  $(document.body).on('click', '._JX_previewable', function (e) {
+    e.preventDefault();
+    e.stopPropagation();
+    const source = e.currentTarget.getAttribute('data-jx-preview-src') || e.currentTarget.getAttribute('src');
+    openPreviewOverlay(source).catch(() => {});
+  });
+
+  $(document.body).on('click', '._JX_thumb', function (e) {
+    if ($(e.target).closest('img._JX_previewable').length) {
       return;
     }
     e.preventDefault();
-    currentTarget.data('loading', true);
-    const opacityElements = currentTarget.children(':not(._JX_file_loader)');
-    opacityElements.css('opacity', 0.2);
-    currentTarget.find('._JX_file_loader').show();
-    const localCancelToken = cancelToken;
-    const img = new Image();
-    img.onload = function () {
-      currentTarget.data('_JX_loading', false);
-      currentTarget.find('._JX_file_loader').hide();
-      const name = currentTarget.find('._JX_thumb_filename').text();
-      opacityElements.css('opacity', 1);
-      if (localCancelToken.cancel) {
-        return;
-      }
-      centerPopup(chrome.runtime.getURL(`resources/preview.html?url=${currentTarget.data('url')}&title=${name}`), name, {
-        width: this.naturalWidth,
-        height: this.naturalHeight
-      }).focus();
-    };
-    img.src = currentTarget.data('url');
+    e.stopPropagation();
+    const source = e.currentTarget.getAttribute('data-preview-src') || e.currentTarget.getAttribute('data-url');
+    openPreviewOverlay(source).catch(() => {});
   });
 
   function hideContainer() {
@@ -464,6 +611,10 @@ async function mainAsyncLocal() {
     // TODO: escape not captured in google docs
     const ESCAPE_KEY_CODE = 27;
     if (e.keyCode === ESCAPE_KEY_CODE) {
+      if (previewOverlay.hasClass('is-open')) {
+        closePreviewOverlay();
+        return;
+      }
       hideContainer();
       passiveCancel(200);
     }
@@ -532,26 +683,26 @@ async function mainAsyncLocal() {
           if (cancelToken.cancel) {
             return;
           }
-          let comments = '';
-          if (issueData.fields.comment && issueData.fields.comment.total) {
-            comments = issueData.fields.comment.comments.map(
-              comment => comment.author.displayName + ':\n' + comment.body
-            ).join('\n\n');
-          }
-          const normalizedDescription = await normalizeDescriptionHtml(issueData.renderedFields.description);
+          const normalizedDescription = await normalizeRichHtml(issueData.renderedFields.description, {
+            imageMaxHeight: 180
+          });
+          const commentsForDisplay = await buildCommentsForDisplay(issueData);
           const fixVersions = issueData.fields.fixVersions || [];
           const sprints = readSprintsFromIssue(issueData);
-          const commentsTotal = issueData.fields.comment?.total || 0;
+          const commentsTotal = commentsForDisplay.length;
           const attachments = issueData.fields.attachment || [];
           const previewAttachments = buildPreviewAttachments(attachments);
           const displayData = {
-            urlTitle: key + ' ' + issueData.fields.summary,
+            urlTitle: `[${key}] ${issueData.fields.summary}`,
+            ticketKey: key,
+            ticketTitle: issueData.fields.summary,
             url: INSTANCE_URL + 'browse/' + key,
             prs: [],
             description: normalizedDescription,
-            hasBodyContent: !!normalizedDescription || previewAttachments.length > 0,
+            hasBodyContent: !!normalizedDescription || previewAttachments.length > 0 || commentsForDisplay.length > 0,
             attachments,
             previewAttachments,
+            commentsForDisplay,
             issuetype: issueData.fields.issuetype,
             status: issueData.fields.status,
             issueTypeText: issueData.fields.issuetype?.name || 'No type',
@@ -561,15 +712,13 @@ async function mainAsyncLocal() {
             fixVersionText: formatFixVersionText(fixVersions) || 'No fix version',
             sprintText: formatSprintText(sprints) || 'No sprint',
             attachmentChips: buildAttachmentChips(attachments),
-            comment: issueData.fields.comment,
             reporter: issueData.fields.reporter,
             assignee: issueData.fields.assignee,
-            comments,
             commentUrl: INSTANCE_URL + 'browse/' + key,
             loaderGifUrl,
           };
-          if (displayData.comment?.comments?.[0]?.id) {
-            displayData.commentUrl = `${displayData.url}#comment-${displayData.comment.comments[0].id}`;
+          if (issueData.fields.comment?.comments?.[0]?.id) {
+            displayData.commentUrl = `${displayData.url}#comment-${issueData.fields.comment.comments[0].id}`;
           }
           if (size(pullRequests)) {
             displayData.prs = pullRequests.filter(function (pr) {
