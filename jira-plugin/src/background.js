@@ -98,7 +98,7 @@ async function browserOnClicked (tab) {
     await storageSet(config);
     await resetDeclarativeMapping();
     await executeScript({
-      target: {tabId: null},
+      target: {tabId: tab.id},
       files: [contentScript]
     });
     await sendMessage(tab.id, {

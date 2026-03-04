@@ -7,55 +7,46 @@
         </button>
     </div>
     <div class="_JX_status">
-        {{#issuetype}}
-        <div title="Issue Type">
-            <img class="_JX_status_icon" src="{{iconUrl}}"> {{name}}
-        </div>
-        {{/issuetype}}
-        {{#status}}
-        <div title="Status">
-            <img class="_JX_status_icon" src="{{iconUrl}}"> {{name}}
-        </div>
-        {{/status}}
-        {{#priority}}
-        <div title="Priority">
-            <img class="_JX_status_icon" src="{{iconUrl}}"> {{name}}
-        </div>
-        {{/priority}}
-        {{#comment.total}}
-        <a title="{{comments}}" target="_blank" style="display: block" href="{{commentUrl}}">
-            💬 &nbsp; {{comment.total}}
+        <span class="_JX_field_chip">
+            {{#issuetype.iconUrl}}<img class="_JX_status_icon" src="{{issuetype.iconUrl}}">{{/issuetype.iconUrl}}{{issueTypeText}}
+        </span>
+        <span class="_JX_field_chip">
+            {{#status.iconUrl}}<img class="_JX_status_icon" src="{{status.iconUrl}}">{{/status.iconUrl}}{{statusText}}
+        </span>
+        {{#hasComments}}
+        <a class="_JX_field_chip _JX_field_chip_link" target="_blank" href="{{commentUrl}}">
+            💬 {{commentsTotal}}
         </a>
-        {{/comment.total}}
+        {{/hasComments}}
+        <span class="_JX_field_chip">{{fixVersionText}}</span>
+        <span class="_JX_field_chip">{{sprintText}}</span>
+        {{#attachmentChips}}
+        <span class="_JX_field_chip">{{icon}} {{count}}</span>
+        {{/attachmentChips}}
     </div>
 
-    {{#description}}
+    {{#hasBodyContent}}
     <div class="_JX_description">
-      {{{description}}}
-    </div>
-    {{/description}}
-
-    {{#fixVersions.length}}
-    <div class="_JX_field_group">
-        <div class="_JX_field_label">Fix Version(s)</div>
-        <div class="_JX_field_values">
-            {{#fixVersions}}
-            <span class="_JX_field_chip">{{name}}</span>
-            {{/fixVersions}}
+        {{#description}}
+        <div class="_JX_description_text">
+            {{{description}}}
         </div>
-    </div>
-    {{/fixVersions.length}}
-
-    {{#sprints.length}}
-    <div class="_JX_field_group">
-        <div class="_JX_field_label">Sprint</div>
-        <div class="_JX_field_values">
-            {{#sprints}}
-            <span class="_JX_field_chip">{{name}}{{#state}} ({{state}}){{/state}}</span>
-            {{/sprints}}
+        {{/description}}
+        {{#previewAttachments.length}}
+        <div class="_JX_description_attachments">
+            {{#previewAttachments}}
+            <div data-mime-type="{{mimeType}}" data-url="{{content}}" class="_JX_thumb">
+                <a href="{{content}}" target="_blank">
+                    <img title="{{filename}}" src="{{thumbnail}}">
+                    <div class="_JX_thumb_filename">{{filename}}</div>
+                    <img class="_JX_file_loader" src="{{loaderGifUrl}}">
+                </a>
+            </div>
+            {{/previewAttachments}}
         </div>
+        {{/previewAttachments.length}}
     </div>
-    {{/sprints.length}}
+    {{/hasBodyContent}}
 
     {{#prs.length}}
     <div class="_JX_related_pr">
@@ -85,19 +76,5 @@
     </table>
     </div>
     {{/prs.length}}
-
-    {{#attachments.length}}
-    <div class="_JX_attachments">
-    {{#attachments}}
-    <div data-mime-type="{{mimeType}}" data-url="{{content}}" class="_JX_thumb">
-        <a href="{{content}}" target="_blank">
-        <img title="{{filename}}" src="{{thumbnail}}">
-        <div class="_JX_thumb_filename">{{filename}}</div>
-        <img class="_JX_file_loader" src="{{loaderGifUrl}}">
-        </a>
-    </div>
-    {{/attachments}}
-    </div>
-    {{/attachments.length}}
 
 </div>

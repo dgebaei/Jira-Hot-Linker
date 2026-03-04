@@ -183,7 +183,6 @@ async function mainAsyncLocal() {
     maybeNormalizeAvatar(issueData.fields.assignee);
     maybeNormalizeIcon(issueData.fields.issuetype);
     maybeNormalizeIcon(issueData.fields.status);
-    maybeNormalizeIcon(issueData.fields.priority);
 
     (issueData.fields.attachment || []).forEach(attachment => {
       attachment.content = toAbsoluteJiraUrl(attachment.content);
@@ -198,6 +197,35 @@ async function mainAsyncLocal() {
     });
 
     await Promise.all(imageLoads);
+  }
+
+  async function normalizeDescriptionHtml(descriptionHtml) {
+    if (!descriptionHtml) {
+      return descriptionHtml;
+    }
+    const temp = document.createElement('div');
+    temp.innerHTML = descriptionHtml;
+
+    const imageNodes = Array.from(temp.querySelectorAll('img[src]'));
+    await Promise.all(imageNodes.map(async img => {
+      const src = img.getAttribute('src');
+      const absoluteSrc = toAbsoluteJiraUrl(src);
+      const displaySrc = await getDisplayImageUrl(absoluteSrc);
+      if (displaySrc) {
+        img.setAttribute('src', displaySrc);
+      }
+    }));
+
+    const anchorNodes = Array.from(temp.querySelectorAll('a[href]'));
+    anchorNodes.forEach(anchor => {
+      const href = anchor.getAttribute('href');
+      const absoluteHref = toAbsoluteJiraUrl(href);
+      if (absoluteHref) {
+        anchor.setAttribute('href', absoluteHref);
+      }
+    });
+
+    return temp.innerHTML;
   }
 
   /***
@@ -228,7 +256,6 @@ async function mainAsyncLocal() {
       'comment',
       'issuetype',
       'status',
-      'priority',
       'fixVersions',
       ...sprintFieldIds
     ];
@@ -277,12 +304,104 @@ async function mainAsyncLocal() {
     return sprints;
   }
 
+  function formatFixVersionText(fixVersions) {
+    return (fixVersions || [])
+      .map(version => version.name)
+      .filter(Boolean)
+      .join(', ');
+  }
+
+  function formatSprintText(sprints) {
+    return (sprints || [])
+      .map(sprint => sprint.state ? `${sprint.name} (${sprint.state})` : sprint.name)
+      .filter(Boolean)
+      .join(', ');
+  }
+
+  function buildAttachmentChips(attachments) {
+    const totals = {
+      image: 0,
+      pdf: 0,
+      doc: 0,
+      other: 0
+    };
+
+    (attachments || []).forEach(attachment => {
+      const mimeType = (attachment.mimeType || '').toLowerCase();
+      if (mimeType.startsWith('image/')) {
+        totals.image += 1;
+      } else if (mimeType === 'application/pdf') {
+        totals.pdf += 1;
+      } else if (
+        mimeType.includes('word') ||
+        mimeType.includes('excel') ||
+        mimeType.includes('powerpoint') ||
+        mimeType.includes('officedocument') ||
+        mimeType.includes('msword') ||
+        mimeType.includes('opendocument') ||
+        mimeType.includes('rtf') ||
+        mimeType.startsWith('text/')
+      ) {
+        totals.doc += 1;
+      } else {
+        totals.other += 1;
+      }
+    });
+
+    const chips = [];
+    if (totals.image) chips.push({icon: '🖼️', count: totals.image});
+    if (totals.pdf) chips.push({icon: '📕', count: totals.pdf});
+    if (totals.doc) chips.push({icon: '📝', count: totals.doc});
+    if (totals.other) chips.push({icon: '📎', count: totals.other});
+    return chips;
+  }
+
+  function buildPreviewAttachments(attachments) {
+    return (attachments || []).filter(attachment => {
+      return !!attachment &&
+        typeof attachment.mimeType === 'string' &&
+        attachment.mimeType.toLowerCase().startsWith('image') &&
+        !!attachment.thumbnail;
+    });
+  }
+
   function getRelativeHref(href) {
     const documentHref = document.location.href.split('#')[0];
     if (href.startsWith(documentHref)) {
       return href.slice(documentHref.length);
     }
     return href;
+  }
+
+  function computeVisibleContainerPosition(pointerX, pointerY) {
+    const margin = 8;
+    const preferredLeft = pointerX + 20;
+    const preferredTop = pointerY + 25;
+    const width = container.outerWidth();
+    const height = container.outerHeight();
+    const viewportLeft = window.scrollX + margin;
+    const viewportTop = window.scrollY + margin;
+    const viewportRight = window.scrollX + window.innerWidth - margin;
+    const viewportBottom = window.scrollY + window.innerHeight - margin;
+
+    let left = preferredLeft;
+    let top = preferredTop;
+
+    if (left + width > viewportRight) {
+      left = pointerX - width - 15;
+    }
+    if (left < viewportLeft) {
+      left = viewportLeft;
+    }
+
+    if (top + height > viewportBottom) {
+      top = pointerY - height - 15;
+    }
+    if (top < viewportTop) {
+      top = viewportTop;
+    }
+
+    return {left, top};
   }
 
   const container = $('<div class="_JX_container">');
@@ -397,6 +516,8 @@ async function mainAsyncLocal() {
       if (size(keys)) {
         clearTimeout(hideTimeOut);
         const key = keys[0].replace(" ", "-");
+        const pointerX = e.pageX;
+        const pointerY = e.pageY;
         (async function (cancelToken) {
           const issueData = await getIssueMetaData(key);
           await normalizeIssueImages(issueData);
@@ -417,25 +538,39 @@ async function mainAsyncLocal() {
               comment => comment.author.displayName + ':\n' + comment.body
             ).join('\n\n');
           }
+          const normalizedDescription = await normalizeDescriptionHtml(issueData.renderedFields.description);
+          const fixVersions = issueData.fields.fixVersions || [];
+          const sprints = readSprintsFromIssue(issueData);
+          const commentsTotal = issueData.fields.comment?.total || 0;
+          const attachments = issueData.fields.attachment || [];
+          const previewAttachments = buildPreviewAttachments(attachments);
           const displayData = {
             urlTitle: key + ' ' + issueData.fields.summary,
             url: INSTANCE_URL + 'browse/' + key,
             prs: [],
-            description: issueData.renderedFields.description,
-            attachments: issueData.fields.attachment,
+            description: normalizedDescription,
+            hasBodyContent: !!normalizedDescription || previewAttachments.length > 0,
+            attachments,
+            previewAttachments,
             issuetype: issueData.fields.issuetype,
             status: issueData.fields.status,
-            priority: issueData.fields.priority,
-            fixVersions: issueData.fields.fixVersions || [],
-            sprints: readSprintsFromIssue(issueData),
+            issueTypeText: issueData.fields.issuetype?.name || 'No type',
+            statusText: issueData.fields.status?.name || 'No status',
+            hasComments: commentsTotal > 0,
+            commentsTotal,
+            fixVersionText: formatFixVersionText(fixVersions) || 'No fix version',
+            sprintText: formatSprintText(sprints) || 'No sprint',
+            attachmentChips: buildAttachmentChips(attachments),
             comment: issueData.fields.comment,
             reporter: issueData.fields.reporter,
             assignee: issueData.fields.assignee,
             comments,
-            commentUrl: '',
+            commentUrl: INSTANCE_URL + 'browse/' + key,
             loaderGifUrl,
           };
-          displayData.commentUrl = `${displayData.url}#comment-${displayData.comment?.comments?.[0]?.id || ''}`;
+          if (displayData.comment?.comments?.[0]?.id) {
+            displayData.commentUrl = `${displayData.url}#comment-${displayData.comment.comments[0].id}`;
+          }
           if (size(pullRequests)) {
             displayData.prs = pullRequests.filter(function (pr) {
               return pr.url !== location.href;
@@ -450,13 +585,9 @@ async function mainAsyncLocal() {
             });
           }
           // TODO: fix scrolling in google docs
-          const css = {
-            left: e.pageX + 20,
-            top: e.pageY + 25
-          };
           container.html(Mustache.render(annotationTemplate, displayData));
           if (!containerPinned) {
-            container.css(css);
+            container.css(computeVisibleContainerPosition(pointerX, pointerY));
           }
         })(cancelToken);
       } else if (!containerPinned) {
