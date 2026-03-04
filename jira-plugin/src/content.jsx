@@ -14,6 +14,31 @@ const getInstanceUrl = async () => (await storageGet({
 })).instanceUrl;
 
 const getConfig = async () => (await storageGet(config));
+let sprintFieldIdsPromise;
+
+async function getSprintFieldIds(instanceUrl) {
+  if (sprintFieldIdsPromise) {
+    return sprintFieldIdsPromise;
+  }
+  sprintFieldIdsPromise = get(instanceUrl + 'rest/api/2/field')
+    .then(fields => {
+      if (!Array.isArray(fields)) {
+        return [];
+      }
+      return fields
+        .filter(field => {
+          const name = (field.name || '').toLowerCase();
+          const schemaCustom = ((field.schema && field.schema.custom) || '').toLowerCase();
+          const schemaType = ((field.schema && field.schema.type) || '').toLowerCase();
+          return name.includes('sprint') ||
+            schemaCustom.includes('gh-sprint') ||
+            schemaType === 'sprint';
+        })
+        .map(field => field.id);
+    })
+    .catch(() => []);
+  return sprintFieldIdsPromise;
+}
 
 /**
  * Returns a function that will return an array of jira tickets for any given string
@@ -71,6 +96,17 @@ async function get(url) {
   }
 }
 
+async function getImageDataUrl(url) {
+  const response = await sendMessage({action: 'getImageDataUrl', url});
+  if (response.result) {
+    return response.result;
+  } else if (response.error) {
+    const err = new Error(response.error);
+    err.inner = response.error;
+    throw err;
+  }
+}
+
 async function mainAsyncLocal() {
   const $ = require('jquery');
   const draggable = require('jquery-ui/ui/widgets/draggable');
@@ -89,6 +125,80 @@ async function mainAsyncLocal() {
   }));
   const annotationTemplate = await get(chrome.runtime.getURL('resources/annotation.html'));
   const loaderGifUrl = chrome.runtime.getURL('resources/ajax-loader.gif');
+  const imageProxyCache = {};
+
+  function toAbsoluteJiraUrl(url) {
+    if (!url) {
+      return url;
+    }
+    try {
+      return new URL(url, INSTANCE_URL).toString();
+    } catch (ex) {
+      return url;
+    }
+  }
+
+  async function getDisplayImageUrl(url) {
+    const absoluteUrl = toAbsoluteJiraUrl(url);
+    if (!absoluteUrl || !absoluteUrl.startsWith(INSTANCE_URL)) {
+      return absoluteUrl;
+    }
+    if (imageProxyCache[absoluteUrl]) {
+      return imageProxyCache[absoluteUrl];
+    }
+    try {
+      const dataUrl = await getImageDataUrl(absoluteUrl);
+      imageProxyCache[absoluteUrl] = dataUrl;
+      return dataUrl;
+    } catch (ex) {
+      return absoluteUrl;
+    }
+  }
+
+  async function normalizeIssueImages(issueData) {
+    const imageLoads = [];
+
+    const maybeNormalizeAvatar = field => {
+      const avatarUrl = field && field.avatarUrls && field.avatarUrls['48x48'];
+      if (avatarUrl) {
+        imageLoads.push(
+          getDisplayImageUrl(avatarUrl).then(src => {
+            field.avatarUrls['48x48'] = src;
+          })
+        );
+      }
+    };
+
+    const maybeNormalizeIcon = field => {
+      if (field && field.iconUrl) {
+        imageLoads.push(
+          getDisplayImageUrl(field.iconUrl).then(src => {
+            field.iconUrl = src;
+          })
+        );
+      }
+    };
+
+    maybeNormalizeAvatar(issueData.fields.reporter);
+    maybeNormalizeAvatar(issueData.fields.assignee);
+    maybeNormalizeIcon(issueData.fields.issuetype);
+    maybeNormalizeIcon(issueData.fields.status);
+    maybeNormalizeIcon(issueData.fields.priority);
+
+    (issueData.fields.attachment || []).forEach(attachment => {
+      attachment.content = toAbsoluteJiraUrl(attachment.content);
+      attachment.thumbnail = toAbsoluteJiraUrl(attachment.thumbnail) || attachment.content;
+      if (attachment.thumbnail) {
+        imageLoads.push(
+          getDisplayImageUrl(attachment.thumbnail).then(src => {
+            attachment.thumbnail = src;
+          })
+        );
+      }
+    });
+
+    await Promise.all(imageLoads);
+  }
 
   /***
    * Retrieve only the text that is directly owned by the node
@@ -106,8 +216,65 @@ async function mainAsyncLocal() {
     return get(INSTANCE_URL + 'rest/dev-status/1.0/issue/details?issueId=' + issueId + '&applicationType=' + applicationType + '&dataType=pullrequest');
   }
 
-  function getIssueMetaData(issueKey) {
-    return get(INSTANCE_URL + 'rest/api/2/issue/' + issueKey + '?fields=description,id,reporter,assignee,summary,attachment,comment,issuetype,status,priority&expand=renderedFields');
+  async function getIssueMetaData(issueKey) {
+    const sprintFieldIds = await getSprintFieldIds(INSTANCE_URL);
+    const fields = [
+      'description',
+      'id',
+      'reporter',
+      'assignee',
+      'summary',
+      'attachment',
+      'comment',
+      'issuetype',
+      'status',
+      'priority',
+      'fixVersions',
+      ...sprintFieldIds
+    ];
+    return get(INSTANCE_URL + 'rest/api/2/issue/' + issueKey + '?fields=' + fields.join(',') + '&expand=renderedFields,names');
+  }
+
+  function readSprintsFromIssue(issueData) {
+    const names = issueData.names || {};
+    const fields = issueData.fields || {};
+    const sprintFieldIds = Object.keys(names).filter(fieldId => {
+      return typeof names[fieldId] === 'string' && names[fieldId].toLowerCase().includes('sprint');
+    });
+    const sprintValues = sprintFieldIds
+      .map(fieldId => fields[fieldId])
+      .filter(value => value !== undefined && value !== null);
+    const seen = {};
+    const sprints = [];
+
+    const pushSprint = (name, state) => {
+      if (!name) {
+        return;
+      }
+      const key = `${name}__${state || ''}`;
+      if (seen[key]) {
+        return;
+      }
+      seen[key] = true;
+      sprints.push({name, state: state || ''});
+    };
+
+    sprintValues.forEach(value => {
+      const entries = Array.isArray(value) ? value : [value];
+      entries.forEach(entry => {
+        if (!entry) {
+          return;
+        }
+        if (typeof entry === 'string') {
+          const nameMatch = entry.match(/name=([^,\]]+)/i);
+          const stateMatch = entry.match(/state=([^,\]]+)/i);
+          pushSprint(nameMatch && nameMatch[1] ? nameMatch[1] : entry, stateMatch && stateMatch[1]);
+          return;
+        }
+        pushSprint(entry.name || entry.goal || entry.id, entry.state);
+      });
+    });
+    return sprints;
   }
 
   function getRelativeHref(href) {
@@ -232,6 +399,7 @@ async function mainAsyncLocal() {
         const key = keys[0].replace(" ", "-");
         (async function (cancelToken) {
           const issueData = await getIssueMetaData(key);
+          await normalizeIssueImages(issueData);
           let pullRequests = [];
           try {
             const githubPrs = await getPullRequestData(issueData.id, 'github');
@@ -258,6 +426,8 @@ async function mainAsyncLocal() {
             issuetype: issueData.fields.issuetype,
             status: issueData.fields.status,
             priority: issueData.fields.priority,
+            fixVersions: issueData.fields.fixVersions || [],
+            sprints: readSprintsFromIssue(issueData),
             comment: issueData.fields.comment,
             reporter: issueData.fields.reporter,
             assignee: issueData.fields.assignee,

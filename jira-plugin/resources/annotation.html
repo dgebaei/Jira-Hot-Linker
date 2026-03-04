@@ -35,6 +35,28 @@
     </div>
     {{/description}}
 
+    {{#fixVersions.length}}
+    <div class="_JX_field_group">
+        <div class="_JX_field_label">Fix Version(s)</div>
+        <div class="_JX_field_values">
+            {{#fixVersions}}
+            <span class="_JX_field_chip">{{name}}</span>
+            {{/fixVersions}}
+        </div>
+    </div>
+    {{/fixVersions.length}}
+
+    {{#sprints.length}}
+    <div class="_JX_field_group">
+        <div class="_JX_field_label">Sprint</div>
+        <div class="_JX_field_values">
+            {{#sprints}}
+            <span class="_JX_field_chip">{{name}}{{#state}} ({{state}}){{/state}}</span>
+            {{/sprints}}
+        </div>
+    </div>
+    {{/sprints.length}}
+
     {{#prs.length}}
     <div class="_JX_related_pr">
     <table>

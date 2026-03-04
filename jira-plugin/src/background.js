@@ -7,9 +7,28 @@ const executeScript = promisifyChrome(chrome.scripting, 'executeScript');
 const sendMessage = promisifyChrome(chrome.tabs, 'sendMessage');
 
 var SEND_RESPONSE_IS_ASYNC = true;
+
+async function fetchWithCredentials(url) {
+  const response = await fetch(url, {credentials: 'include'});
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status} - ${response.statusText}`);
+  }
+  return response;
+}
+
+async function blobToDataUrl(blob) {
+  const bytes = new Uint8Array(await blob.arrayBuffer());
+  let binary = '';
+  const chunkSize = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
+  }
+  return `data:${blob.type || 'application/octet-stream'};base64,${btoa(binary)}`;
+}
+
 chrome.runtime.onMessage.addListener(function (request, sender, sendResponse) {
   if (request.action === 'get') {
-    fetch(request.url)
+    fetchWithCredentials(request.url)
       .then(async response => {
         if (!response.ok) {
           throw new Error(`HTTP ${response.status} – ${response.statusText}`);
@@ -22,6 +41,22 @@ chrome.runtime.onMessage.addListener(function (request, sender, sendResponse) {
           ? await response.json()
           : await response.text();
         sendResponse({ result });
+      })
+      .catch(error => {
+        sendResponse({ error: error.message });
+      });
+    return SEND_RESPONSE_IS_ASYNC;
+  }
+
+  if (request.action === 'getImageDataUrl') {
+    fetchWithCredentials(request.url)
+      .then(async response => {
+        const contentType = response.headers.get('Content-Type') || '';
+        if (!contentType.startsWith('image/')) {
+          throw new Error(`Expected image content but got: ${contentType || 'unknown'}`);
+        }
+        const dataUrl = await blobToDataUrl(await response.blob());
+        sendResponse({ result: dataUrl });
       })
       .catch(error => {
         sendResponse({ error: error.message });
