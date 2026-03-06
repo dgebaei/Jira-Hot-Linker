@@ -394,6 +394,11 @@ async function mainAsyncLocal() {
       }
       anchor.setAttribute('target', '_blank');
       anchor.setAttribute('rel', 'noopener noreferrer');
+      anchor.setAttribute('title', buildLinkHoverTitle(
+        'Open link',
+        anchor.textContent || absoluteHref || href,
+        absoluteHref || href
+      ));
     });
 
     return temp.innerHTML;
@@ -775,6 +780,13 @@ async function mainAsyncLocal() {
     return `${INSTANCE_URL}issues/?jql=${encodeURIComponent(jql)}`;
   }
 
+  function buildLinkHoverTitle(actionText, detailText, url) {
+    return [actionText, detailText, url]
+      .map(part => String(part || '').trim())
+      .filter(Boolean)
+      .join('\n');
+  }
+
   function scopeJqlToProject(projectKey, clause) {
     if (!projectKey || !clause) {
       return clause || '';
@@ -783,9 +795,11 @@ async function mainAsyncLocal() {
   }
 
   function buildFilterChip(text, jql, extra = {}) {
+    const linkUrl = jql ? buildJqlUrl(jql) : '';
     return {
       text,
-      linkUrl: jql ? buildJqlUrl(jql) : '',
+      linkUrl,
+      linkTitle: linkUrl ? buildLinkHoverTitle(extra.linkAction || 'Search Jira', text, linkUrl) : '',
       ...extra
     };
   }
@@ -863,12 +877,17 @@ async function mainAsyncLocal() {
   }
 
   function buildPreviewAttachments(attachments) {
-    return (attachments || []).filter(attachment => {
-      return !!attachment &&
-        typeof attachment.mimeType === 'string' &&
-        attachment.mimeType.toLowerCase().startsWith('image') &&
-        !!attachment.thumbnail;
-    });
+    return (attachments || [])
+      .filter(attachment => {
+        return !!attachment &&
+          typeof attachment.mimeType === 'string' &&
+          attachment.mimeType.toLowerCase().startsWith('image') &&
+          !!attachment.thumbnail;
+      })
+      .map(attachment => ({
+        ...attachment,
+        linkTitle: buildLinkHoverTitle('Open attachment', attachment.filename || 'Attachment', attachment.content)
+      }));
   }
 
   function getRelativeHref(href) {
@@ -1166,7 +1185,8 @@ async function mainAsyncLocal() {
               text: epicOrParent
                 ? `Parent: [${epicOrParent.key}] ${epicOrParent.summary}`
                 : 'Parent: --',
-              linkUrl: epicOrParent?.url || ''
+              linkUrl: epicOrParent?.url || '',
+              linkTitle: epicOrParent ? buildLinkHoverTitle('Open parent issue', epicOrParent.key, epicOrParent.url) : ''
             } : null,
             ...customFieldChips[1]
           ].filter(Boolean);
@@ -1203,6 +1223,7 @@ async function mainAsyncLocal() {
             copyTicket: ticket.key,
             copyTitle: ticket.summary
           });
+          const issueUrl = INSTANCE_URL + 'browse/' + key;
 
           const visibleCommentsTotal = displayFields.comments ? commentsTotal : 0;
           const visibleAttachments = displayFields.attachments ? previewAttachments : [];
@@ -1210,11 +1231,12 @@ async function mainAsyncLocal() {
             urlTitle: `[${key}] ${issueData.fields.summary}`,
             ticketKey: key,
             ticketTitle: issueData.fields.summary,
-            url: INSTANCE_URL + 'browse/' + key,
+            url: issueUrl,
+            urlHoverTitle: buildLinkHoverTitle('Open issue in Jira', `[${key}] ${issueData.fields.summary}`, issueUrl),
             ...copyTicketMeta({
               key,
               summary: issueData.fields.summary,
-              url: INSTANCE_URL + 'browse/' + key
+              url: issueUrl
             }),
             prs: [],
             description: displayFields.description ? normalizedDescription : '',
@@ -1240,7 +1262,7 @@ async function mainAsyncLocal() {
             attachmentChips: displayFields.attachments ? buildAttachmentChips(attachments) : [],
             reporter: displayFields.reporter ? issueData.fields.reporter : null,
             assignee: displayFields.assignee ? issueData.fields.assignee : null,
-            commentUrl: INSTANCE_URL + 'browse/' + key,
+            commentUrl: issueUrl,
             hasFieldSummary: row1Chips.length > 0 || row2Chips.length > 0 || row3Chips.length > 0,
             activityIndicators: [],
             loaderGifUrl,
@@ -1257,6 +1279,7 @@ async function mainAsyncLocal() {
                 id: pr.id,
                 url: pr.url,
                 linkUrl: pr.url,
+                linkTitle: buildLinkHoverTitle('Open pull request', formatPullRequestTitle(pr), pr.url),
                 title: formatPullRequestTitle(pr),
                 status: pr.status,
                 authorName: formatPullRequestAuthor(pr),
@@ -1291,6 +1314,10 @@ if (!window.__JX__script_injected__) {
 }
 
 window.__JX__script_injected__ = true;
+
+
+
+
 
 
 
