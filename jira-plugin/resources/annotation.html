@@ -14,41 +14,27 @@
         </button>
     </div>
     <div class="_JX_status">
-        {{#statusChips}}
-        <span class="_JX_field_chip">{{text}}</span>
-        {{/statusChips}}
-        {{#epicParentChips}}
-        <span class="_JX_field_chip">{{text}}</span>
-        {{/epicParentChips}}
-        {{#affectsText}}
-        <span class="_JX_field_chip">{{affectsText}}</span>
-        {{/affectsText}}
-        {{#sprintChips}}
-        <a class="_JX_field_chip _JX_field_chip_link" target="_blank" rel="noopener noreferrer" href="{{url}}">{{text}}</a>
-        {{/sprintChips}}
-        {{#sprintFallbackText}}
-        <span class="_JX_field_chip">{{sprintFallbackText}}</span>
-        {{/sprintFallbackText}}
-        {{#fixVersionChips}}
-        <a class="_JX_field_chip _JX_field_chip_link" target="_blank" rel="noopener noreferrer" href="{{url}}">{{text}}</a>
-        {{/fixVersionChips}}
-        {{#fixVersionFallbackText}}
-        <span class="_JX_field_chip">{{fixVersionFallbackText}}</span>
-        {{/fixVersionFallbackText}}
-        {{#labelChips}}
-        <a class="_JX_field_chip _JX_field_chip_link" target="_blank" rel="noopener noreferrer" href="{{url}}">{{text}}</a>
-        {{/labelChips}}
-        {{#accountChips}}
-        <span class="_JX_field_chip">{{text}}</span>
-        {{/accountChips}}
-        {{#attachmentChips}}
-        <span class="_JX_field_chip">{{icon}} {{count}}</span>
-        {{/attachmentChips}}
-        {{#hasComments}}
-        <span class="_JX_field_chip">
-            💬 {{commentsTotal}}
-        </span>
-        {{/hasComments}}
+        {{#row1Chips.length}}
+        <div class="_JX_status_row">
+            {{#row1Chips}}
+            <span class="_JX_field_chip">{{#iconUrl}}<img class="_JX_status_icon" src="{{iconUrl}}">{{/iconUrl}}{{text}}</span>
+            {{/row1Chips}}
+        </div>
+        {{/row1Chips.length}}
+        {{#row2Chips.length}}
+        <div class="_JX_status_row">
+            {{#row2Chips}}
+            <span class="_JX_field_chip">{{text}}</span>
+            {{/row2Chips}}
+        </div>
+        {{/row2Chips.length}}
+        {{#row3Chips.length}}
+        <div class="_JX_status_row">
+            {{#row3Chips}}
+            <span class="_JX_field_chip">{{text}}</span>
+            {{/row3Chips}}
+        </div>
+        {{/row3Chips.length}}
     </div>
 
     <div class="_JX_description">

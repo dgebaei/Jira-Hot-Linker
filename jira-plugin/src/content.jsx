@@ -256,6 +256,7 @@ async function mainAsyncLocal() {
     maybeNormalizeAvatar(issueData.fields.assignee);
     maybeNormalizeIcon(issueData.fields.issuetype);
     maybeNormalizeIcon(issueData.fields.status);
+    maybeNormalizeIcon(issueData.fields.priority);
 
     (issueData.fields.attachment || []).forEach(attachment => {
       attachment.content = toAbsoluteJiraUrl(attachment.content);
@@ -625,35 +626,6 @@ async function mainAsyncLocal() {
     return `${INSTANCE_URL}issues/?jql=${encodeURIComponent(jql)}`;
   }
 
-  function toSearchChip(fieldName, value, label = value) {
-    if (!value) {
-      return null;
-    }
-    const jql = `${fieldName} = ${encodeJqlValue(value)}`;
-    return {
-      text: label,
-      url: buildJqlUrl(jql)
-    };
-  }
-
-  function toIssueSearchChip(issueTypeName, statusName, value, label = value) {
-    if (!value) {
-      return null;
-    }
-    const criteria = [];
-    if (issueTypeName) {
-      criteria.push(`issuetype = ${encodeJqlValue(issueTypeName)}`);
-    }
-    if (statusName) {
-      criteria.push(`status = ${encodeJqlValue(statusName)}`);
-    }
-    criteria.push(`text ~ ${encodeJqlValue(value)}`);
-    return {
-      text: label,
-      url: buildJqlUrl(criteria.join(' AND '))
-    };
-  }
-
   function buildAttachmentChips(attachments) {
     const totals = {
       image: 0,
@@ -969,42 +941,38 @@ async function mainAsyncLocal() {
           const statusName = issueData.fields.status?.name;
           const priorityName = issueData.fields.priority?.name;
 
-          const statusChips = [
-            displayFields.issueType ? {text: issueTypeName || 'No type'} : null,
-            displayFields.status ? {text: statusName || 'No status'} : null,
-            displayFields.priority ? {text: priorityName || 'No priority'} : null
+          const row1Chips = [
+            displayFields.issueType ? {
+              text: issueTypeName || 'No type',
+              iconUrl: issueData.fields.issuetype?.iconUrl || ''
+            } : null,
+            displayFields.status ? {
+              text: statusName || 'No status',
+              iconUrl: issueData.fields.status?.iconUrl || ''
+            } : null,
+            displayFields.priority ? {
+              text: priorityName || 'No priority',
+              iconUrl: issueData.fields.priority?.iconUrl || ''
+            } : null,
+            displayFields.epicParent ? {
+              text: epicOrParent
+                ? `Parent: [${epicOrParent.key}] ${epicOrParent.summary}`
+                : 'Parent: --'
+            } : null
           ].filter(Boolean);
 
-          const sprintChips = displayFields.sprint ? sprints
-            .map(sprint => {
-              const label = sprint.state ? `${sprint.name} (${sprint.state})` : sprint.name;
-              return toSearchChip('Sprint', sprint.name, label);
-            })
-            .filter(Boolean) : [];
-          const sprintFallbackText = displayFields.sprint && !sprintChips.length ? 'Sprint: --' : '';
+          const row2Chips = [
+            displayFields.sprint ? {text: `Sprint: ${formatSprintText(sprints) || '--'}`} : null,
+            displayFields.affects ? {
+              text: `Affects: ${affectsVersions.map(version => version.name).filter(Boolean).join(', ') || '--'}`
+            } : null,
+            displayFields.fixVersions ? {text: `Fix version: ${formatFixVersionText(fixVersions) || '--'}`} : null
+          ].filter(Boolean);
 
-          const fixVersionChips = displayFields.fixVersions ? fixVersions
-            .map(version => toSearchChip('fixVersion', version.name))
-            .filter(Boolean) : [];
-          const fixVersionFallbackText = displayFields.fixVersions && !fixVersionChips.length ? 'Fix version: --' : '';
-
-          const labelChips = displayFields.labels ? labels
-            .map(label => toIssueSearchChip(issueTypeName, statusName, label))
-            .filter(Boolean) : [];
-
-          const accountChips = displayFields.account ? accountValues
-            .map(accountValue => ({text: accountValue}))
-            .filter(Boolean) : [];
-
-          const epicParentChips = displayFields.epicParent && epicOrParent
-            ? [{
-              text: `Parent: [${epicOrParent.key}] ${epicOrParent.summary}`,
-            }]
-            : [];
-
-          const affectsText = displayFields.affects
-            ? `Affects: ${affectsVersions.map(version => version.name).filter(Boolean).join(', ') || '--'}`
-            : '';
+          const row3Chips = [
+            displayFields.labels ? {text: `Labels: ${labels.filter(Boolean).join(', ') || '--'}`} : null,
+            displayFields.account ? {text: `Account: ${accountValues.filter(Boolean).join(', ') || '--'}`} : null
+          ].filter(Boolean);
 
           const copyTicketMeta = (ticket) => ({
             copyUrl: ticket.url,
@@ -1038,30 +1006,16 @@ async function mainAsyncLocal() {
             statusText: displayFields.status ? (statusName || 'No status') : '',
             sprintText: displayFields.sprint ? (formatSprintText(sprints) || 'No sprint') : '',
             fixVersionText: displayFields.fixVersions ? (formatFixVersionText(fixVersions) || 'No fix version') : '',
-            statusChips,
-            epicParentChips,
-            sprintChips,
-            sprintFallbackText,
-            fixVersionChips,
-            fixVersionFallbackText,
-            labelChips,
-            accountChips,
-            affectsText,
+            row1Chips,
+            row2Chips,
+            row3Chips,
             hasComments: displayFields.comments && commentsTotal > 0,
             commentsTotal: displayFields.comments ? commentsTotal : 0,
             attachmentChips: displayFields.attachments ? buildAttachmentChips(attachments) : [],
             reporter: displayFields.reporter ? issueData.fields.reporter : null,
             assignee: displayFields.assignee ? issueData.fields.assignee : null,
             commentUrl: INSTANCE_URL + 'browse/' + key,
-            hasFieldSummary: statusChips.length > 0 ||
-              epicParentChips.length > 0 ||
-              !!affectsText ||
-              sprintChips.length > 0 ||
-              !!sprintFallbackText ||
-              fixVersionChips.length > 0 ||
-              !!fixVersionFallbackText ||
-              labelChips.length > 0 ||
-              accountChips.length > 0,
+            hasFieldSummary: row1Chips.length > 0 || row2Chips.length > 0 || row3Chips.length > 0,
             loaderGifUrl,
           };
           if (issueData.fields.comment?.comments?.[0]?.id) {
