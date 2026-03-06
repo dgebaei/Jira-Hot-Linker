@@ -41,6 +41,7 @@ async function getSprintFieldIds(instanceUrl) {
   return sprintFieldIdsPromise;
 }
 
+
 /**
  * Returns a function that will return an array of jira tickets for any given string
  * @param projectKeys project keys to match
@@ -168,7 +169,6 @@ async function mainAsyncLocal() {
     fixVersions: true,
     affects: true,
     labels: true,
-    account: true,
     epicParent: true,
     attachments: true,
     comments: true,
@@ -178,6 +178,7 @@ async function mainAsyncLocal() {
     pullRequests: true,
     ...(config.displayFields || {})
   };
+  const customFields = normalizeCustomFields(config.customFields);
   let jiraProjects = [];
   let getJiraKeys = buildFallbackJiraKeyMatcher();
   try {
@@ -190,9 +191,8 @@ async function mainAsyncLocal() {
     getJiraKeys = buildJiraKeyMatcher(jiraProjects.map(function (project) {
       return project.key;
     }));
-  } else {
-    console.log("Couldn't load Jira projects, using fallback issue-key matcher.");
   }
+
   const annotationTemplate = await fetch(chrome.runtime.getURL('resources/annotation.html')).then(response => response.text());
   const loaderGifUrl = chrome.runtime.getURL('resources/ajax-loader.gif');
   const imageProxyCache = {};
@@ -437,8 +437,47 @@ async function mainAsyncLocal() {
   }
 
   function getPullRequestData(issueId, applicationType) {
-    const appTypeQuery = applicationType ? `&applicationType=${encodeURIComponent(applicationType)}` : '';
-    return get(`${INSTANCE_URL}rest/dev-status/1.0/issue/details?issueId=${issueId}${appTypeQuery}&dataType=pullrequest`);
+    return get(INSTANCE_URL + 'rest/dev-status/1.0/issue/detail?issueId=' + issueId + '&applicationType=gitlabselfmanaged&dataType=pullrequest');
+  }
+
+  function getPullRequestSummaryData(issueId) {
+    return get(`${INSTANCE_URL}rest/dev-status/1.0/issue/summary?issueId=${issueId}`);
+  }
+
+  async function probeDevStatusEndpoints(issueId) {
+    const probes = [
+      {label: '1.0 summary', url: `${INSTANCE_URL}rest/dev-status/1.0/issue/summary?issueId=${issueId}`},
+      {label: 'latest summary', url: `${INSTANCE_URL}rest/dev-status/latest/issue/summary?issueId=${issueId}`},
+      {label: '1.0 details none', url: `${INSTANCE_URL}rest/dev-status/1.0/issue/detail?issueId=${issueId}&dataType=pullrequest`},
+      {label: 'latest details none', url: `${INSTANCE_URL}rest/dev-status/latest/issue/detail?issueId=${issueId}&dataType=pullrequest`},
+      {label: '1.0 details gitlabselfmanaged', url: `${INSTANCE_URL}rest/dev-status/1.0/issue/detail?issueId=${issueId}&applicationType=gitlabselfmanaged&dataType=pullrequest`},
+      {label: 'latest details gitlabselfmanaged', url: `${INSTANCE_URL}rest/dev-status/latest/issue/detail?issueId=${issueId}&applicationType=gitlabselfmanaged&dataType=pullrequest`}
+    ];
+
+    const results = [];
+    for (const probe of probes) {
+      try {
+        const response = await get(probe.url);
+        results.push({
+          label: probe.label,
+          url: probe.url,
+          ok: true,
+          topLevelKeys: Object.keys(response || {}),
+          hasSummary: Array.isArray(response?.summary),
+          hasDetail: Array.isArray(response?.detail),
+          summaryCount: Array.isArray(response?.summary) ? response.summary.length : null,
+          detailCount: Array.isArray(response?.detail) ? response.detail.length : null
+        });
+      } catch (ex) {
+        results.push({
+          label: probe.label,
+          url: probe.url,
+          ok: false,
+          error: ex?.message || String(ex)
+        });
+      }
+    }
+    return results;
   }
 
   async function getCachedValue(cache, key, buildValue) {
@@ -473,7 +512,8 @@ async function mainAsyncLocal() {
         'versions',
         'parent',
         'fixVersions',
-        ...sprintFieldIds
+        ...sprintFieldIds,
+        ...customFields.map(({fieldId}) => fieldId)
       ];
       return get(INSTANCE_URL + 'rest/api/2/issue/' + issueKey + '?fields=' + fields.join(',') + '&expand=renderedFields,names');
     });
@@ -484,6 +524,78 @@ async function mainAsyncLocal() {
     return getCachedValue(pullRequestCache, cacheKey, () => {
       return getPullRequestData(issueId, applicationType);
     });
+  }
+
+  function getPullRequestSummaryDataCached(issueId) {
+    return getCachedValue(pullRequestCache, `summary__${issueId}`, () => {
+      return getPullRequestSummaryData(issueId);
+    });
+  }
+
+  function normalizePullRequests(response) {
+    if (Array.isArray(response)) {
+      return response.filter(Boolean);
+    }
+
+    const detailEntries = Array.isArray(response?.detail)
+      ? response.detail
+      : Array.isArray(response?.details)
+        ? response.details
+        : response ? [response] : [];
+
+    return detailEntries
+      .flatMap(entry => {
+        if (Array.isArray(entry?.pullRequests)) {
+          return entry.pullRequests;
+        }
+        if (Array.isArray(entry?.pullrequests)) {
+          return entry.pullrequests;
+        }
+        if (Array.isArray(entry?.pullRequest)) {
+          return entry.pullRequest;
+        }
+        return [];
+      })
+      .filter(Boolean);
+  }
+
+  function summarizePullRequestDebugResponse(response) {
+    const detail = Array.isArray(response?.detail) ? response.detail : [];
+    return {
+      detailCount: detail.length,
+      details: detail.map(entry => ({
+        applicationType: entry?.applicationType || '',
+        objectName: entry?.objectName || '',
+        repoCount: Array.isArray(entry?.repositories) ? entry.repositories.length : 0,
+        pullRequestCount: Array.isArray(entry?.pullRequests) ? entry.pullRequests.length : 0,
+        pullRequests: (entry?.pullRequests || []).map(pr => ({
+          id: pr?.id,
+          name: pr?.name,
+          url: pr?.url,
+          status: pr?.status
+        }))
+      }))
+    };
+  }
+
+  function summarizePullRequestSummaryResponse(response) {
+    const summary = Array.isArray(response?.summary) ? response.summary : [];
+    return {
+      summaryCount: summary.length,
+      summary: summary.map(entry => ({
+        applicationType: entry?.applicationType || '',
+        dataType: entry?.dataType || '',
+        branchCount: entry?.branch?.overall?.count ?? entry?.branches?.overall?.count ?? null,
+        repositoryCount: entry?.repository?.overall?.count ?? entry?.repositories?.overall?.count ?? null,
+        commitCount: entry?.commit?.overall?.count ?? entry?.commits?.overall?.count ?? null,
+        pullRequestCount: entry?.pullrequest?.overall?.count ?? entry?.pullRequest?.overall?.count ?? entry?.pullrequests?.overall?.count ?? null,
+        reviewCount: entry?.review?.overall?.count ?? entry?.reviews?.overall?.count ?? null,
+        buildCount: entry?.build?.overall?.count ?? entry?.builds?.overall?.count ?? null,
+        deploymentCount: entry?.deployment?.overall?.count ?? entry?.deployments?.overall?.count ?? null,
+        overall: entry?.overall || null,
+        rawKeys: Object.keys(entry || {})
+      }))
+    };
   }
 
   async function getIssueSummary(issueKey) {
@@ -535,31 +647,70 @@ async function mainAsyncLocal() {
     }
   }
 
-  function readAccountValues(issueData) {
+  function normalizeCustomFields(customFields) {
+    if (!Array.isArray(customFields)) {
+      return [];
+    }
+    const seen = {};
+    return customFields
+      .map(field => {
+        const fieldId = String(field?.fieldId || '').trim();
+        const row = Math.min(3, Math.max(1, Number(field?.row) || 3));
+        return {fieldId, row};
+      })
+      .filter(field => {
+        if (!field.fieldId || seen[field.fieldId]) {
+          return false;
+        }
+        seen[field.fieldId] = true;
+        return true;
+      });
+  }
+
+  function formatCustomFieldChip(fieldName, entry) {
+    if (entry === undefined || entry === null) {
+      return null;
+    }
+    if (typeof entry === 'string' || typeof entry === 'number' || typeof entry === 'boolean') {
+      const textValue = String(entry);
+      const looksLikeUrl = /^https?:\/\//i.test(textValue);
+      return {
+        text: looksLikeUrl ? (fieldName || textValue) : (fieldName ? `${fieldName}: ${textValue}` : textValue),
+        url: looksLikeUrl ? textValue : ''
+      };
+    }
+    const primaryText = entry.name || entry.value || entry.displayName || entry.id || entry.key;
+    const rawUrl = [entry.self, entry.url, entry.href].find(value => typeof value === 'string' && value.trim());
+    if (!primaryText && !rawUrl) {
+      return null;
+    }
+    const formattedValue = entry.key && (entry.name || entry.value)
+      ? `[${entry.key}] ${entry.name || entry.value}`
+      : primaryText ? String(primaryText) : rawUrl;
+    return {
+      text: fieldName ? `${fieldName}: ${formattedValue}` : formattedValue,
+      url: rawUrl ? toAbsoluteJiraUrl(rawUrl) : ''
+    };
+  }
+  function buildCustomFieldChips(issueData, customFields) {
     const names = issueData.names || {};
     const fields = issueData.fields || {};
-    const accountFieldIds = Object.keys(names).filter(fieldId => {
-      return String(names[fieldId] || '').toLowerCase().includes('account');
-    });
-    const values = [];
-    accountFieldIds.forEach(fieldId => {
-      const value = fields[fieldId];
-      if (!value) {
+    const chipsByRow = {1: [], 2: [], 3: []};
+    customFields.forEach(({fieldId, row}) => {
+      const rawValue = fields[fieldId];
+      if (rawValue === undefined || rawValue === null || rawValue === '') {
         return;
       }
-      const entries = Array.isArray(value) ? value : [value];
+      const fieldName = String(names[fieldId] || fieldId);
+      const entries = Array.isArray(rawValue) ? rawValue : [rawValue];
       entries.forEach(entry => {
-        if (!entry) {
-          return;
+        const chip = formatCustomFieldChip(fieldName, entry);
+        if (chip && chip.text) {
+          chipsByRow[row].push(chip);
         }
-        if (typeof entry === 'string') {
-          values.push(entry);
-          return;
-        }
-        values.push(entry.name || entry.value || entry.key || entry.id);
       });
     });
-    return [...new Set(values.filter(Boolean))];
+    return chipsByRow;
   }
 
   function readSprintsFromIssue(issueData) {
@@ -662,6 +813,40 @@ async function mainAsyncLocal() {
     if (totals.doc) chips.push({icon: '📝', count: totals.doc});
     if (totals.other) chips.push({icon: '📎', count: totals.other});
     return chips;
+  }
+
+
+  function buildActivityIndicators(attachments, commentsTotal, pullRequestsTotal) {
+    const attachmentCount = Array.isArray(attachments) ? attachments.length : 0;
+    const commentCount = Number(commentsTotal) || 0;
+    const pullRequestCount = Number(pullRequestsTotal) || 0;
+    return [
+      {icon: '📎', count: attachmentCount, label: 'Attachments'},
+      {icon: '💬', count: commentCount, label: 'Comments'},
+      {icon: '🔀', count: pullRequestCount, label: 'Pull requests'}
+    ].map(item => ({
+      ...item,
+      title: item.count + ' ' + item.label.toLowerCase()
+    }));
+  }
+
+  function formatPullRequestTitle(pr) {
+    const id = pr?.id || pr?.number || pr?.key || '';
+    const title = pr?.name || pr?.title || 'Untitled pull request';
+    return id ? '[' + id + '] ' + title : title;
+  }
+
+  function formatPullRequestAuthor(pr) {
+    return pr?.author?.name || pr?.author?.displayName || pr?.author?.username || pr?.author?.email || '--';
+  }
+
+  function formatPullRequestBranch(pr) {
+    const source = pr?.source?.branch || pr?.sourceBranch || pr?.fromRef?.displayId || pr?.fromRef?.id || pr?.source?.displayId || '';
+    const target = pr?.destination?.branch || pr?.targetBranch || pr?.toRef?.displayId || pr?.toRef?.id || pr?.destination?.displayId || '';
+    if (source && target) {
+      return source + ' --> ' + target;
+    }
+    return source || target || '--';
   }
 
   function buildPreviewAttachments(attachments) {
@@ -914,11 +1099,17 @@ async function mainAsyncLocal() {
           const issueData = await getIssueMetaData(key);
           await normalizeIssueImages(issueData);
           let pullRequests = [];
-          try {
-            const githubPrs = await getPullRequestDataCached(issueData.id, 'github');
-            pullRequests = githubPrs.detail?.[0]?.pullRequests || [];
-          } catch (ex) {
-            // probably no access
+          if (displayFields.pullRequests) {
+            try {
+              const pullRequestResponse = await getPullRequestDataCached(issueData.id);
+              pullRequests = normalizePullRequests(pullRequestResponse);
+            } catch (ex) {
+              console.log('[Jira HotLinker] Pull request fetch failed', {
+                issueKey: key,
+                issueId: issueData.id,
+                error: ex?.message || String(ex)
+              });
+            }
           }
 
           if (cancelToken.cancel) {
@@ -935,7 +1126,7 @@ async function mainAsyncLocal() {
           const attachments = issueData.fields.attachment || [];
           const previewAttachments = buildPreviewAttachments(attachments);
           const labels = issueData.fields.labels || [];
-          const accountValues = readAccountValues(issueData);
+          const customFieldChips = buildCustomFieldChips(issueData, customFields);
           const epicOrParent = await readEpicOrParent(issueData);
           const issueTypeName = issueData.fields.issuetype?.name;
           const statusName = issueData.fields.status?.name;
@@ -958,7 +1149,8 @@ async function mainAsyncLocal() {
               text: epicOrParent
                 ? `Parent: [${epicOrParent.key}] ${epicOrParent.summary}`
                 : 'Parent: --'
-            } : null
+            } : null,
+            ...customFieldChips[1]
           ].filter(Boolean);
 
           const row2Chips = [
@@ -966,12 +1158,13 @@ async function mainAsyncLocal() {
             displayFields.affects ? {
               text: `Affects: ${affectsVersions.map(version => version.name).filter(Boolean).join(', ') || '--'}`
             } : null,
-            displayFields.fixVersions ? {text: `Fix version: ${formatFixVersionText(fixVersions) || '--'}`} : null
+            displayFields.fixVersions ? {text: `Fix version: ${formatFixVersionText(fixVersions) || '--'}`} : null,
+            ...customFieldChips[2]
           ].filter(Boolean);
 
           const row3Chips = [
             displayFields.labels ? {text: `Labels: ${labels.filter(Boolean).join(', ') || '--'}`} : null,
-            displayFields.account ? {text: `Account: ${accountValues.filter(Boolean).join(', ') || '--'}`} : null
+            ...customFieldChips[3]
           ].filter(Boolean);
 
           const copyTicketMeta = (ticket) => ({
@@ -980,6 +1173,8 @@ async function mainAsyncLocal() {
             copyTitle: ticket.summary
           });
 
+          const visibleCommentsTotal = displayFields.comments ? commentsTotal : 0;
+          const visibleAttachments = displayFields.attachments ? previewAttachments : [];
           const displayData = {
             urlTitle: `[${key}] ${issueData.fields.summary}`,
             ticketKey: key,
@@ -993,11 +1188,11 @@ async function mainAsyncLocal() {
             prs: [],
             description: displayFields.description ? normalizedDescription : '',
             hasBodyContent: true,
-            emptyBodyText: (!normalizedDescription && previewAttachments.length === 0 && commentsForDisplay.length === 0)
+            emptyBodyText: (!normalizedDescription && visibleAttachments.length === 0 && visibleCommentsTotal === 0)
               ? 'No description, attachments or comments.'
               : '',
             attachments,
-            previewAttachments: displayFields.attachments ? previewAttachments : [],
+            previewAttachments: visibleAttachments,
             commentsForDisplay: displayFields.comments ? commentsForDisplay : [],
             issuetype: issueData.fields.issuetype,
             status: issueData.fields.status,
@@ -1009,31 +1204,39 @@ async function mainAsyncLocal() {
             row1Chips,
             row2Chips,
             row3Chips,
-            hasComments: displayFields.comments && commentsTotal > 0,
-            commentsTotal: displayFields.comments ? commentsTotal : 0,
+            hasComments: visibleCommentsTotal > 0,
+            commentsTotal: visibleCommentsTotal,
             attachmentChips: displayFields.attachments ? buildAttachmentChips(attachments) : [],
             reporter: displayFields.reporter ? issueData.fields.reporter : null,
             assignee: displayFields.assignee ? issueData.fields.assignee : null,
             commentUrl: INSTANCE_URL + 'browse/' + key,
             hasFieldSummary: row1Chips.length > 0 || row2Chips.length > 0 || row3Chips.length > 0,
+            activityIndicators: [],
             loaderGifUrl,
           };
           if (issueData.fields.comment?.comments?.[0]?.id) {
             displayData.commentUrl = `${displayData.url}#comment-${issueData.fields.comment.comments[0].id}`;
           }
           if (displayFields.pullRequests && size(pullRequests)) {
-            displayData.prs = pullRequests.filter(function (pr) {
-              return pr.url !== location.href;
-            }).map(function (pr) {
+            const filteredPullRequests = pullRequests.filter(function (pr) {
+              return pr && pr.url !== location.href;
+            });
+            displayData.prs = filteredPullRequests.map(function (pr) {
               return {
                 id: pr.id,
                 url: pr.url,
-                name: pr.name,
+                title: formatPullRequestTitle(pr),
                 status: pr.status,
-                author: pr.author
+                authorName: formatPullRequestAuthor(pr),
+                branchText: formatPullRequestBranch(pr)
               };
             });
           }
+          displayData.activityIndicators = buildActivityIndicators(
+            displayFields.attachments ? attachments : [],
+            visibleCommentsTotal,
+            displayData.prs.length
+          );
           // TODO: fix scrolling in google docs
           container.html(Mustache.render(annotationTemplate, displayData));
           if (!containerPinned) {
@@ -1056,5 +1259,14 @@ if (!window.__JX__script_injected__) {
 }
 
 window.__JX__script_injected__ = true;
+
+
+
+
+
+
+
+
+
 
 

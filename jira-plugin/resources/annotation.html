@@ -15,23 +15,35 @@
     </div>
     <div class="_JX_status">
         {{#row1Chips.length}}
-        <div class="_JX_status_row">
-            {{#row1Chips}}
-            <span class="_JX_field_chip">{{#iconUrl}}<img class="_JX_status_icon" src="{{iconUrl}}">{{/iconUrl}}{{text}}</span>
-            {{/row1Chips}}
+        <div class="_JX_status_row _JX_status_row_primary">
+            <div class="_JX_status_row_main">
+                {{#row1Chips}}
+                {{#url}}<a class="_JX_field_chip _JX_field_chip_link" target="_blank" rel="noopener noreferrer" href="{{url}}">{{#iconUrl}}<img class="_JX_status_icon" src="{{iconUrl}}">{{/iconUrl}}{{text}}</a>{{/url}}
+                {{^url}}<span class="_JX_field_chip">{{#iconUrl}}<img class="_JX_status_icon" src="{{iconUrl}}">{{/iconUrl}}{{text}}</span>{{/url}}
+                {{/row1Chips}}
+            </div>
+            {{#activityIndicators.length}}
+            <div class="_JX_activity_strip">
+                {{#activityIndicators}}
+                <span class="_JX_activity_item" title="{{title}}">{{icon}} <strong>{{count}}</strong></span>
+                {{/activityIndicators}}
+            </div>
+            {{/activityIndicators.length}}
         </div>
         {{/row1Chips.length}}
         {{#row2Chips.length}}
         <div class="_JX_status_row">
             {{#row2Chips}}
-            <span class="_JX_field_chip">{{text}}</span>
+            {{#url}}<a class="_JX_field_chip _JX_field_chip_link" target="_blank" rel="noopener noreferrer" href="{{url}}">{{text}}</a>{{/url}}
+            {{^url}}<span class="_JX_field_chip">{{text}}</span>{{/url}}
             {{/row2Chips}}
         </div>
         {{/row2Chips.length}}
         {{#row3Chips.length}}
         <div class="_JX_status_row">
             {{#row3Chips}}
-            <span class="_JX_field_chip">{{text}}</span>
+            {{#url}}<a class="_JX_field_chip _JX_field_chip_link" target="_blank" rel="noopener noreferrer" href="{{url}}">{{text}}</a>{{/url}}
+            {{^url}}<span class="_JX_field_chip">{{text}}</span>{{/url}}
             {{/row3Chips}}
         </div>
         {{/row3Chips.length}}
@@ -58,6 +70,31 @@
             {{/previewAttachments}}
         </div>
         {{/previewAttachments.length}}
+        {{#prs.length}}
+        <div class="_JX_related_pr">
+            <div class="_JX_section_title">Pull Requests</div>
+            <table>
+                <thead>
+                <tr>
+                    <td>Title</td>
+                    <td>Author</td>
+                    <td>Branch</td>
+                    <td>Status</td>
+                </tr>
+                </thead>
+                <tbody>
+                {{#prs}}
+                <tr>
+                    <td><a href="{{url}}" target="_blank" rel="noopener noreferrer">{{title}}</a></td>
+                    <td>{{authorName}}</td>
+                    <td>{{branchText}}</td>
+                    <td><div class="_JX_PR_STATUS _JX_PR_{{status}}">{{status}}</div></td>
+                </tr>
+                {{/prs}}
+                </tbody>
+            </table>
+        </div>
+        {{/prs.length}}
         {{#commentsForDisplay.length}}
         <div class="_JX_comments">
             <div class="_JX_section_title">Comments</div>
@@ -75,34 +112,4 @@
         <div class="_JX_empty_body">{{emptyBodyText}}</div>
         {{/emptyBodyText}}
     </div>
-
-    {{#prs.length}}
-    <div class="_JX_related_pr">
-    <table>
-        <thead>
-        <tr>
-            <td>#</td>
-            <td>title</td>
-            <td>author</td>
-            <td>status</td>
-        </tr>
-        </thead>
-        <tbody>
-        {{#prs}}
-        <tr>
-            <td><a href="{{url}}">{{id}}</a></td>
-            <td><a href="{{url}}">{{name}}</a></td>
-            <td>
-            <img class="_JX_avatar" title="{{author.name}}" src="{{author.avatar}}">
-            </td>
-            <td>
-            <div class="_JX_PR_STATUS _JX_PR_{{status}}">{{status}}</div>
-            </td>
-        </tr>
-        {{/prs}}
-        </tbody>
-    </table>
-    </div>
-    {{/prs.length}}
-
 </div>
