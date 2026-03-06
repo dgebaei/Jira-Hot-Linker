@@ -1,44 +1,437 @@
-  input, textarea {
-  width: 400px;
-  margin: 0px;
-  margin-top: 10px;
-  padding: 5px;
+:root {
+  color: #182230;
+  font-family: 'Segoe UI Variable Text', 'Aptos', 'Segoe UI', sans-serif;
+}
+
+body {
+  margin: 0;
+}
+
+#container {
+  max-width: 1160px;
+  margin: 0 auto;
+}
+
+.optionsPage {
+  padding: 32px;
+}
+
+.heroCard,
+.settingsCard,
+.actionBar {
+  background: rgba(255, 255, 255, 0.94);
+  border: 1px solid #d8e0e8;
+  border-radius: 24px;
+  box-shadow: 0 18px 42px rgba(21, 39, 57, 0.08);
+}
+
+.heroCard {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(280px, 0.8fr);
+  gap: 24px;
+  padding: 28px;
+  margin-bottom: 24px;
+  background: linear-gradient(135deg, rgba(255, 250, 240, 0.98), rgba(236, 244, 255, 0.98));
+}
+
+.eyebrow {
+  color: #8b5e34;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  margin-bottom: 10px;
+}
+
+.heroTitle {
+  font-size: 34px;
+  line-height: 1.05;
+  margin: 0 0 12px;
+}
+
+.heroCopy {
+  color: #4e5f73;
+  font-size: 15px;
+  line-height: 1.6;
+  margin: 0;
+  max-width: 700px;
+}
+
+.heroMeta {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  justify-content: flex-start;
+}
+
+.statusPill {
+  align-items: center;
+  background: rgba(24, 34, 48, 0.06);
+  border-radius: 999px;
+  color: #4e5f73;
+  display: inline-flex;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.4;
+  padding: 10px 14px;
+}
+
+.statusPillActive {
+  background: #dff5e5;
+  color: #135c2b;
+}
+
+.upgradeNotice {
+  background: rgba(255, 240, 204, 0.8);
+  border: 1px solid #f2d38a;
+  border-radius: 16px;
+  color: #6f4c13;
+  font-size: 13px;
+  line-height: 1.5;
+  padding: 14px 16px;
+}
+
+.settingsGrid {
+  display: grid;
+  gap: 20px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.settingsCard {
+  padding: 24px;
+}
+
+.settingsCardWide {
+  grid-column: 1 / -1;
+}
+
+.sectionHeading {
+  margin-bottom: 18px;
+}
+
+.sectionHeading h2 {
+  font-size: 22px;
+  margin: 0 0 6px;
+}
+
+.sectionHeading p {
+  color: #5b6b7f;
+  font-size: 14px;
+  line-height: 1.55;
+  margin: 0;
+}
+
+.sectionHeadingSplit {
+  align-items: start;
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+}
+
+.formField,
+.customFieldLabel {
+  display: block;
+  width: 100%;
+}
+
+.formField + .formField {
+  margin-top: 18px;
+}
+
+.fieldLabel {
+  color: #213548;
+  display: block;
+  font-size: 13px;
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+
+.fieldHelp {
+  color: #66778c;
+  display: block;
+  font-size: 13px;
+  line-height: 1.55;
+  margin-top: 8px;
+}
+
+input,
+textarea,
+select {
+  background: #ffffff;
+  border: 1px solid #c8d3df;
+  border-radius: 14px;
+  box-sizing: border-box;
+  color: #182230;
+  font: inherit;
+  margin: 0;
+  min-height: 52px;
+  padding: 12px 14px;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
+  width: 100%;
+}
+
+select {
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath fill='none' stroke='%23455a72' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.6' d='M1 1.5l5 5 5-5'/%3E%3C/svg%3E");
+  background-position: right 16px center;
+  background-repeat: no-repeat;
+  background-size: 12px 8px;
+  padding-right: 42px;
+}
+
+input:focus,
+textarea:focus,
+select:focus {
+  border-color: #2f80ed;
+  box-shadow: 0 0 0 4px rgba(47, 128, 237, 0.14);
+  outline: none;
 }
 
 textarea {
-  $base: 20px;
-  $lineColor: #e2e2e2;
-  border-color: $lineColor;
-  line-height: $base + 1;
-  padding: 1px 5px;
-  height: 20 * 7 + 6px;
+  min-height: 150px;
+  resize: vertical;
 }
 
-label {
-  display: block;
-  width: 400px;
+.fieldLayoutGroups {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
-.upgradeWarning {
-  color: #dd445c;
+.fieldGroupCard {
+  background: #f7f9fc;
+  border: 1px solid #dae3ec;
+  border-radius: 18px;
+  padding: 16px;
+}
+
+.fieldGroupHeader {
+  margin-bottom: 12px;
+}
+
+.fieldGroupHeader h3 {
+  font-size: 16px;
+  margin: 0 0 4px;
+}
+
+.fieldGroupHeader p {
+  color: #66778c;
+  font-size: 13px;
+  line-height: 1.5;
+  margin: 0;
 }
 
 .displayFields {
   display: grid;
-  grid-template-columns: repeat(2, minmax(180px, 1fr));
-  gap: 6px 18px;
-  max-width: 640px;
-  margin-top: 8px;
+  gap: 10px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .displayFieldOption {
   align-items: center;
+  background: #f6f8fb;
+  border: 1px solid #d9e1ea;
+  border-radius: 16px;
+  cursor: pointer;
   display: flex;
-  gap: 8px;
+  gap: 10px;
+  min-height: 48px;
+  padding: 0 14px;
+  transition: transform 0.15s ease, border-color 0.15s ease, background 0.15s ease;
   width: auto;
+}
+
+.displayFieldOption:hover {
+  background: #eef4ff;
+  border-color: #b8c9f0;
+  transform: translateY(-1px);
 }
 
 .displayFieldOption input {
   margin: 0;
   width: auto;
+}
+
+.customFieldsSection {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.customFieldRow {
+  align-items: start;
+  background: #f7f9fc;
+  border: 1px solid #dae3ec;
+  border-radius: 18px;
+  display: grid;
+  gap: 12px 14px;
+  grid-template-columns: minmax(240px, 1.5fr) 180px auto;
+  padding: 16px;
+}
+
+.customFieldHeader {
+  color: #5a6a7e;
+  font-size: 12px;
+  font-weight: 700;
+  grid-column: 1 / -1;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.customFieldMeta {
+  grid-column: 1 / 3;
+  color: #64758a;
+  font-size: 13px;
+  line-height: 1.55;
+  margin-top: 2px;
+}
+
+.customFieldMetaError {
+  color: #9d2335;
+}
+
+.customFieldRemove {
+  align-self: center;
+  grid-column: 3;
+  grid-row: 2;
+}
+
+.emptyState {
+  background: linear-gradient(180deg, #fffdf7, #fff7e8);
+  border: 1px dashed #e0c98f;
+  border-radius: 18px;
+  color: #6b5520;
+  font-size: 14px;
+  line-height: 1.6;
+  padding: 18px;
+}
+
+button {
+  appearance: none;
+  border: none;
+  border-radius: 14px;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 700;
+  line-height: 1;
+  padding: 13px 16px;
+  transition: transform 0.15s ease, box-shadow 0.15s ease, opacity 0.15s ease;
+}
+
+button:hover {
+  transform: translateY(-1px);
+}
+
+.primaryButton {
+  background: linear-gradient(135deg, #1f7a5d, #15513f);
+  box-shadow: 0 12px 28px rgba(21, 81, 63, 0.2);
+  color: #ffffff;
+}
+
+.secondaryButton {
+  background: #edf4ff;
+  border: 1px solid #c4d7f7;
+  color: #244f92;
+}
+
+.ghostButton {
+  background: #ffffff;
+  border: 1px solid #d6dee8;
+  color: #415466;
+}
+
+.actionBar {
+  align-items: center;
+  display: flex;
+  gap: 18px;
+  justify-content: space-between;
+  margin-top: 22px;
+  padding: 18px 22px;
+  position: sticky;
+  bottom: 20px;
+}
+
+.actionCopy {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.actionCopy strong {
+  font-size: 15px;
+}
+
+.actionCopy span {
+  color: #5f6f83;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+@media (max-width: 960px) {
+  .optionsPage {
+    padding: 18px;
+  }
+
+  .heroCard,
+  .settingsGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .fieldLayoutGroups,
+  .displayFields {
+    grid-template-columns: 1fr;
+  }
+
+  .customFieldRow {
+    grid-template-columns: 1fr;
+  }
+
+  .customFieldMeta,
+  .customFieldRemove {
+    grid-column: auto;
+    grid-row: auto;
+  }
+
+  .sectionHeadingSplit,
+  .actionBar,
+  .actionControls {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}
+
+
+.actionControls {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+}
+
+.saveNotice {
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.4;
+  padding: 10px 14px;
+}
+
+.saveNoticeNeutral {
+  background: rgba(24, 34, 48, 0.06);
+  color: #4e5f73;
+}
+
+.saveNoticeSuccess {
+  background: #dff5e5;
+  color: #135c2b;
+}
+
+.saveNoticeError {
+  background: #fde7ea;
+  color: #9d2335;
+}
+
+button:disabled {
+  cursor: wait;
+  opacity: 0.78;
+  transform: none;
 }

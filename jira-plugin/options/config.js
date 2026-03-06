@@ -4,6 +4,7 @@ export default {
   ],
   instanceUrl: '',
   v15upgrade: false,
+  customFields: [],
   displayFields: {
     issueType: true,
     status: true,
@@ -12,7 +13,6 @@ export default {
     fixVersions: true,
     affects: true,
     labels: true,
-    account: true,
     epicParent: true,
     attachments: true,
     comments: true,
@@ -22,4 +22,3 @@ export default {
     pullRequests: true
   }
 };
-

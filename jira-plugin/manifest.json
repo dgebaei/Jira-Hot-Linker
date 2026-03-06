@@ -27,7 +27,8 @@
     "storage"
   ],
   "options_ui": {
-    "page": "options/options.html"
+    "page": "options/options.html",
+    "open_in_tab": true
   },
   "action": {
     "default_title": "Click to always search for tickets on this page"

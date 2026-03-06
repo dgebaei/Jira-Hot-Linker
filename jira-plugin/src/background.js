@@ -8,7 +8,7 @@ const sendMessage = promisifyChrome(chrome.tabs, 'sendMessage');
 
 var SEND_RESPONSE_IS_ASYNC = true;
 const EXTENSION_ORIGIN = new URL(chrome.runtime.getURL('')).origin;
-const FETCH_TIMEOUT_MS = 1000;
+const FETCH_TIMEOUT_MS = 10000;
 
 async function getInstanceOrigin() {
   const {instanceUrl} = await storageGet(defaultConfig);
@@ -199,9 +199,9 @@ async function browserOnClicked (tab) {
   });
 
   chrome.action.onClicked.addListener(tab => {
-    browserOnClicked(tab).catch( (err) => {
-      console.log('Error: ', err)
-    });
+    browserOnClicked(tab).catch(() => {});
   });
 })();
+
+
 
