@@ -14,6 +14,8 @@ body ._JX {
     border: 1px solid #dde4e6;
     display: flex;
     min-width: 0;
+    user-select: none;
+    -webkit-user-select: none;
 
     &_users {
       display: inline-flex;
@@ -73,6 +75,8 @@ body ._JX {
     flex-wrap: wrap;
     gap: 6px;
     padding: 8px;
+    user-select: none;
+    -webkit-user-select: none;
 
     ._JX_status_icon {
       width: 14px;
@@ -86,6 +90,8 @@ body ._JX {
     max-width: 600px;
     width: min(600px, calc(100vw - 24px));
     overflow-x: hidden;
+    user-select: text;
+    -webkit-user-select: text;
     color: #24292f;
     font-family: 'Nunito', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
     border: 1px solid #dde4e6;
@@ -172,6 +178,9 @@ body ._JX {
       line-height: 1.35;
       overflow-wrap: anywhere;
       word-break: break-word;
+      white-space: normal;
+      user-select: text;
+      -webkit-user-select: text;
 
       a {
         overflow-wrap: anywhere;
@@ -180,6 +189,14 @@ body ._JX {
 
       * {
         max-width: 100%;
+        min-width: 0;
+        overflow-wrap: anywhere;
+        word-break: break-word;
+      }
+
+      pre,
+      code {
+        white-space: pre-wrap;
       }
     }
 
@@ -227,6 +244,9 @@ body ._JX {
     line-height: 1.35;
     overflow-wrap: anywhere;
     word-break: break-word;
+    white-space: normal;
+    user-select: text;
+    -webkit-user-select: text;
 
     a {
       font-size: 11px;
@@ -244,6 +264,14 @@ body ._JX {
 
     * {
       max-width: 100%;
+      min-width: 0;
+      overflow-wrap: anywhere;
+      word-break: break-word;
+    }
+
+    pre,
+    code {
+      white-space: pre-wrap;
     }
   }
 

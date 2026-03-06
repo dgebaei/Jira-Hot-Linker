@@ -750,6 +750,7 @@ async function mainAsyncLocal() {
   $(document.body).append(previewOverlay);
   new draggable({
     handle: '._JX_title, ._JX_status',
+    cancel: 'a, button, input, textarea, img, ._JX_description, ._JX_comments, ._JX_comment_body, ._JX_description_text, ._JX_related_pr'
   }, container);
   
   function buildPrettyLinkPayload(sourceElement) {
