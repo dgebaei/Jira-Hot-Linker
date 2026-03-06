@@ -53,12 +53,14 @@
 
     <div class="_JX_description">
         {{#description}}
+        <div class="_JX_section_title">Description</div>
         <div class="_JX_description_text">
             {{{description}}}
         </div>
         {{/description}}
         {{#previewAttachments.length}}
         <div class="_JX_description_attachments">
+            <div class="_JX_section_title">Attachments</div>
             {{#previewAttachments}}
             <div data-mime-type="{{mimeType}}" data-url="{{content}}" data-preview-src="{{content}}" class="_JX_thumb">
                 <a href="{{content}}" target="_blank">
@@ -72,6 +74,7 @@
         {{/previewAttachments.length}}
         {{#commentsForDisplay.length}}
         <div class="_JX_comments">
+            <div class="_JX_section_title">Comments</div>
             {{#commentsForDisplay}}
             <div class="_JX_comment">
                 <div class="_JX_comment_meta">

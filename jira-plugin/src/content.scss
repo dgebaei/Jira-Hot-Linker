@@ -216,6 +216,15 @@ body ._JX {
     }
   }
 
+  &_section_title {
+    color: #5e6c84;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    margin: 0 0 6px;
+    text-transform: uppercase;
+  }
+
   &_comments {
     border-top: 1px solid #dde4e6;
     margin-top: 6px;
