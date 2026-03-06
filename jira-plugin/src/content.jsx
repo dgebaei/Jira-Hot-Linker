@@ -133,6 +133,15 @@ async function getImageDataUrl(url) {
     throw err;
   }
 }
+async function requestJson(method, url, body) {
+  const response = await sendMessage({action: 'requestJson', method, url, body});
+  if (Object.prototype.hasOwnProperty.call(response, 'result')) {
+    return response.result;
+  }
+  const err = new Error(response.error || 'Request failed');
+  err.inner = response.error;
+  throw err;
+}
 
 function isJiraConnectionFailure(error) {
   const message = String(error?.message || error?.inner || error || '');
@@ -199,6 +208,8 @@ async function mainAsyncLocal() {
   const cacheTtlMs = 60 * 1000;
   const issueCache = new Map();
   const pullRequestCache = new Map();
+  let currentUserPromise;
+  let activeCommentContext = null;
 
   function toAbsoluteJiraUrl(url) {
     if (!url) {
@@ -424,6 +435,143 @@ async function mainAsyncLocal() {
     return result;
   }
 
+  async function getCurrentUserInfo() {
+    if (currentUserPromise) {
+      return currentUserPromise;
+    }
+
+    currentUserPromise = (async () => {
+      try {
+        const myself = await get(INSTANCE_URL + 'rest/api/2/myself');
+        return {
+          displayName: myself?.displayName || myself?.name || myself?.username || 'You'
+        };
+      } catch (primaryError) {
+        const session = await get(INSTANCE_URL + 'rest/auth/1/session');
+        const user = session?.user || {};
+        return {
+          displayName: user.displayName || user.name || user.username || 'You'
+        };
+      }
+    })().catch(error => {
+      currentUserPromise = null;
+      throw error;
+    });
+
+    return currentUserPromise;
+  }
+
+  function getCommentComposerElements() {
+    return {
+      root: container.find('._JX_comment_compose'),
+      input: container.find('._JX_comment_input'),
+      save: container.find('._JX_comment_save'),
+      discard: container.find('._JX_comment_discard'),
+      error: container.find('._JX_comment_error')
+    };
+  }
+
+  function syncCommentComposerState() {
+    const elements = getCommentComposerElements();
+    if (!elements.root.length) {
+      return;
+    }
+    const isSaving = elements.root.attr('data-saving') === 'true';
+    const hasText = !!elements.input.val().trim();
+    elements.input.prop('disabled', isSaving);
+    elements.save.prop('disabled', !hasText || isSaving).text(isSaving ? 'Saving...' : 'Save');
+    elements.discard.prop('disabled', !hasText || isSaving);
+  }
+
+  function setCommentComposerError(message) {
+    const {error} = getCommentComposerElements();
+    if (!error.length) {
+      return;
+    }
+    error.text(message || '');
+  }
+
+  function updateCommentActivityCount(delta) {
+    const activityItem = container.find('._JX_activity_item').eq(1);
+    if (!activityItem.length) {
+      return;
+    }
+    const countNode = activityItem.find('strong');
+    const currentCount = Number(countNode.text()) || 0;
+    const nextCount = Math.max(0, currentCount + delta);
+    countNode.text(String(nextCount));
+    activityItem.attr('title', `${nextCount} comments`);
+  }
+
+  async function appendCommentToPopup(commentText) {
+    const commentsRoot = container.find('._JX_comments');
+    if (!commentsRoot.length) {
+      return;
+    }
+
+    commentsRoot.find('._JX_comments_empty').remove();
+    container.find('._JX_empty_body').remove();
+    const currentUser = await getCurrentUserInfo().catch(() => ({displayName: 'You'}));
+    const bodyHtml = textToLinkedHtml(commentText || '');
+    const commentHtml = `
+      <div class="_JX_comment">
+        <div class="_JX_comment_meta">
+          <span class="_JX_comment_author">${escapeHtml(currentUser.displayName || 'You')}</span> | <span class="_JX_comment_time">Just now</span>
+        </div>
+        <div class="_JX_comment_body">${bodyHtml}</div>
+      </div>
+    `;
+
+    const commentList = commentsRoot.find('._JX_comment_list');
+    if (commentList.length) {
+      commentList.append(commentHtml);
+    } else {
+      commentsRoot.append(`<div class="_JX_comment_list">${commentHtml}</div>`);
+    }
+    updateCommentActivityCount(1);
+  }
+
+  async function handleCommentSave() {
+    if (!activeCommentContext?.issueKey) {
+      return;
+    }
+
+    const elements = getCommentComposerElements();
+    const commentText = elements.input.val().trim();
+    if (!commentText) {
+      syncCommentComposerState();
+      return;
+    }
+
+    elements.root.attr('data-saving', 'true');
+    setCommentComposerError('');
+    syncCommentComposerState();
+
+    try {
+      await requestJson('POST', `${INSTANCE_URL}rest/api/2/issue/${activeCommentContext.issueKey}/comment`, {
+        body: commentText
+      });
+      await appendCommentToPopup(commentText);
+      elements.input.val('');
+      elements.root.attr('data-saving', 'false');
+      setCommentComposerError('');
+      syncCommentComposerState();
+    } catch (error) {
+      elements.root.attr('data-saving', 'false');
+      setCommentComposerError(error?.message || error?.inner || 'Could not save comment');
+      syncCommentComposerState();
+    }
+  }
+
+  function handleCommentDiscard() {
+    const elements = getCommentComposerElements();
+    if (!elements.root.length || elements.root.attr('data-saving') === 'true') {
+      return;
+    }
+    elements.input.val('');
+    setCommentComposerError('');
+    syncCommentComposerState();
+  }
   /***
    * Retrieve only the text that is directly owned by the node
    * @param node
@@ -989,6 +1137,19 @@ async function mainAsyncLocal() {
     copyPrettyLink(e.currentTarget).catch(() => snackBar('There was an error!'));
   });
 
+  $(document.body).on('input', '._JX_comment_input', function () {
+    syncCommentComposerState();
+  });
+
+  $(document.body).on('click', '._JX_comment_save', function (e) {
+    e.preventDefault();
+    handleCommentSave().catch(() => {});
+  });
+
+  $(document.body).on('click', '._JX_comment_discard', function (e) {
+    e.preventDefault();
+    handleCommentDiscard();
+  });
   function closePreviewOverlay() {
     previewOverlay.removeClass('is-open');
     previewOverlay.find('img').attr('src', '');
@@ -1028,6 +1189,7 @@ async function mainAsyncLocal() {
 
   function hideContainer() {
     lastHoveredKey = '';
+    activeCommentContext = null;
     containerPinned = false;
     container.css({
       left: -5000,
@@ -1225,6 +1387,8 @@ async function mainAsyncLocal() {
             attachments,
             previewAttachments: visibleAttachments,
             commentsForDisplay: displayFields.comments ? commentsForDisplay : [],
+            showCommentsSection: displayFields.comments || commentsForDisplay.length > 0,
+            showCommentComposer: displayFields.comments,
             issuetype: issueData.fields.issuetype,
             status: issueData.fields.status,
             priority: issueData.fields.priority,
@@ -1271,6 +1435,8 @@ async function mainAsyncLocal() {
           );
           // TODO: fix scrolling in google docs
           container.html(Mustache.render(annotationTemplate, displayData));
+          activeCommentContext = displayFields.comments ? { issueKey: key, issueId: issueData.id } : null;
+          syncCommentComposerState();
           if (!containerPinned) {
             container.css(computeVisibleContainerPosition(pointerX, pointerY));
           }
@@ -1291,14 +1457,4 @@ if (!window.__JX__script_injected__) {
 }
 
 window.__JX__script_injected__ = true;
-
-
-
-
-
-
-
-
-
-
 

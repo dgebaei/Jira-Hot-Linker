@@ -364,6 +364,77 @@ body ._JX {
     }
   }
 
+  &_comments_empty {
+    color: #5e6c84;
+    font-size: 12px;
+    margin-bottom: 8px;
+  }
+
+  &_comment_compose {
+    border-top: 1px solid #dde4e6;
+    margin-top: 10px;
+    padding-top: 10px;
+  }
+
+  &_comment_input {
+    border: 1px solid #c7d1db;
+    border-radius: 6px;
+    font: inherit;
+    min-height: 78px;
+    padding: 8px 10px;
+    resize: vertical;
+    width: 100%;
+  }
+
+  &_comment_error {
+    color: #ae2e24;
+    font-size: 12px;
+    font-weight: 700;
+    min-height: 18px;
+    padding-top: 6px;
+
+    &:empty {
+      display: none;
+    }
+  }
+
+  &_comment_actions {
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
+    margin-top: 8px;
+  }
+
+  &_comment_save,
+  &_comment_discard {
+    appearance: none;
+    border: 1px solid #c7d1db;
+    border-radius: 999px;
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 700;
+    line-height: 1;
+    padding: 8px 12px;
+  }
+
+  &_comment_save {
+    background: #1f6feb;
+    border-color: #1f6feb;
+    color: #fff;
+  }
+
+  &_comment_discard {
+    background: #fff;
+    color: #253858;
+  }
+
+  &_comment_save:disabled,
+  &_comment_discard:disabled {
+    background: #f3f4f6;
+    border-color: #d7dde5;
+    color: #7a869a;
+    cursor: not-allowed;
+  }
   &_empty_body {
     color: #5e6c84;
     font-size: 13px;
@@ -564,3 +635,4 @@ body ._JX {
     }
   }
 }
+
