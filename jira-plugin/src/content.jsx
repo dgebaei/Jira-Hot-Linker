@@ -208,6 +208,7 @@ async function mainAsyncLocal() {
   const cacheTtlMs = 60 * 1000;
   const issueCache = new Map();
   const pullRequestCache = new Map();
+  const fieldOptionsCache = new Map();
   let currentUserPromise;
   const projectSprintOptionsPromises = new Map();
   let popupState = null;
@@ -783,6 +784,10 @@ async function mainAsyncLocal() {
       .join(', ');
   }
 
+  function formatVersionText(versions) {
+    return formatFixVersionText(versions);
+  }
+
   function formatSprintText(sprints) {
     return (sprints || [])
       .map(sprint => sprint.state ? `${sprint.name} (${sprint.state})` : sprint.name)
@@ -1015,6 +1020,220 @@ async function mainAsyncLocal() {
     }) || null;
   }
 
+  function buildEditFieldError(error) {
+    return error?.message || error?.inner || 'Update failed';
+  }
+
+  function buildEditOption(id, label, extra = {}) {
+    return {
+      id: id === '' ? '' : String(id || ''),
+      label: String(label || ''),
+      searchText: String(label || '').toLowerCase(),
+      ...extra
+    };
+  }
+
+  function formatSprintOptionLabel(sprint) {
+    if (!sprint) {
+      return '';
+    }
+    return sprint.state ? `${sprint.name} (${sprint.state})` : sprint.name;
+  }
+
+  function normalizeFixVersionSortName(name) {
+    return String(name || '').trim().replace(/^v(?=\d)/i, '');
+  }
+
+  function compareFixVersionOptions(left, right) {
+    return normalizeFixVersionSortName(right?.name).localeCompare(normalizeFixVersionSortName(left?.name), undefined, {
+      numeric: true,
+      sensitivity: 'base'
+    });
+  }
+
+  async function getProjectVersionOptions(issueData, cacheKey, emptyLabel) {
+    const projectKey = String(issueData?.key || '').split('-')[0];
+    if (!projectKey) {
+      return [];
+    }
+    return getCachedValue(fieldOptionsCache, `${cacheKey}__${projectKey}`, async () => {
+      const versions = await get(`${INSTANCE_URL}rest/api/2/project/${encodeURIComponent(projectKey)}/versions`);
+      const options = (Array.isArray(versions) ? versions : [])
+        .filter(version => version?.name && !version?.archived)
+        .sort(compareFixVersionOptions)
+        .map(version => buildEditOption(version.id, version.name, {rawValue: version}));
+      return [buildEditOption('', emptyLabel), ...options];
+    });
+  }
+
+  async function getFixVersionOptions(issueData) {
+    return getProjectVersionOptions(issueData, 'fixVersions', 'No fix version');
+  }
+
+  async function getAffectsVersionOptions(issueData) {
+    return getProjectVersionOptions(issueData, 'versions', 'No affects version');
+  }
+
+  async function getSprintOptions(issueData) {
+    const projectKey = String(issueData?.key || '').split('-')[0];
+    if (!projectKey) {
+      return [];
+    }
+    const sprintFieldIds = await getSprintFieldIds(INSTANCE_URL);
+    if (!sprintFieldIds.length) {
+      return [];
+    }
+    return getCachedValue(fieldOptionsCache, `sprint__${projectKey}`, async () => {
+      const boardResponse = await get(`${INSTANCE_URL}rest/agile/1.0/board?projectKeyOrId=${encodeURIComponent(projectKey)}&maxResults=50`);
+      const boards = Array.isArray(boardResponse?.values) ? boardResponse.values : [];
+      const sprintMap = new Map();
+      const sprintResponses = await Promise.allSettled(boards.map(board => {
+        return get(`${INSTANCE_URL}rest/agile/1.0/board/${board.id}/sprint?state=active,future&maxResults=50`);
+      }));
+
+      sprintResponses.forEach(result => {
+        if (result.status !== 'fulfilled') {
+          return;
+        }
+        const sprints = Array.isArray(result.value?.values) ? result.value.values : [];
+        sprints.forEach(sprint => {
+          if (sprint?.id && sprint?.name) {
+            sprintMap.set(String(sprint.id), sprint);
+          }
+        });
+      });
+
+      readSprintsFromIssue(issueData).forEach(sprint => {
+        if (sprint?.id && sprint?.name && !sprintMap.has(String(sprint.id))) {
+          sprintMap.set(String(sprint.id), sprint);
+        }
+      });
+
+      const options = [...sprintMap.values()]
+        .sort((left, right) => {
+          const stateOrder = compareSprintState(left?.state, right?.state);
+          if (stateOrder !== 0) {
+            return stateOrder;
+          }
+          return String(left?.name || '').localeCompare(String(right?.name || ''));
+        })
+        .map(sprint => buildEditOption(sprint.id, formatSprintOptionLabel(sprint), {rawValue: sprint}));
+
+      return [buildEditOption('', 'No sprint'), ...options];
+    });
+  }
+
+  function getEditableFieldDefinition(fieldKey, issueData) {
+    if (fieldKey === 'versions') {
+      const currentVersions = issueData?.fields?.versions || [];
+      return {
+        fieldKey,
+        label: 'Affects version',
+        currentText: formatVersionText(currentVersions),
+        currentOptionId: currentVersions.length === 1 ? String(currentVersions[0]?.id || '') : null,
+        loadOptions: () => getAffectsVersionOptions(issueData),
+        save: option => {
+          return requestJson('PUT', `${INSTANCE_URL}rest/api/2/issue/${issueData.key}`, {
+            fields: {
+              versions: option.id ? [{id: option.id}] : []
+            }
+          });
+        },
+        successMessage: option => option.id ? `Affects version set to ${option.label}` : 'Affects version cleared'
+      };
+    }
+
+    if (fieldKey === 'fixVersions') {
+      const currentFixVersions = issueData?.fields?.fixVersions || [];
+      return {
+        fieldKey,
+        label: 'Fix version',
+        currentText: formatVersionText(currentFixVersions),
+        currentOptionId: currentFixVersions.length === 1 ? String(currentFixVersions[0]?.id || '') : null,
+        loadOptions: () => getFixVersionOptions(issueData),
+        save: option => {
+          return requestJson('PUT', `${INSTANCE_URL}rest/api/2/issue/${issueData.key}`, {
+            fields: {
+              fixVersions: option.id ? [{id: option.id}] : []
+            }
+          });
+        },
+        successMessage: option => option.id ? `Fix version set to ${option.label}` : 'Fix version cleared'
+      };
+    }
+
+    if (fieldKey === 'sprint') {
+      const currentSprints = readSprintsFromIssue(issueData);
+      return {
+        fieldKey,
+        label: 'Sprint',
+        currentText: formatSprintText(currentSprints),
+        currentOptionId: currentSprints.length === 1 ? String(currentSprints[0]?.id || '') : null,
+        loadOptions: () => getSprintOptions(issueData),
+        save: async option => {
+          const sprintFieldId = pickSprintFieldId(issueData, await getSprintFieldIds(INSTANCE_URL));
+          if (!sprintFieldId) {
+            throw new Error('Could not resolve the Sprint field');
+          }
+          await requestJson('PUT', `${INSTANCE_URL}rest/api/2/issue/${issueData.key}`, {
+            fields: {
+              [sprintFieldId]: option.id ? (Number(option.id) || option.id) : []
+            }
+          });
+        },
+        successMessage: option => option.id ? `Sprint set to ${option.label}` : 'Sprint cleared'
+      };
+    }
+
+    return null;
+  }
+
+  function filterEditOptions(options, inputValue) {
+    const normalizedInput = String(inputValue || '').trim().toLowerCase();
+    const list = Array.isArray(options) ? options : [];
+    const filtered = normalizedInput
+      ? list.filter(option => option.searchText.includes(normalizedInput))
+      : list;
+    return filtered;
+  }
+
+  function buildEditableFieldChip(fieldKey, baseChip, state) {
+    const editState = state?.editState;
+    if (editState?.fieldKey === fieldKey) {
+      const options = filterEditOptions(editState.options, editState.inputValue).map(option => ({
+        ...option,
+        fieldKey,
+        isSelected: editState.selectedOptionId === option.id,
+        title: option.label
+      }));
+      return {
+        ...baseChip,
+        isEditable: true,
+        isEditing: true,
+        isRightAligned: fieldKey === 'fixVersions' || fieldKey === 'versions',
+        fieldKey,
+        editLabel: editState.label,
+        inputValue: editState.inputValue,
+        inputPlaceholder: `Type to filter ${editState.label.toLowerCase()} values`,
+        inputDisabled: !!(editState.loadingOptions || editState.saving),
+        loadingText: editState.loadingOptions
+          ? `Loading ${editState.label.toLowerCase()} values...`
+          : editState.saving
+            ? `Saving ${editState.label.toLowerCase()}...`
+            : '',
+        options,
+        hasOptions: options.length > 0,
+        editEmptyText: editState.loadingOptions ? 'Loading values...' : 'No matching values',
+        editError: editState.errorMessage || ''
+      };
+    }
+    return {
+      ...baseChip,
+      isEditable: true,
+      fieldKey,
+      editTitle: `Edit ${baseChip.text}`
+    };
+  }
   function compareSprintState(left, right) {
     const order = {
       active: 0,
@@ -1304,18 +1523,34 @@ async function mainAsyncLocal() {
 
     const singleAffectsVersion = affectsVersions.length === 1 ? affectsVersions[0]?.name : '';
     const singleFixVersion = fixVersions.length === 1 ? fixVersions[0]?.name : '';
+    const canEditAffectsVersions = affectsVersions.length <= 1;
+    const canEditFixVersions = fixVersions.length <= 1;
     const row2Chips = [
-      displayFields.sprint ? buildFilterChip(
+      displayFields.sprint ? buildEditableFieldChip('sprint', buildFilterChip(
         `Sprint: ${formatSprintText(sprints) || '--'}`,
         ''
+      ), state) : null,
+      displayFields.affects ? (
+        canEditAffectsVersions
+          ? buildEditableFieldChip('versions', buildFilterChip(
+            `Affects: ${formatVersionText(affectsVersions) || '--'}`,
+            singleAffectsVersion ? `${scopeJqlToProject(projectKey, `affectedVersion = ${encodeJqlValue(singleAffectsVersion)}`)}` : ''
+          ), state)
+          : buildFilterChip(
+            `Affects: ${formatVersionText(affectsVersions) || '--'}`,
+            ''
+          )
       ) : null,
-      displayFields.affects ? buildFilterChip(
-        `Affects: ${affectsVersions.map(version => version.name).filter(Boolean).join(', ') || '--'}`,
-        singleAffectsVersion ? `${scopeJqlToProject(projectKey, `affectedVersion = ${encodeJqlValue(singleAffectsVersion)}`)}` : ''
-      ) : null,
-      displayFields.fixVersions ? buildFilterChip(
-        `Fix version: ${formatFixVersionText(fixVersions) || '--'}`,
-        singleFixVersion ? `${scopeJqlToProject(projectKey, `fixVersion = ${encodeJqlValue(singleFixVersion)}`)}` : ''
+      displayFields.fixVersions ? (
+        canEditFixVersions
+          ? buildEditableFieldChip('fixVersions', buildFilterChip(
+            `Fix version: ${formatVersionText(fixVersions) || '--'}`,
+            singleFixVersion ? `${scopeJqlToProject(projectKey, `fixVersion = ${encodeJqlValue(singleFixVersion)}`)}` : ''
+          ), state)
+          : buildFilterChip(
+            `Fix version: ${formatVersionText(fixVersions) || '--'}`,
+            ''
+          )
       ) : null,
       ...customFieldChips[2]
     ].filter(Boolean);
@@ -1462,12 +1697,24 @@ async function mainAsyncLocal() {
       return;
     }
     const displayData = await buildPopupDisplayData(state);
+    if (state !== popupState) {
+      return;
+    }
     container.html(Mustache.render(annotationTemplate, displayData));
     if (!containerPinned) {
       container.css(computeVisibleContainerPosition(state.pointerX, state.pointerY));
     }
+    if (state.editState?.fieldKey) {
+      const input = container.find('._JX_edit_input')[0];
+      if (input) {
+        input.focus();
+        const maxIndex = input.value.length;
+        const selectionStart = Math.min(maxIndex, Number.isInteger(state.editState.selectionStart) ? state.editState.selectionStart : maxIndex);
+        const selectionEnd = Math.min(maxIndex, Number.isInteger(state.editState.selectionEnd) ? state.editState.selectionEnd : maxIndex);
+        input.setSelectionRange(selectionStart, selectionEnd);
+      }
+    }
   }
-
   function invalidatePopupCaches() {
     if (!popupState?.key) {
       return;
@@ -1482,12 +1729,14 @@ async function mainAsyncLocal() {
       });
     }
   }
-  async function refreshPopupIssueState(successMessage = '') {
+  async function refreshPopupIssueState(successMessage = '', options = {}) {
     if (!popupState?.key) {
       return;
     }
+    const {showSnackBar = false} = options;
+    const popupKey = popupState.key;
     invalidatePopupCaches();
-    const refreshedIssueData = await getIssueMetaData(popupState.key);
+    const refreshedIssueData = await getIssueMetaData(popupKey);
     await normalizeIssueImages(refreshedIssueData);
 
     let refreshedPullRequests = [];
@@ -1507,6 +1756,10 @@ async function mainAsyncLocal() {
       quickActions = [];
     }
 
+    if (!popupState || popupState.key !== popupKey) {
+      return;
+    }
+
     popupState = {
       ...popupState,
       issueData: refreshedIssueData,
@@ -1514,12 +1767,15 @@ async function mainAsyncLocal() {
       quickActions,
       actionLoadingKey: '',
       actionError: '',
-      lastActionSuccess: successMessage,
-      actionsOpen: false
+      lastActionSuccess: showSnackBar ? '' : successMessage,
+      actionsOpen: false,
+      editState: null
     };
     await renderIssuePopup(popupState);
+    if (showSnackBar && successMessage) {
+      snackBar(successMessage);
+    }
   }
-
   async function handleQuickAction(actionKey) {
     if (!popupState?.issueData || popupState.actionLoadingKey) {
       return;
@@ -1549,6 +1805,197 @@ async function mainAsyncLocal() {
         lastActionSuccess: ''
       };
       await renderIssuePopup(popupState);
+    }
+  }
+  async function startFieldEdit(fieldKey) {
+    if (!popupState?.issueData) {
+      return;
+    }
+    if (popupState.editState?.fieldKey === fieldKey) {
+      return;
+    }
+    const definition = getEditableFieldDefinition(fieldKey, popupState.issueData);
+    if (!definition) {
+      return;
+    }
+    const initialValue = definition.currentText || '';
+    popupState = {
+      ...popupState,
+      editState: {
+        fieldKey,
+        label: definition.label,
+        inputValue: initialValue,
+        options: [],
+        selectedOptionId: definition.currentOptionId,
+        loadingOptions: true,
+        saving: false,
+        errorMessage: '',
+        selectionStart: initialValue.length,
+        selectionEnd: initialValue.length
+      }
+    };
+    await renderIssuePopup(popupState);
+
+    try {
+      const options = await definition.loadOptions();
+      if (!popupState?.editState || popupState.editState.fieldKey !== fieldKey) {
+        return;
+      }
+      const selectedOption = (Array.isArray(options) ? options : []).find(option => option.id === popupState.editState.selectedOptionId);
+      const nextInputValue = selectedOption ? selectedOption.label : popupState.editState.inputValue;
+      popupState = {
+        ...popupState,
+        editState: {
+          ...popupState.editState,
+          inputValue: nextInputValue,
+          options,
+          loadingOptions: false,
+          selectionStart: nextInputValue.length,
+          selectionEnd: nextInputValue.length
+        }
+      };
+      await renderIssuePopup(popupState);
+    } catch (error) {
+      const errorMessage = buildEditFieldError(error);
+      if (!popupState?.editState || popupState.editState.fieldKey !== fieldKey) {
+        return;
+      }
+      popupState = {
+        ...popupState,
+        editState: {
+          ...popupState.editState,
+          loadingOptions: false,
+          errorMessage
+        }
+      };
+      await renderIssuePopup(popupState);
+      snackBar(errorMessage);
+    }
+  }
+
+  function cancelFieldEdit() {
+    if (!popupState?.editState) {
+      return;
+    }
+    popupState = {
+      ...popupState,
+      editState: null
+    };
+    renderIssuePopup(popupState).catch(() => {});
+  }
+
+  function updateFieldEditInput(nextValue, selectionStart, selectionEnd) {
+    if (!popupState?.editState) {
+      return;
+    }
+    const normalizedValue = String(nextValue || '');
+    const exactOption = (popupState.editState.options || []).find(option => {
+      return option.label.toLowerCase() === normalizedValue.trim().toLowerCase();
+    });
+    popupState = {
+      ...popupState,
+      editState: {
+        ...popupState.editState,
+        inputValue: normalizedValue,
+        selectedOptionId: exactOption ? exactOption.id : null,
+        errorMessage: '',
+        selectionStart,
+        selectionEnd
+      }
+    };
+    renderIssuePopup(popupState).catch(() => {});
+  }
+
+  function selectFieldEditOption(optionId) {
+    if (!popupState?.editState) {
+      return;
+    }
+    const option = (popupState.editState.options || []).find(candidate => candidate.id === optionId);
+    if (!option) {
+      return;
+    }
+    popupState = {
+      ...popupState,
+      editState: {
+        ...popupState.editState,
+        inputValue: option.label,
+        selectedOptionId: option.id,
+        errorMessage: '',
+        selectionStart: option.label.length,
+        selectionEnd: option.label.length
+      }
+    };
+    renderIssuePopup(popupState).catch(() => {});
+  }
+
+  function resolveSelectedEditOption(editState) {
+    if (!editState) {
+      return null;
+    }
+    if (editState.selectedOptionId !== null && typeof editState.selectedOptionId !== 'undefined') {
+      const selectedOption = (editState.options || []).find(option => option.id === editState.selectedOptionId);
+      if (selectedOption) {
+        return selectedOption;
+      }
+    }
+    const normalizedInput = String(editState.inputValue || '').trim().toLowerCase();
+    if (!normalizedInput) {
+      return null;
+    }
+    return (editState.options || []).find(option => option.label.toLowerCase() === normalizedInput) || null;
+  }
+
+  async function submitFieldEdit(fieldKey) {
+    if (!popupState?.editState || popupState.editState.fieldKey !== fieldKey || popupState.editState.loadingOptions || popupState.editState.saving) {
+      return;
+    }
+    const definition = getEditableFieldDefinition(fieldKey, popupState.issueData);
+    if (!definition) {
+      return;
+    }
+    const selectedOption = resolveSelectedEditOption(popupState.editState);
+    if (!selectedOption) {
+      const errorMessage = 'Pick an existing value from the dropdown before pressing Enter';
+      popupState = {
+        ...popupState,
+        editState: {
+          ...popupState.editState,
+          errorMessage
+        }
+      };
+      await renderIssuePopup(popupState);
+      snackBar(errorMessage);
+      return;
+    }
+
+    popupState = {
+      ...popupState,
+      editState: {
+        ...popupState.editState,
+        saving: true,
+        errorMessage: ''
+      }
+    };
+    await renderIssuePopup(popupState);
+
+    try {
+      await definition.save(selectedOption);
+      await refreshPopupIssueState(definition.successMessage(selectedOption), {showSnackBar: true});
+    } catch (error) {
+      const errorMessage = buildEditFieldError(error);
+      if (!popupState?.editState || popupState.editState.fieldKey !== fieldKey) {
+        return;
+      }
+      popupState = {
+        ...popupState,
+        editState: {
+          ...popupState.editState,
+          saving: false,
+          errorMessage
+        }
+      };
+      await renderIssuePopup(popupState);
+      snackBar(errorMessage);
     }
   }
   new draggable({
@@ -1654,6 +2101,59 @@ async function mainAsyncLocal() {
       actionsOpen: false
     };
     renderIssuePopup(popupState).catch(() => {});
+  });
+  $(document.body).on('click', '._JX_field_chip_edit', function (e) {
+    e.preventDefault();
+    e.stopPropagation();
+    const fieldKey = e.currentTarget.getAttribute('data-field-key') || '';
+    startFieldEdit(fieldKey).catch(() => {});
+  });
+
+  $(document.body).on('click', '._JX_edit_cancel', function (e) {
+    e.preventDefault();
+    e.stopPropagation();
+    cancelFieldEdit();
+  });
+
+  $(document.body).on('click', '._JX_edit_option', function (e) {
+    e.preventDefault();
+    e.stopPropagation();
+    selectFieldEditOption(e.currentTarget.getAttribute('data-option-id'));
+  });
+
+  $(document.body).on('input', '._JX_edit_input', function (e) {
+    e.stopPropagation();
+    updateFieldEditInput(e.currentTarget.value, e.currentTarget.selectionStart, e.currentTarget.selectionEnd);
+  });
+
+  $(document.body).on('keydown', '._JX_edit_input', function (e) {
+    e.stopPropagation();
+    const fieldKey = e.currentTarget.getAttribute('data-field-key') || '';
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      submitFieldEdit(fieldKey).catch(() => {});
+      return;
+    }
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      cancelFieldEdit();
+    }
+  });
+
+  $(document.body).on('mousedown', function (e) {
+    if (!popupState?.editState) {
+      return;
+    }
+    if ($(e.target).closest('._JX_edit_popover, ._JX_field_chip_edit').length) {
+      return;
+    }
+    if ($(e.target).closest('._JX_container').length === 0) {
+      cancelFieldEdit();
+      return;
+    }
+    if ($(e.target).closest('._JX_field_chip_editable_group').length === 0 && $(e.target).closest('._JX_edit_popover').length === 0) {
+      cancelFieldEdit();
+    }
   });
   function closePreviewOverlay() {
     previewOverlay.removeClass('is-open');
@@ -1819,7 +2319,8 @@ async function mainAsyncLocal() {
             actionsOpen: false,
             actionLoadingKey: '',
             actionError: '',
-            lastActionSuccess: ''
+            lastActionSuccess: '',
+            editState: null
           };
           await renderIssuePopup(popupState);
         })(cancelToken).catch((error) => {
