@@ -56,6 +56,43 @@ body ._JX {
       margin-left: 8px;
     }
 
+    &_user_placeholder {
+      align-items: center;
+      color: #5e6c84;
+      display: inline-flex;
+      font-size: 11px;
+      font-weight: 700;
+      justify-content: center;
+    }
+
+    &_assignee_slot {
+      align-items: center;
+      display: inline-flex;
+      position: relative;
+    }
+
+    &_assignee_slot.is-editing {
+      z-index: 30;
+    }
+
+    &_assignee_slot ._JX_assignee_edit_button {
+      margin-left: 2px;
+    }
+
+    &_copy {
+      color: #172b4d;
+      background-color: transparent;
+      border: none;
+      cursor: pointer;
+      vertical-align: middle;
+      position: relative;
+      top: 2px;
+
+      &:hover {
+        color: #8993a4;
+      }
+    }
+
     &_copy {
       padding: 0;
     }
@@ -798,6 +835,8 @@ body ._JX {
 
   &_field_chip_editable_group:hover ._JX_field_chip_edit,
   &_field_chip_editable_group.is-editing ._JX_field_chip_edit,
+  &_title_assignee_slot:hover ._JX_field_chip_edit,
+  &_title_assignee_slot.is-editing ._JX_field_chip_edit,
   &_field_chip_edit:focus-visible {
     opacity: 1;
   }
@@ -821,6 +860,11 @@ body ._JX {
     top: calc(100% + 8px);
     width: 320px;
     z-index: 40;
+  }
+
+  &_assignee_edit_popover {
+    left: 0;
+    top: calc(100% + 6px);
   }
 
   &_edit_popover_right {
@@ -948,6 +992,23 @@ body ._JX {
     background: #e9f2ff;
   }
 
+  &_edit_option_icon,
+  &_edit_option_avatar {
+    border-radius: 50%;
+    flex: 0 0 auto;
+    height: 16px;
+    object-fit: cover;
+    width: 16px;
+  }
+
+  &_edit_option_text {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+  }
+
   &_edit_option_check {
     color: #0c66e4;
     display: inline-flex;
@@ -958,7 +1019,18 @@ body ._JX {
   }
 
   &_edit_option_label {
+    line-height: 1.2;
     min-width: 0;
+  }
+
+  &_edit_option_meta {
+    color: #6b778c;
+    font-size: 11px;
+    line-height: 1.2;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   &_edit_actions {
