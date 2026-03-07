@@ -16,6 +16,7 @@ const getInstanceUrl = async () => (await storageGet({
 
 const getConfig = async () => (await storageGet(config));
 let sprintFieldIdsPromise;
+let epicLinkFieldIdsPromise;
 
 async function getSprintFieldIds(instanceUrl) {
   if (sprintFieldIdsPromise) {
@@ -39,6 +40,27 @@ async function getSprintFieldIds(instanceUrl) {
     })
     .catch(() => []);
   return sprintFieldIdsPromise;
+}
+
+async function getEpicLinkFieldIds(instanceUrl) {
+  if (epicLinkFieldIdsPromise) {
+    return epicLinkFieldIdsPromise;
+  }
+  epicLinkFieldIdsPromise = get(instanceUrl + 'rest/api/2/field')
+    .then(fields => {
+      if (!Array.isArray(fields)) {
+        return [];
+      }
+      return fields
+        .filter(field => {
+          const name = (field.name || '').toLowerCase();
+          const schemaCustom = ((field.schema && field.schema.custom) || '').toLowerCase();
+          return name === 'epic link' || name === 'epic' || schemaCustom.includes('gh-epic-link');
+        })
+        .map(field => field.id);
+    })
+    .catch(() => []);
+  return epicLinkFieldIdsPromise;
 }
 
 
@@ -1215,7 +1237,10 @@ async function mainAsyncLocal() {
 
   async function getIssueMetaData(issueKey) {
     return getCachedValue(issueCache, issueKey, async () => {
-      const sprintFieldIds = await getSprintFieldIds(INSTANCE_URL);
+      const [sprintFieldIds, epicLinkFieldIds] = await Promise.all([
+        getSprintFieldIds(INSTANCE_URL),
+        getEpicLinkFieldIds(INSTANCE_URL)
+      ]);
       const fields = [
         'description',
         'id',
@@ -1232,6 +1257,7 @@ async function mainAsyncLocal() {
         'parent',
         'fixVersions',
         ...sprintFieldIds,
+        ...epicLinkFieldIds,
         ...customFields.map(({fieldId}) => fieldId)
       ];
       return get(INSTANCE_URL + 'rest/api/2/issue/' + issueKey + '?fields=' + fields.join(',') + '&expand=renderedFields,names');
@@ -1478,40 +1504,199 @@ async function mainAsyncLocal() {
     });
   }
 
-  async function readEpicOrParent(issueData) {
-    const parent = issueData.fields?.parent;
-    if (parent && parent.key) {
+  function extractIssueKeyFromLinkageValue(value) {
+    if (!value) {
+      return '';
+    }
+    if (typeof value === 'string') {
+      return value.trim();
+    }
+    if (typeof value === 'object') {
+      return String(value.key || value.value || value.id || '').trim();
+    }
+    return '';
+  }
+
+  function findEpicLinkFieldId(issueData, editMeta) {
+    const names = issueData?.names || {};
+    const editMetaFields = editMeta?.fields || {};
+    const fromNames = Object.keys(names).find(fieldId => {
+      const fieldName = String(names[fieldId] || '').toLowerCase();
+      return fieldName === 'epic link' || fieldName === 'epic';
+    });
+    if (fromNames) {
+      return fromNames;
+    }
+    return Object.keys(editMetaFields).find(fieldId => {
+      const fieldName = String(editMetaFields[fieldId]?.name || '').toLowerCase();
+      return fieldName === 'epic link' || fieldName === 'epic';
+    }) || '';
+  }
+
+  async function resolveIssueLinkage(issueData) {
+    if (!issueData?.key) {
       return {
-        key: parent.key,
-        summary: parent.fields?.summary || parent.key,
-        url: `${INSTANCE_URL}browse/${parent.key}`
+        mode: '',
+        label: 'Parent',
+        editable: false,
+        fieldKey: '',
+        currentLink: null
+      };
+    }
+    const editMeta = await getIssueEditMeta(issueData.key).catch(() => ({fields: {}}));
+    const parentValue = issueData?.fields?.parent;
+    const parentFieldMeta = editMeta.fields?.parent;
+    if (parentValue?.key || parentFieldMeta) {
+      const currentKey = parentValue?.key || '';
+      const currentSummary = parentValue?.fields?.summary || currentKey;
+      return {
+        mode: 'parent',
+        label: 'Parent',
+        editable: !!parentFieldMeta,
+        fieldKey: 'parent',
+        currentLink: currentKey
+          ? {
+              key: currentKey,
+              summary: currentSummary,
+              url: `${INSTANCE_URL}browse/${currentKey}`
+            }
+          : null
       };
     }
 
-    const names = issueData.names || {};
-    const fields = issueData.fields || {};
-    const epicFieldId = Object.keys(names).find(fieldId => {
-      const name = String(names[fieldId] || '').toLowerCase();
-      return name === 'epic link' || name === 'epic';
+    const epicFieldId = findEpicLinkFieldId(issueData, editMeta);
+    const epicKey = extractIssueKeyFromLinkageValue(issueData?.fields?.[epicFieldId]);
+    if (!epicFieldId && !epicKey) {
+      return {
+        mode: '',
+        label: 'Parent',
+        editable: false,
+        fieldKey: '',
+        currentLink: null
+      };
+    }
+    let epicSummary = epicKey;
+    if (epicKey) {
+      try {
+        const epicSummaryData = await getIssueSummary(epicKey);
+        epicSummary = epicSummaryData?.summary || epicKey;
+      } catch (error) {
+        epicSummary = epicKey;
+      }
+    }
+    return {
+      mode: 'epicLink',
+      label: 'Epic',
+      editable: !!editMeta.fields?.[epicFieldId],
+      fieldKey: epicFieldId,
+      currentLink: epicKey
+        ? {
+            key: epicKey,
+            summary: epicSummary,
+            url: `${INSTANCE_URL}browse/${epicKey}`
+          }
+        : null
+    };
+  }
+
+  function buildIssueSearchOption(issue, extra = {}) {
+    const issueKey = String(issue?.key || '').trim();
+    const issueSummary = String(issue?.fields?.summary || issue?.summary || issueKey).trim();
+    const statusName = issue?.fields?.status?.name || '';
+    return buildEditOption(issueKey, `[${issueKey}] ${issueSummary}`.trim(), {
+      id: issueKey,
+      iconUrl: issue?.fields?.issuetype?.iconUrl || issue?.issuetype?.iconUrl || '',
+      metaText: statusName,
+      rawValue: {
+        key: issueKey,
+        summary: issueSummary
+      },
+      searchText: `${issueKey} ${issueSummary} ${statusName}`,
+      ...extra
     });
-    const epicKey = epicFieldId ? fields[epicFieldId] : null;
-    if (!epicKey || typeof epicKey !== 'string') {
-      return null;
+  }
+
+  function buildIssueSearchCacheKey(query, issueData, mode) {
+    const projectKey = String(issueData?.key || '').split('-')[0];
+    return `${projectKey}__${mode}__${String(query || '').trim().toLowerCase()}`;
+  }
+
+  function getRecentIssueSearchOptions(issueData, mode) {
+    const projectKey = String(issueData?.key || '').split('-')[0];
+    return issueSearchRecentCache.get(`${projectKey}__${mode}`) || [];
+  }
+
+  function setRecentIssueSearchOptions(issueData, mode, options) {
+    const projectKey = String(issueData?.key || '').split('-')[0];
+    if (!projectKey || !mode) {
+      return;
     }
-    try {
-      const epic = await getIssueSummary(epicKey);
-      return {
-        key: epic.key,
-        summary: epic.summary || epic.key,
-        url: `${INSTANCE_URL}browse/${epic.key}`
-      };
-    } catch (ex) {
-      return {
-        key: epicKey,
-        summary: epicKey,
-        url: `${INSTANCE_URL}browse/${epicKey}`
-      };
+    issueSearchRecentCache.set(`${projectKey}__${mode}`, (Array.isArray(options) ? options : []).slice(0, 30));
+  }
+
+  function buildSafeIssueSearchClauses(query, projectKey) {
+    const normalizedQuery = String(query || '').trim();
+    if (!normalizedQuery) {
+      return [];
     }
+
+    const clauses = [];
+    const tokenClauses = normalizedQuery
+      .split(/[^A-Za-z0-9]+/)
+      .map(token => token.trim())
+      .filter(token => token.length >= 2)
+      .slice(0, 4)
+      .map(token => {
+        const escapedToken = token
+          .replace(/\\/g, '\\\\')
+          .replace(/"/g, '\\"');
+        return `summary ~ \"${escapedToken}*\"`;
+      });
+
+    if (tokenClauses.length === 1) {
+      clauses.push(tokenClauses[0]);
+    } else if (tokenClauses.length > 1) {
+      clauses.push(`(${tokenClauses.join(' AND ')})`);
+    }
+
+    if (/^\d+$/.test(normalizedQuery)) {
+      clauses.push(`key = ${encodeJqlValue(`${projectKey}-${normalizedQuery}`)}`);
+    } else if (/^[A-Z][A-Z0-9_]*-\d+$/i.test(normalizedQuery)) {
+      clauses.push(`key = ${encodeJqlValue(normalizedQuery.toUpperCase())}`);
+    }
+
+    return clauses;
+  }
+
+  async function searchParentCandidates(query, issueData, linkageMode) {
+    const issueKey = String(issueData?.key || '').trim();
+    const projectKey = issueKey.split('-')[0];
+    if (!issueKey || !projectKey) {
+      return [];
+    }
+    const normalizedQuery = String(query || '').trim();
+    const cacheKey = buildIssueSearchCacheKey(normalizedQuery, issueData, linkageMode || 'linkage');
+    return getCachedValue(issueSearchCache, cacheKey, async () => {
+      const escapedIssueKey = encodeJqlValue(issueKey);
+      const isEpicLinkMode = linkageMode === 'epicLink';
+      const jqlParts = [`key != ${escapedIssueKey}`];
+      if (!isEpicLinkMode) {
+        const escapedProjectKey = encodeJqlValue(projectKey);
+        jqlParts.unshift(`project = ${escapedProjectKey}`);
+      }
+      const searchClauses = buildSafeIssueSearchClauses(normalizedQuery, projectKey);
+      if (searchClauses.length) {
+        jqlParts.push(`(${searchClauses.join(' OR ')})`);
+      }
+      const jql = `${jqlParts.join(' AND ')} ORDER BY updated DESC`;
+      const response = await get(`${INSTANCE_URL}rest/api/2/search?maxResults=20&fields=summary,issuetype,status&jql=${encodeURIComponent(jql)}`);
+      const issues = Array.isArray(response?.issues) ? response.issues : [];
+      const options = issues
+        .map(issue => buildIssueSearchOption(issue))
+        .filter(option => option.id);
+      setRecentIssueSearchOptions(issueData, linkageMode || 'linkage', options);
+      return options;
+    });
   }
 
   function normalizeCustomFields(customFields) {
@@ -2439,6 +2624,71 @@ async function mainAsyncLocal() {
       };
     }
 
+    if (fieldKey === 'parentLink') {
+      const linkage = await resolveIssueLinkage(issueData);
+      if (!linkage?.editable || !linkage.mode) {
+        return null;
+      }
+      const currentLink = linkage.currentLink;
+      const currentOption = currentLink
+        ? buildEditOption(currentLink.key, `[${currentLink.key}] ${currentLink.summary || currentLink.key}`, {
+            rawValue: {
+              key: currentLink.key,
+              summary: currentLink.summary || currentLink.key
+            }
+          })
+        : null;
+      return {
+        fieldKey,
+        editorType: 'issue-search',
+        label: linkage.label,
+        selectionMode: 'single',
+        currentText: currentLink ? `[${currentLink.key}] ${currentLink.summary || currentLink.key}` : `${linkage.label}: none`,
+        currentOptionId: currentOption?.id || null,
+        currentSelections: currentOption ? [currentOption] : [],
+        initialInputValue: '',
+        inputPlaceholder: 'Search issues by key or summary',
+        loadOptions: async () => {
+          const recentOptions = getRecentIssueSearchOptions(issueData, linkage.mode);
+          const searchedOptions = await searchParentCandidates('', issueData, linkage.mode).catch(() => []);
+          return mergeEditOptions(
+            [currentOption].filter(Boolean),
+            mergeEditOptions(searchedOptions, recentOptions)
+          );
+        },
+        searchOptions: query => searchParentCandidates(query, issueData, linkage.mode),
+        save: selectedOptions => {
+          const selectedOption = selectedOptions[0];
+          const selectedIssueKey = selectedOption?.rawValue?.key || selectedOption?.id;
+          if (!selectedIssueKey) {
+            throw new Error(`Pick a ${linkage.label.toLowerCase()} issue before saving`);
+          }
+          if (linkage.mode === 'parent') {
+            return requestJson('PUT', `${INSTANCE_URL}rest/api/2/issue/${issueData.key}`, {
+              fields: {
+                parent: {key: selectedIssueKey}
+              }
+            });
+          }
+          if (!linkage.fieldKey) {
+            throw new Error('Could not resolve Epic Link field');
+          }
+          return requestJson('PUT', `${INSTANCE_URL}rest/api/2/issue/${issueData.key}`, {
+            fields: {
+              [linkage.fieldKey]: selectedIssueKey
+            }
+          });
+        },
+        successMessage: selectedOptions => {
+          const selectedOption = selectedOptions[0];
+          const selectedIssueKey = selectedOption?.rawValue?.key || selectedOption?.id || '';
+          return selectedIssueKey
+            ? `${linkage.label} set to ${selectedIssueKey}`
+            : `${linkage.label} updated`;
+        }
+      };
+    }
+
     return null;
   }
 
@@ -2866,7 +3116,7 @@ async function mainAsyncLocal() {
     const previewAttachments = buildPreviewAttachments(attachments);
     const labels = issueData.fields.labels || [];
     const customFieldChips = buildCustomFieldChips(issueData, customFields);
-    const epicOrParent = await readEpicOrParent(issueData);
+    const linkageData = await resolveIssueLinkage(issueData);
     const issueTypeName = issueData.fields.issuetype?.name;
     const statusName = issueData.fields.status?.name;
     const priorityName = issueData.fields.priority?.name;
@@ -2905,13 +3155,22 @@ async function mainAsyncLocal() {
         canEdit: priorityEditable,
         editTitle: 'Edit priority'
       }) : null,
-      displayFields.epicParent ? {
-        text: epicOrParent
-          ? `Parent: [${epicOrParent.key}] ${epicOrParent.summary}`
-          : 'Parent: --',
-        linkUrl: epicOrParent?.url || '',
-        linkTitle: epicOrParent ? buildLinkHoverTitle('Open parent issue', epicOrParent.key, epicOrParent.url) : ''
-      } : null,
+      displayFields.epicParent ? buildEditableFieldChip('parentLink', {
+        text: linkageData?.currentLink
+          ? `${linkageData.label}: [${linkageData.currentLink.key}] ${linkageData.currentLink.summary}`
+          : `${linkageData?.label || 'Parent'}: --`,
+        linkUrl: linkageData?.currentLink?.url || '',
+        linkTitle: linkageData?.currentLink
+          ? buildLinkHoverTitle(
+              `Open ${String(linkageData.label || 'linked').toLowerCase()} issue`,
+              linkageData.currentLink.key,
+              linkageData.currentLink.url
+            )
+          : ''
+      }, state, {
+        canEdit: !!linkageData?.editable,
+        editTitle: linkageData?.mode === 'epicLink' ? 'Edit epic link' : 'Edit parent'
+      }) : null,
       ...customFieldChips[1]
     ].filter(Boolean);
 
@@ -3148,6 +3407,7 @@ async function mainAsyncLocal() {
     editMetaCache.delete(popupState.key);
     transitionOptionsCache.delete(popupState.key);
     assigneeLocalOptionsCache.delete(popupState.key);
+    issueSearchCache.clear();
     [...assigneeSearchCache.keys()].forEach(cacheKey => {
       if (String(cacheKey).startsWith(`${popupState.key}__`)) {
         assigneeSearchCache.delete(cacheKey);
@@ -3351,7 +3611,7 @@ async function mainAsyncLocal() {
       }
       await renderIssuePopup(popupState);
 
-      if (popupState?.editState?.fieldKey === fieldKey && popupState.editState.editorType === 'user-search') {
+      if (popupState?.editState?.fieldKey === fieldKey && (popupState.editState.editorType === 'user-search' || popupState.editState.editorType === 'issue-search')) {
         const searchRequestId = ++editSearchRequestCounter;
         popupState = {
           ...popupState,
@@ -3458,7 +3718,7 @@ async function mainAsyncLocal() {
     };
     renderIssuePopup(popupState).catch(() => {});
 
-    if (popupState.editState.editorType === 'user-search') {
+    if (popupState.editState.editorType === 'user-search' || popupState.editState.editorType === 'issue-search') {
       const searchRequestId = ++editSearchRequestCounter;
       popupState = {
         ...popupState,
