@@ -1699,6 +1699,182 @@ async function mainAsyncLocal() {
     });
   }
 
+  function stripSimpleHtml(value) {
+    return String(value || '').replace(/<[^>]+>/g, '');
+  }
+
+  function buildLabelOption(label, extra = {}) {
+    const normalizedLabel = String(label || '').trim();
+    return buildEditOption(normalizedLabel, normalizedLabel, {
+      rawValue: normalizedLabel,
+      ...extra
+    });
+  }
+
+  function normalizeLabelSuggestionPayload(payload) {
+    if (Array.isArray(payload?.results)) {
+      return payload.results
+        .map(entry => buildLabelOption(entry?.value || stripSimpleHtml(entry?.displayName || ''), {
+          metaText: stripSimpleHtml(entry?.displayName || '')
+        }))
+        .filter(option => option.id);
+    }
+    if (Array.isArray(payload?.suggestions)) {
+      return payload.suggestions
+        .map(entry => buildLabelOption(entry?.label || stripSimpleHtml(entry?.html || ''), {
+          metaText: stripSimpleHtml(entry?.html || '')
+        }))
+        .filter(option => option.id);
+    }
+    return [];
+  }
+
+  async function fetchLabelSuggestions(queryText) {
+    const normalizedQuery = String(queryText || '').trim();
+    const endpoints = [
+      `${INSTANCE_URL}rest/api/2/jql/autocompletedata/suggestions?fieldName=labels&fieldValue=${encodeURIComponent(normalizedQuery)}`,
+      `${INSTANCE_URL}rest/api/1.0/labels/suggest?query=${encodeURIComponent(normalizedQuery)}`
+    ];
+    let lastError;
+    for (const url of endpoints) {
+      try {
+        const response = await get(url);
+        return normalizeLabelSuggestionPayload(response);
+      } catch (error) {
+        lastError = error;
+      }
+    }
+    throw lastError || new Error('Could not load label suggestions');
+  }
+
+  async function getLabelSuggestions(queryText = '') {
+    const normalizedQuery = String(queryText || '').trim().toLowerCase();
+    return getCachedValue(labelSuggestionCache, normalizedQuery, async () => {
+      return fetchLabelSuggestions(normalizedQuery);
+    });
+  }
+
+  async function hasLabelSuggestionSupport() {
+    if (!labelSuggestionSupportPromise) {
+      labelSuggestionSupportPromise = getLabelSuggestions('')
+        .then(() => true)
+        .catch(() => false);
+    }
+    return labelSuggestionSupportPromise;
+  }
+
+  function getCustomFieldPrimitive(entry) {
+    if (entry === undefined || entry === null) {
+      return '';
+    }
+    if (typeof entry === 'string' || typeof entry === 'number' || typeof entry === 'boolean') {
+      return String(entry);
+    }
+    return String(entry.name || entry.value || entry.displayName || entry.key || entry.id || '');
+  }
+
+  function buildCustomFieldOption(fieldName, entry) {
+    const label = getCustomFieldPrimitive(entry);
+    if (!label) {
+      return null;
+    }
+    const optionId = String(entry?.id || entry?.value || entry?.name || entry?.key || label).trim();
+    if (!optionId) {
+      return null;
+    }
+    const metaText = entry?.description || entry?.child?.value || '';
+    return buildEditOption(optionId, label, {
+      iconUrl: entry?.iconUrl || '',
+      metaText,
+      rawValue: entry
+    });
+  }
+
+  function buildCustomFieldValueText(fieldName, value) {
+    if (Array.isArray(value)) {
+      const parts = value.map(entry => getCustomFieldPrimitive(entry)).filter(Boolean);
+      return `${fieldName}: ${parts.join(', ') || '--'}`;
+    }
+    const primitive = getCustomFieldPrimitive(value);
+    return `${fieldName}: ${primitive || '--'}`;
+  }
+
+  function buildCustomFieldSaveValue(rawValue) {
+    if (rawValue === undefined || rawValue === null) {
+      return rawValue;
+    }
+    if (typeof rawValue === 'string' || typeof rawValue === 'number' || typeof rawValue === 'boolean') {
+      return rawValue;
+    }
+    if (rawValue.id) {
+      return {id: String(rawValue.id)};
+    }
+    if (rawValue.value) {
+      return {value: rawValue.value};
+    }
+    if (rawValue.name) {
+      return {name: rawValue.name};
+    }
+    if (rawValue.key) {
+      return {key: rawValue.key};
+    }
+    return rawValue;
+  }
+
+  async function getSupportedCustomFieldDefinition(fieldId, issueData) {
+    const capability = await getEditableFieldCapability(issueData, fieldId);
+    const fieldMeta = capability.fieldMeta;
+    const fieldName = String(issueData?.names?.[fieldId] || fieldMeta?.name || fieldId);
+    if (!capability.editable || !fieldMeta || !Array.isArray(capability.allowedValues) || !capability.allowedValues.length) {
+      return null;
+    }
+
+    const schemaType = String(fieldMeta?.schema?.type || '').toLowerCase();
+    const operations = capability.operations || [];
+    const isMultiValue = schemaType === 'array';
+    const currentValue = issueData?.fields?.[fieldId];
+    const currentEntries = isMultiValue
+      ? (Array.isArray(currentValue) ? currentValue : [])
+      : (currentValue ? [currentValue] : []);
+    const currentSelections = currentEntries
+      .map(entry => buildCustomFieldOption(fieldName, entry))
+      .filter(Boolean);
+    const allowedOptions = capability.allowedValues
+      .map(entry => buildCustomFieldOption(fieldName, entry))
+      .filter(Boolean);
+    const allOptions = mergeEditOptions(currentSelections, allowedOptions);
+
+    if (isMultiValue && !operations.includes('set')) {
+      return null;
+    }
+    if (!isMultiValue && !operations.includes('set')) {
+      return null;
+    }
+
+    return {
+      fieldKey: fieldId,
+      editorType: isMultiValue ? 'multi-select' : 'single-select',
+      label: fieldName,
+      selectionMode: isMultiValue ? 'multi' : 'single',
+      currentText: buildCustomFieldValueText(fieldName, currentValue),
+      currentOptionId: !isMultiValue && currentSelections[0] ? currentSelections[0].id : null,
+      currentSelections,
+      initialInputValue: isMultiValue ? '' : '',
+      loadOptions: async () => allOptions,
+      save: selectedOptions => {
+        const fieldValue = isMultiValue
+          ? selectedOptions.map(option => buildCustomFieldSaveValue(option.rawValue))
+          : buildCustomFieldSaveValue(selectedOptions[0]?.rawValue);
+        return requestJson('PUT', `${INSTANCE_URL}rest/api/2/issue/${issueData.key}`, {
+          fields: {
+            [fieldId]: isMultiValue ? fieldValue : (fieldValue ?? null)
+          }
+        });
+      },
+      successMessage: () => `${fieldName} updated`
+    };
+  }
+
   function normalizeCustomFields(customFields) {
     if (!Array.isArray(customFields)) {
       return [];
@@ -1742,16 +1918,27 @@ async function mainAsyncLocal() {
       linkUrl: ''
     };
   }
-  function buildCustomFieldChips(issueData, customFields) {
+  async function buildCustomFieldChips(issueData, customFields, state) {
     const names = issueData.names || {};
     const fields = issueData.fields || {};
     const chipsByRow = {1: [], 2: [], 3: []};
-    customFields.forEach(({fieldId, row}) => {
+    for (const {fieldId, row} of customFields) {
       const rawValue = fields[fieldId];
       if (rawValue === undefined || rawValue === null || rawValue === '') {
-        return;
+        continue;
       }
       const fieldName = String(names[fieldId] || fieldId);
+      const supportedDefinition = await getSupportedCustomFieldDefinition(fieldId, issueData).catch(() => null);
+      if (supportedDefinition) {
+        chipsByRow[row].push(buildEditableFieldChip(fieldId, {
+          text: buildCustomFieldValueText(fieldName, rawValue),
+          linkUrl: ''
+        }, state, {
+          canEdit: true,
+          editTitle: `Edit ${fieldName}`
+        }));
+        continue;
+      }
       const entries = Array.isArray(rawValue) ? rawValue : [rawValue];
       entries.forEach(entry => {
         const chip = formatCustomFieldChip(fieldName, entry);
@@ -1759,7 +1946,7 @@ async function mainAsyncLocal() {
           chipsByRow[row].push(chip);
         }
       });
-    });
+    }
     return chipsByRow;
   }
 
@@ -2689,6 +2876,51 @@ async function mainAsyncLocal() {
       };
     }
 
+    if (fieldKey === 'labels') {
+      const capability = await getEditableFieldCapability(issueData, 'labels');
+      const suggestionSupport = await hasLabelSuggestionSupport();
+      if (!capability.editable || !suggestionSupport) {
+        return null;
+      }
+      const currentLabels = (issueData?.fields?.labels || []).filter(Boolean);
+      const currentSelections = currentLabels.map(label => buildLabelOption(label));
+      return {
+        fieldKey,
+        editorType: 'label-search',
+        label: 'Labels',
+        selectionMode: 'multi',
+        currentText: `Labels: ${currentLabels.join(', ') || '--'}`,
+        currentOptionId: null,
+        currentSelections,
+        initialInputValue: '',
+        inputPlaceholder: 'Search existing labels',
+        loadOptions: async () => {
+          const baselineSuggestions = await getLabelSuggestions('').catch(() => []);
+          return mergeEditOptions(currentSelections, baselineSuggestions);
+        },
+        searchOptions: async query => {
+          const searchedOptions = await getLabelSuggestions(query);
+          return mergeEditOptions(currentSelections, mergeEditOptions(searchedOptions, popupState?.editState?.options || []));
+        },
+        save: selectedOptions => {
+          const nextLabels = selectedOptions.map(option => option.id).filter(Boolean);
+          return requestJson('PUT', `${INSTANCE_URL}rest/api/2/issue/${issueData.key}`, {
+            fields: {
+              labels: nextLabels
+            }
+          });
+        },
+        successMessage: () => 'Labels updated'
+      };
+    }
+
+    if (String(fieldKey || '').startsWith('customfield_')) {
+      const customFieldDefinition = await getSupportedCustomFieldDefinition(fieldKey, issueData);
+      if (customFieldDefinition) {
+        return customFieldDefinition;
+      }
+    }
+
     return null;
   }
 
@@ -2741,7 +2973,7 @@ async function mainAsyncLocal() {
           title: option.label
         }))
       : [];
-    const isSearchEditor = editState.editorType === 'user-search' || editState.editorType === 'issue-search';
+    const isSearchEditor = editState.editorType === 'user-search' || editState.editorType === 'issue-search' || editState.editorType === 'label-search';
     const inputDisabled = !!(editState.saving || (editState.loadingOptions && !isSearchEditor));
     const loadingText = editState.loadingOptions
       ? (isSearchEditor ? `Searching ${editState.label.toLowerCase()}...` : `Loading ${editState.label.toLowerCase()} values...`)
@@ -3115,23 +3347,26 @@ async function mainAsyncLocal() {
     const attachments = issueData.fields.attachment || [];
     const previewAttachments = buildPreviewAttachments(attachments);
     const labels = issueData.fields.labels || [];
-    const customFieldChips = buildCustomFieldChips(issueData, customFields);
     const linkageData = await resolveIssueLinkage(issueData);
     const issueTypeName = issueData.fields.issuetype?.name;
     const statusName = issueData.fields.status?.name;
     const priorityName = issueData.fields.priority?.name;
     const projectKey = key.split('-')[0];
-    const [priorityCapability, assigneeCapability, transitionOptions, sprintCapability, affectsCapability, fixVersionsCapability] = await Promise.all([
+    const [priorityCapability, assigneeCapability, transitionOptions, sprintCapability, affectsCapability, fixVersionsCapability, labelsCapability, labelSuggestionSupport, customFieldChips] = await Promise.all([
       displayFields.priority ? getEditableFieldCapability(issueData, 'priority') : Promise.resolve({editable: false}),
       displayFields.assignee ? getEditableFieldCapability(issueData, 'assignee') : Promise.resolve({editable: false}),
       displayFields.status ? getTransitionOptions(issueData.key).catch(() => []) : Promise.resolve([]),
       displayFields.sprint ? getEditableFieldCapability(issueData, 'sprint') : Promise.resolve({editable: false}),
       displayFields.affects ? getEditableFieldCapability(issueData, 'versions') : Promise.resolve({editable: false}),
-      displayFields.fixVersions ? getEditableFieldCapability(issueData, 'fixVersions') : Promise.resolve({editable: false})
+      displayFields.fixVersions ? getEditableFieldCapability(issueData, 'fixVersions') : Promise.resolve({editable: false}),
+      displayFields.labels ? getEditableFieldCapability(issueData, 'labels') : Promise.resolve({editable: false}),
+      displayFields.labels ? hasLabelSuggestionSupport() : Promise.resolve(false),
+      buildCustomFieldChips(issueData, customFields, state)
     ]);
     const statusEditable = Array.isArray(transitionOptions) && transitionOptions.length > 0;
     const priorityEditable = !!priorityCapability?.editable;
     const assigneeEditable = !!assigneeCapability?.editable;
+    const labelsEditable = !!labelsCapability?.editable && !!labelSuggestionSupport;
 
     const row1Chips = [
       displayFields.issueType ? buildFilterChip(
@@ -3202,10 +3437,13 @@ async function mainAsyncLocal() {
 
     const singleLabel = labels.length === 1 ? labels[0] : '';
     const row3Chips = [
-      displayFields.labels ? buildFilterChip(
+      displayFields.labels ? buildEditableFieldChip('labels', buildFilterChip(
         `Labels: ${labels.filter(Boolean).join(', ') || '--'}`,
         singleLabel ? `${scopeJqlToProject(projectKey, `labels = ${encodeJqlValue(singleLabel)}`)}` : ''
-      ) : null,
+      ), state, {
+        canEdit: labelsEditable,
+        editTitle: 'Edit labels'
+      }) : null,
       ...customFieldChips[3]
     ].filter(Boolean);
 
@@ -3513,7 +3751,7 @@ async function mainAsyncLocal() {
       if (!popupState?.editState || popupState.editState.fieldKey !== fieldKey || popupState.editState.searchRequestId !== requestId) {
         return;
       }
-      const mergedOptions = popupState.editState.editorType === 'user-search' || popupState.editState.editorType === 'issue-search'
+      const mergedOptions = popupState.editState.editorType === 'user-search' || popupState.editState.editorType === 'issue-search' || popupState.editState.editorType === 'label-search'
         ? mergeEditOptions(options, popupState.editState.options)
         : options;
       popupState = {
@@ -3611,7 +3849,7 @@ async function mainAsyncLocal() {
       }
       await renderIssuePopup(popupState);
 
-      if (popupState?.editState?.fieldKey === fieldKey && (popupState.editState.editorType === 'user-search' || popupState.editState.editorType === 'issue-search')) {
+      if (popupState?.editState?.fieldKey === fieldKey && (popupState.editState.editorType === 'user-search' || popupState.editState.editorType === 'issue-search' || popupState.editState.editorType === 'label-search')) {
         const searchRequestId = ++editSearchRequestCounter;
         popupState = {
           ...popupState,
@@ -3686,6 +3924,7 @@ async function mainAsyncLocal() {
 
     const canAutoComplete = popupState.editState.editorType !== 'user-search' &&
       popupState.editState.editorType !== 'issue-search' &&
+      popupState.editState.editorType !== 'label-search' &&
       popupState.editState.editorType !== 'multi-select' &&
       typeof selectionStart === 'number' &&
       typeof selectionEnd === 'number' &&
@@ -3718,7 +3957,7 @@ async function mainAsyncLocal() {
     };
     renderIssuePopup(popupState).catch(() => {});
 
-    if (popupState.editState.editorType === 'user-search' || popupState.editState.editorType === 'issue-search') {
+    if (popupState.editState.editorType === 'user-search' || popupState.editState.editorType === 'issue-search' || popupState.editState.editorType === 'label-search') {
       const searchRequestId = ++editSearchRequestCounter;
       popupState = {
         ...popupState,
