@@ -124,11 +124,11 @@ Until the Chrome Web Store listing is ready, the simplest distribution path is a
 
 Download the current packaged build here:
 
-`https://github.com/dgebaei/Jira-Hot-Linker/releases/download/1.9.0/jira-plugin-build.zip`
+`https://github.com/dgebaei/Jira-Hot-Linker/releases/latest/download/jira-plugin-build.zip`
 
 Release page:
 
-`https://github.com/dgebaei/Jira-Hot-Linker/releases/tag/1.9.0`
+`https://github.com/dgebaei/Jira-Hot-Linker/releases/latest`
 
 Installation steps:
 
