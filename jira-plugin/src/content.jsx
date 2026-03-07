@@ -206,6 +206,7 @@ function notifyJiraConnectionFailure(instanceUrl, error) {
 async function mainAsyncLocal() {
   const $ = require('jquery');
   const draggable = require('jquery-ui/ui/widgets/draggable');
+  const DEBUG_CUSTOM_FIELD_ID = 'customfield_11200';
 
   const config = await getConfig();
   const INSTANCE_URL = config.instanceUrl;
@@ -1309,13 +1310,21 @@ async function mainAsyncLocal() {
         allowedValues: []
       };
     }
-    return {
+    const result = {
       editable: true,
       fieldKey: resolvedFieldKey,
       fieldMeta: editMetaField,
       operations: Array.isArray(editMetaField.operations) ? editMetaField.operations : [],
       allowedValues: Array.isArray(editMetaField.allowedValues) ? editMetaField.allowedValues : []
     };
+    if (resolvedFieldKey === DEBUG_CUSTOM_FIELD_ID) {
+      console.log('[JiraHotLinker][customfield_11200] getEditableFieldCapability', {
+        issueKey: issueData.key,
+        resolvedFieldKey,
+        result
+      });
+    }
+    return result;
   }
 
   async function getTransitionOptions(issueKey) {
@@ -1903,12 +1912,34 @@ async function mainAsyncLocal() {
     const capability = await getEditableFieldCapability(issueData, fieldId);
     const fieldMeta = capability.fieldMeta;
     const fieldName = String(issueData?.names?.[fieldId] || fieldMeta?.name || fieldId);
+    if (fieldId === DEBUG_CUSTOM_FIELD_ID) {
+      console.log('[JiraHotLinker][customfield_11200] precheck', {
+        issueKey: issueData?.key,
+        fieldId,
+        fieldName,
+        capability,
+        fieldMeta
+      });
+    }
     if (!capability.editable || !fieldMeta || !Array.isArray(capability.allowedValues) || !capability.allowedValues.length) {
+      if (fieldId === DEBUG_CUSTOM_FIELD_ID) {
+        console.log('[JiraHotLinker][customfield_11200] rejected-before-support-descriptor', {
+          editable: capability.editable,
+          hasFieldMeta: !!fieldMeta,
+          hasAllowedValuesArray: Array.isArray(capability.allowedValues),
+          allowedValuesLength: Array.isArray(capability.allowedValues) ? capability.allowedValues.length : null
+        });
+      }
       return null;
     }
 
     const supportDescriptor = getCustomFieldSupportDescriptor(fieldMeta);
     if (!supportDescriptor) {
+      if (fieldId === DEBUG_CUSTOM_FIELD_ID) {
+        console.log('[JiraHotLinker][customfield_11200] rejected-support-descriptor', {
+          schema: fieldMeta?.schema
+        });
+      }
       return null;
     }
 
@@ -1926,15 +1957,35 @@ async function mainAsyncLocal() {
       .map(entry => buildCustomFieldOption(fieldName, entry))
       .filter(Boolean);
     const allOptions = mergeEditOptions(currentSelections, allowedOptions);
+    if (fieldId === DEBUG_CUSTOM_FIELD_ID) {
+      console.log('[JiraHotLinker][customfield_11200] normalized-options', {
+        supportDescriptor,
+        operations,
+        currentValue,
+        currentSelections,
+        allowedValues: capability.allowedValues,
+        allowedOptions,
+        allOptions
+      });
+    }
 
     if (!allOptions.length) {
+      if (fieldId === DEBUG_CUSTOM_FIELD_ID) {
+        console.log('[JiraHotLinker][customfield_11200] rejected-empty-options');
+      }
       return null;
     }
 
     if (isMultiValue && !operations.includes('set')) {
+      if (fieldId === DEBUG_CUSTOM_FIELD_ID) {
+        console.log('[JiraHotLinker][customfield_11200] rejected-no-set-operation', {operations});
+      }
       return null;
     }
     if (!isMultiValue && !operations.includes('set')) {
+      if (fieldId === DEBUG_CUSTOM_FIELD_ID) {
+        console.log('[JiraHotLinker][customfield_11200] rejected-no-set-operation', {operations});
+      }
       return null;
     }
 
