@@ -105,9 +105,7 @@ Imagine the moment a Jira key appears on screen:
 
 ### Install from the Chrome Web Store 🛍️
 
-If the idea already clicks, install it here:
-
-https://chrome.google.com/webstore/detail/jira-hotlinker/lbifpcpomdegljfpfhgfcjdabbeallhk
+Chrome Web Store listing: `TBD`
 
 Install it, point it at your Jira instance, and you can start hovering issue keys almost immediately.
 
@@ -119,6 +117,33 @@ After installing:
 4. Visit any allowed page that contains Jira issue keys.
 
 By default, GitHub is enabled, but that is only the starting point. You can add other Git providers and everyday tools such as Gmail, Outlook, Google Docs, Jira, and Confluence from the options page or directly from the extension action.
+
+### Install from GitHub for now 📥
+
+Until the Chrome Web Store listing is ready, the simplest distribution path is a GitHub release with a packaged build.
+
+Download the current packaged build here:
+
+`https://github.com/dgebaei/Jira-Hot-Linker/releases/download/1.9.0/jira-plugin-build.zip`
+
+Release page:
+
+`https://github.com/dgebaei/Jira-Hot-Linker/releases/tag/1.9.0`
+
+Installation steps:
+
+- Users download and unzip it locally
+- In Chrome or other Chromium browsers, open `chrome://extensions`
+- Enable `Developer mode`
+- Click `Load unpacked`
+- Select the unzipped `jira-plugin/` folder
+
+Why this is the best short-term option:
+
+- A plain zip is easy to distribute through GitHub Releases
+- Users can inspect exactly what they are installing
+- Chrome generally does not offer a smooth direct install flow for extensions outside the Web Store
+- `Load unpacked` is the most reliable option until store publishing is in place
 
 ## Privacy and authentication 🔐
 
