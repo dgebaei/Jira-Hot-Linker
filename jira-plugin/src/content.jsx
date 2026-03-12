@@ -15,54 +15,53 @@ const getInstanceUrl = async () => (await storageGet({
 })).instanceUrl;
 
 const getConfig = async () => (await storageGet(config));
-let sprintFieldIdsPromise;
-let epicLinkFieldIdsPromise;
+let allFieldsPromise;
 
-async function getSprintFieldIds(instanceUrl) {
-  if (sprintFieldIdsPromise) {
-    return sprintFieldIdsPromise;
+function getAllFields(instanceUrl) {
+  if (!allFieldsPromise) {
+    allFieldsPromise = get(instanceUrl + 'rest/api/2/field')
+      .then(fields => (Array.isArray(fields) ? fields : []))
+      .catch(() => []);
   }
-  sprintFieldIdsPromise = get(instanceUrl + 'rest/api/2/field')
-    .then(fields => {
-      if (!Array.isArray(fields)) {
-        return [];
-      }
-      return fields
-        .filter(field => {
-          const name = (field.name || '').toLowerCase();
-          const schemaCustom = ((field.schema && field.schema.custom) || '').toLowerCase();
-          const schemaType = ((field.schema && field.schema.type) || '').toLowerCase();
-          return name.includes('sprint') ||
-            schemaCustom.includes('gh-sprint') ||
-            schemaType === 'sprint';
-        })
-        .map(field => field.id);
-    })
-    .catch(() => []);
-  return sprintFieldIdsPromise;
+  return allFieldsPromise;
 }
 
-async function getEpicLinkFieldIds(instanceUrl) {
-  if (epicLinkFieldIdsPromise) {
-    return epicLinkFieldIdsPromise;
-  }
-  epicLinkFieldIdsPromise = get(instanceUrl + 'rest/api/2/field')
-    .then(fields => {
-      if (!Array.isArray(fields)) {
-        return [];
-      }
-      return fields
-        .filter(field => {
-          const name = (field.name || '').toLowerCase();
-          const schemaCustom = ((field.schema && field.schema.custom) || '').toLowerCase();
-          return name === 'epic link' || name === 'epic' || schemaCustom.includes('gh-epic-link');
-        })
-        .map(field => field.id);
-    })
-    .catch(() => []);
-  return epicLinkFieldIdsPromise;
+function getFieldIdsByFilter(instanceUrl, filterFn) {
+  return getAllFields(instanceUrl).then(fields => fields.filter(filterFn).map(field => field.id));
 }
 
+function getSprintFieldIds(instanceUrl) {
+  return getFieldIdsByFilter(instanceUrl, field => {
+    const name = (field.name || '').toLowerCase();
+    const schemaCustom = ((field.schema && field.schema.custom) || '').toLowerCase();
+    const schemaType = ((field.schema && field.schema.type) || '').toLowerCase();
+    return name.includes('sprint') ||
+      schemaCustom.includes('gh-sprint') ||
+      schemaType === 'sprint';
+  });
+}
+
+function getEpicLinkFieldIds(instanceUrl) {
+  return getFieldIdsByFilter(instanceUrl, field => {
+    const name = (field.name || '').toLowerCase();
+    const schemaCustom = ((field.schema && field.schema.custom) || '').toLowerCase();
+    return name === 'epic link' || name === 'epic' || schemaCustom.includes('gh-epic-link');
+  });
+}
+
+
+function buildRegexMatcher(regex) {
+  return function (text) {
+    const input = text || '';
+    const result = [];
+    let matches;
+    while ((matches = regex.exec(input)) !== null) {
+      result.push(matches[0]);
+    }
+    regex.lastIndex = 0;
+    return result;
+  };
+}
 
 /**
  * Returns a function that will return an array of jira tickets for any given string
@@ -79,33 +78,11 @@ function buildJiraKeyMatcher(projectKeys) {
     };
   }
   const projectMatches = escapedKeys.join('|');
-  const jiraTicketRegex = new RegExp('(?:' + projectMatches + ')[- ]\\d+', 'ig');
-
-  return function (text) {
-    let matches;
-    const result = [];
-
-    while ((matches = jiraTicketRegex.exec(text)) !== null) {
-      result.push(matches[0]);
-    }
-    return result;
-  };
+  return buildRegexMatcher(new RegExp('(?:' + projectMatches + ')[- ]\\d+', 'ig'));
 }
 
 function buildFallbackJiraKeyMatcher() {
-  const jiraTicketRegex = /\b[A-Z][A-Z0-9]{1,14}[- ]\d+\b/g;
-
-  return function (text) {
-    let matches;
-    const result = [];
-    const input = text || '';
-
-    while ((matches = jiraTicketRegex.exec(input)) !== null) {
-      result.push(matches[0]);
-    }
-    jiraTicketRegex.lastIndex = 0;
-    return result;
-  };
+  return buildRegexMatcher(/\b[A-Z][A-Z0-9]{1,14}[- ]\d+\b/g);
 }
 
 chrome.runtime.onMessage.addListener(function (msg) {
@@ -134,35 +111,25 @@ storageGet({'ui_tips_shown': []}).then(function ({ui_tips_shown}) {
   ui_tips_shown_local = ui_tips_shown;
 });
 
-async function get(url) {
-  const response = await sendMessage({action: 'get', url: url});
-  if (response.result) {
-    return response.result;
-  } else if (response.error) {
-    const err = new Error(response.error);
-    err.inner = response.error;
-    throw err;
-  }
-}
-
-async function getImageDataUrl(url) {
-  const response = await sendMessage({action: 'getImageDataUrl', url});
-  if (response.result) {
-    return response.result;
-  } else if (response.error) {
-    const err = new Error(response.error);
-    err.inner = response.error;
-    throw err;
-  }
-}
-async function requestJson(method, url, body) {
-  const response = await sendMessage({action: 'requestJson', method, url, body});
+function unwrapResponse(response, defaultError = 'Request failed') {
   if (Object.prototype.hasOwnProperty.call(response, 'result')) {
     return response.result;
   }
-  const err = new Error(response.error || 'Request failed');
+  const err = new Error(response.error || defaultError);
   err.inner = response.error;
   throw err;
+}
+
+async function get(url) {
+  return unwrapResponse(await sendMessage({action: 'get', url: url}));
+}
+
+async function getImageDataUrl(url) {
+  return unwrapResponse(await sendMessage({action: 'getImageDataUrl', url}));
+}
+
+async function requestJson(method, url, body) {
+  return unwrapResponse(await sendMessage({action: 'requestJson', method, url, body}));
 }
 async function uploadAttachment(url, file) {
   const bytes = Array.from(new Uint8Array(await file.arrayBuffer()));
@@ -173,12 +140,7 @@ async function uploadAttachment(url, file) {
     fileName: file.name,
     url
   });
-  if (Object.prototype.hasOwnProperty.call(response, 'result')) {
-    return response.result;
-  }
-  const err = new Error(response.error || 'Attachment upload failed');
-  err.inner = response.error;
-  throw err;
+  return unwrapResponse(response, 'Attachment upload failed');
 }
 
 
@@ -531,18 +493,16 @@ async function mainAsyncLocal() {
       }
     });
 
-    const result = [];
-    for (const comment of comments) {
+    return Promise.all(comments.map(async comment => {
       const rendered = renderedById[comment.id];
       const baseHtml = rendered || textToLinkedHtml(comment.body || '');
       const bodyHtml = await normalizeRichHtml(baseHtml, {imageMaxHeight: 100});
-      result.push({
+      return {
         author: comment.author?.displayName || 'Unknown',
         created: formatRelativeDate(comment.created),
         bodyHtml
-      });
-    }
-    return result;
+      };
+    }));
   }
 
   async function getCurrentUserInfo() {
@@ -1198,30 +1158,30 @@ async function mainAsyncLocal() {
       {label: 'latest details gitlabselfmanaged', url: `${INSTANCE_URL}rest/dev-status/latest/issue/detail?issueId=${issueId}&applicationType=gitlabselfmanaged&dataType=pullrequest`}
     ];
 
-    const results = [];
-    for (const probe of probes) {
-      try {
-        const response = await get(probe.url);
-        results.push({
-          label: probe.label,
-          url: probe.url,
-          ok: true,
-          topLevelKeys: Object.keys(response || {}),
-          hasSummary: Array.isArray(response?.summary),
-          hasDetail: Array.isArray(response?.detail),
-          summaryCount: Array.isArray(response?.summary) ? response.summary.length : null,
-          detailCount: Array.isArray(response?.detail) ? response.detail.length : null
-        });
-      } catch (ex) {
-        results.push({
-          label: probe.label,
-          url: probe.url,
-          ok: false,
-          error: ex?.message || String(ex)
-        });
+    const settled = await Promise.allSettled(probes.map(async probe => {
+      const response = await get(probe.url);
+      return {
+        label: probe.label,
+        url: probe.url,
+        ok: true,
+        topLevelKeys: Object.keys(response || {}),
+        hasSummary: Array.isArray(response?.summary),
+        hasDetail: Array.isArray(response?.detail),
+        summaryCount: Array.isArray(response?.summary) ? response.summary.length : null,
+        detailCount: Array.isArray(response?.detail) ? response.detail.length : null
+      };
+    }));
+    return settled.map((result, i) => {
+      if (result.status === 'fulfilled') {
+        return result.value;
       }
-    }
-    return results;
+      return {
+        label: probes[i].label,
+        url: probes[i].url,
+        ok: false,
+        error: result.reason?.message || String(result.reason)
+      };
+    });
   }
 
   async function getCachedValue(cache, key, buildValue) {
