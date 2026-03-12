@@ -4646,6 +4646,12 @@ async function mainAsyncLocal() {
   }
 
   // ── Event Handlers ────────────────────────────────────────
+  $(document.body).on('click', '._JX_open_options', function (e) {
+    e.preventDefault();
+    e.stopPropagation();
+    chrome.runtime.sendMessage({action: 'openOptionsPage'});
+  });
+
   $(document.body).on('click', '._JX_copy_link', function (e) {
     e.preventDefault();
     copyPrettyLink(e.currentTarget).catch(() => snackBar('There was an error!'));
@@ -5012,57 +5018,65 @@ async function mainAsyncLocal() {
     return true;
   }
 
-  function triggerPopupForKey(key, pointerX, pointerY) {
+  function fetchAndShowPopup(key, pointerX, pointerY) {
+    (async function (cancelToken) {
+      const issueData = await getIssueMetaData(key);
+      await normalizeIssueImages(issueData);
+      let pullRequests = [];
+      if (displayFields.pullRequests) {
+        try {
+          const pullRequestResponse = await getPullRequestDataCached(issueData.id);
+          pullRequests = normalizePullRequests(pullRequestResponse);
+        } catch (ex) {
+          console.log('[Jira HotLinker] Pull request fetch failed', {
+            issueKey: key,
+            issueId: issueData.id,
+            error: ex?.message || String(ex)
+          });
+        }
+      }
+
+      if (cancelToken.cancel) {
+        return;
+      }
+      let quickActions = [];
+      try {
+        quickActions = await resolveQuickActions(issueData);
+      } catch (ex) {
+        quickActions = [];
+      }
+
+      popupState = {
+        key,
+        issueData,
+        pullRequests,
+        pointerX,
+        pointerY,
+        quickActions,
+        actionsOpen: false,
+        actionLoadingKey: '',
+        actionError: '',
+        lastActionSuccess: '',
+        editState: null
+      };
+      await renderIssuePopup(popupState);
+    })(cancelToken).catch((error) => {
+      notifyJiraConnectionFailure(INSTANCE_URL, error);
+      lastHoveredKey = '';
+    });
+  }
+
+  function triggerPopupForKey(key, pointerX, pointerY, immediate) {
     clearTimeout(hoverDelayTimeout);
     lastHoveredKey = key;
     pendingHover = null;
-    hoverDelayTimeout = setTimeout(function () {
-      (async function (cancelToken) {
-        const issueData = await getIssueMetaData(key);
-        await normalizeIssueImages(issueData);
-        let pullRequests = [];
-        if (displayFields.pullRequests) {
-          try {
-            const pullRequestResponse = await getPullRequestDataCached(issueData.id);
-            pullRequests = normalizePullRequests(pullRequestResponse);
-          } catch (ex) {
-            console.log('[Jira HotLinker] Pull request fetch failed', {
-              issueKey: key,
-              issueId: issueData.id,
-              error: ex?.message || String(ex)
-            });
-          }
-        }
-
-        if (cancelToken.cancel) {
-          return;
-        }
-        let quickActions = [];
-        try {
-          quickActions = await resolveQuickActions(issueData);
-        } catch (ex) {
-          quickActions = [];
-        }
-
-        popupState = {
-          key,
-          issueData,
-          pullRequests,
-          pointerX,
-          pointerY,
-          quickActions,
-          actionsOpen: false,
-          actionLoadingKey: '',
-          actionError: '',
-          lastActionSuccess: '',
-          editState: null
-        };
-        await renderIssuePopup(popupState);
-      })(cancelToken).catch((error) => {
-        notifyJiraConnectionFailure(INSTANCE_URL, error);
-        lastHoveredKey = '';
-      });
-    }, 400);
+    if (immediate) {
+      fetchAndShowPopup(key, pointerX, pointerY);
+    } else {
+      hoverDelayTimeout = setTimeout(function () {
+        fetchAndShowPopup(key, pointerX, pointerY);
+      }, 400);
+    }
   }
 
   if (hoverModifierKey !== 'none') {
@@ -5071,7 +5085,7 @@ async function mainAsyncLocal() {
         return;
       }
       if (isModifierSatisfied(e)) {
-        triggerPopupForKey(pendingHover.key, pendingHover.pointerX, pendingHover.pointerY);
+        triggerPopupForKey(pendingHover.key, pendingHover.pointerX, pendingHover.pointerY, true);
       }
     });
   }
@@ -5081,9 +5095,17 @@ async function mainAsyncLocal() {
       return;
     }
     const element = document.elementFromPoint(e.clientX, e.clientY);
-    if (element === container[0] || $.contains(container[0], element)) {
+    const isOverContainer = element === container[0] || $.contains(container[0], element);
+    if (!isOverContainer && container.html()) {
+      const rect = container[0].getBoundingClientRect();
+      const margin = 40;
+      if (e.clientX >= rect.left - margin && e.clientX <= rect.right + margin &&
+          e.clientY >= rect.top - margin && e.clientY <= rect.bottom + margin) {
+        return;
+      }
+    }
+    if (isOverContainer) {
       showTip('tooltip_drag', 'Tip: You can pin the tooltip by dragging the title !');
-      // cancel when hovering over the container it self
       return;
     }
     if (element) {
@@ -5112,7 +5134,7 @@ async function mainAsyncLocal() {
           }
           return;
         }
-        triggerPopupForKey(key, e.pageX, e.pageY);
+        triggerPopupForKey(key, e.pageX, e.pageY, hoverModifierKey !== 'none');
       } else if (!containerPinned) {
         pendingHover = null;
         clearTimeout(hoverDelayTimeout);

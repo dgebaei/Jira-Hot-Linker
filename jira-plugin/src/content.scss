@@ -718,9 +718,14 @@ body ._JX {
 
   &_comment_actions {
     display: flex;
-    gap: 8px;
-    justify-content: flex-end;
+    align-items: center;
+    justify-content: space-between;
     margin-top: 8px;
+  }
+
+  &_comment_actions_buttons {
+    display: flex;
+    gap: 8px;
   }
 
   &_comment_save,
@@ -1249,4 +1254,25 @@ body ._JX {
   }
 }
 
+body ._JX {
+  &_footer_settings {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 11px;
+    color: #8993a4;
+    text-decoration: none;
+    background: none;
+    border: none;
+    padding: 0;
+    cursor: pointer;
 
+    &:hover {
+      color: #5e6c84;
+    }
+
+    svg {
+      opacity: 0.7;
+    }
+  }
+}

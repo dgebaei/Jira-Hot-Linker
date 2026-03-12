@@ -247,6 +247,12 @@ chrome.runtime.onMessage.addListener(function (request, sender, sendResponse) {
     return SEND_RESPONSE_IS_ASYNC;
   }
 
+  if (request.action === 'openOptionsPage') {
+    chrome.runtime.openOptionsPage();
+    sendResponse({result: true});
+    return false;
+  }
+
   return false;
 });
 
