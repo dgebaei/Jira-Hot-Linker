@@ -5,6 +5,8 @@ export default {
   instanceUrl: '',
   v15upgrade: false,
   customFields: [],
+  hoverDepth: 'shallow',
+  hoverModifierKey: 'none',
   displayFields: {
     issueType: true,
     status: true,

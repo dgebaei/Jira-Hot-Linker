@@ -206,6 +206,8 @@ async function mainAsyncLocal() {
     pullRequests: true,
     ...(config.displayFields || {})
   };
+  const hoverDepth = config.hoverDepth || 'shallow';
+  const hoverModifierKey = config.hoverModifierKey || 'none';
   const customFields = normalizeCustomFields(config.customFields);
   let jiraProjects = [];
   let getJiraKeys = buildFallbackJiraKeyMatcher();
@@ -4958,6 +4960,122 @@ async function mainAsyncLocal() {
       clearTimeout(hideTimeOut);
     }
   });
+  function extractKeysFromNode(node) {
+    let keys = getJiraKeys(getShallowText(node));
+    if (!size(keys) && node.children.length < 10) {
+      const fullText = (node.textContent || '');
+      if (fullText.length < 200) {
+        keys = getJiraKeys(fullText);
+      }
+    }
+    if (!size(keys) && node.href) {
+      keys = getJiraKeys(getRelativeHref(node.href));
+    }
+    return keys;
+  }
+
+  function detectJiraKeysAtPoint(element) {
+    let keys = extractKeysFromNode(element);
+    if (!size(keys) && element.parentElement && element.parentElement.href) {
+      keys = getJiraKeys(getRelativeHref(element.parentElement.href));
+    }
+    if (hoverDepth === 'exact') {
+      return keys;
+    }
+    const maxAncestors = hoverDepth === 'deep' ? 5 : 1;
+    if (!size(keys)) {
+      let ancestor = element.parentElement;
+      for (let i = 0; i < maxAncestors && ancestor && !size(keys); i++) {
+        if (ancestor === document.body) break;
+        keys = getJiraKeys(getShallowText(ancestor));
+        if (!size(keys) && ancestor.children.length < 20) {
+          const ancestorText = (ancestor.textContent || '');
+          if (ancestorText.length < 300) {
+            keys = getJiraKeys(ancestorText);
+          }
+        }
+        if (!size(keys) && ancestor.href) {
+          keys = getJiraKeys(getRelativeHref(ancestor.href));
+        }
+        ancestor = ancestor.parentElement;
+      }
+    }
+    return keys;
+  }
+
+  let pendingHover = null;
+
+  function isModifierSatisfied(e) {
+    if (hoverModifierKey === 'alt') return e.altKey;
+    if (hoverModifierKey === 'ctrl') return e.ctrlKey;
+    if (hoverModifierKey === 'shift') return e.shiftKey;
+    return true;
+  }
+
+  function triggerPopupForKey(key, pointerX, pointerY) {
+    clearTimeout(hoverDelayTimeout);
+    lastHoveredKey = key;
+    pendingHover = null;
+    hoverDelayTimeout = setTimeout(function () {
+      (async function (cancelToken) {
+        const issueData = await getIssueMetaData(key);
+        await normalizeIssueImages(issueData);
+        let pullRequests = [];
+        if (displayFields.pullRequests) {
+          try {
+            const pullRequestResponse = await getPullRequestDataCached(issueData.id);
+            pullRequests = normalizePullRequests(pullRequestResponse);
+          } catch (ex) {
+            console.log('[Jira HotLinker] Pull request fetch failed', {
+              issueKey: key,
+              issueId: issueData.id,
+              error: ex?.message || String(ex)
+            });
+          }
+        }
+
+        if (cancelToken.cancel) {
+          return;
+        }
+        let quickActions = [];
+        try {
+          quickActions = await resolveQuickActions(issueData);
+        } catch (ex) {
+          quickActions = [];
+        }
+
+        popupState = {
+          key,
+          issueData,
+          pullRequests,
+          pointerX,
+          pointerY,
+          quickActions,
+          actionsOpen: false,
+          actionLoadingKey: '',
+          actionError: '',
+          lastActionSuccess: '',
+          editState: null
+        };
+        await renderIssuePopup(popupState);
+      })(cancelToken).catch((error) => {
+        notifyJiraConnectionFailure(INSTANCE_URL, error);
+        lastHoveredKey = '';
+      });
+    }, 400);
+  }
+
+  if (hoverModifierKey !== 'none') {
+    document.addEventListener('keydown', function (e) {
+      if (!pendingHover || containerPinned) {
+        return;
+      }
+      if (isModifierSatisfied(e)) {
+        triggerPopupForKey(pendingHover.key, pendingHover.pointerX, pendingHover.pointerY);
+      }
+    });
+  }
+
   $(document.body).on('mousemove', debounce(function (e) {
     if (e.buttons || cancelToken.cancel) {
       return;
@@ -4969,40 +5087,18 @@ async function mainAsyncLocal() {
       return;
     }
     if (element) {
-      let keys = getJiraKeys(getShallowText(element));
-      if (!size(keys) && element.children.length < 10) {
-        const fullText = (element.textContent || '');
-        if (fullText.length < 200) {
-          keys = getJiraKeys(fullText);
-        }
-      }
-      if (!size(keys) && element.href) {
-        keys = getJiraKeys(getRelativeHref(element.href));
-      }
-      if (!size(keys) && element.parentElement && element.parentElement.href) {
-        keys = getJiraKeys(getRelativeHref(element.parentElement.href));
-      }
-      if (!size(keys)) {
-        let ancestor = element.parentElement;
-        for (let i = 0; i < 5 && ancestor && !size(keys); i++) {
-          if (ancestor === document.body) break;
-          keys = getJiraKeys(getShallowText(ancestor));
-          if (!size(keys) && ancestor.children.length < 20) {
-            const ancestorText = (ancestor.textContent || '');
-            if (ancestorText.length < 300) {
-              keys = getJiraKeys(ancestorText);
-            }
-          }
-          if (!size(keys) && ancestor.href) {
-            keys = getJiraKeys(getRelativeHref(ancestor.href));
-          }
-          ancestor = ancestor.parentElement;
-        }
-      }
+      const keys = detectJiraKeysAtPoint(element);
 
       if (size(keys)) {
-        clearTimeout(hideTimeOut);
         const key = keys[0].replace(' ', '-');
+
+        if (hoverModifierKey !== 'none' && !isModifierSatisfied(e)) {
+          pendingHover = {key, pointerX: e.pageX, pointerY: e.pageY};
+          return;
+        }
+        pendingHover = null;
+
+        clearTimeout(hideTimeOut);
         if (lastHoveredKey === key && container.html()) {
           if (popupState) {
             popupState = {
@@ -5016,58 +5112,9 @@ async function mainAsyncLocal() {
           }
           return;
         }
-        clearTimeout(hoverDelayTimeout);
-        lastHoveredKey = key;
-        const pointerX = e.pageX;
-        const pointerY = e.pageY;
-        hoverDelayTimeout = setTimeout(function () {
-          (async function (cancelToken) {
-            const issueData = await getIssueMetaData(key);
-            await normalizeIssueImages(issueData);
-            let pullRequests = [];
-            if (displayFields.pullRequests) {
-              try {
-                const pullRequestResponse = await getPullRequestDataCached(issueData.id);
-                pullRequests = normalizePullRequests(pullRequestResponse);
-              } catch (ex) {
-                console.log('[Jira HotLinker] Pull request fetch failed', {
-                  issueKey: key,
-                  issueId: issueData.id,
-                  error: ex?.message || String(ex)
-                });
-              }
-            }
-
-            if (cancelToken.cancel) {
-              return;
-            }
-            let quickActions = [];
-            try {
-              quickActions = await resolveQuickActions(issueData);
-            } catch (ex) {
-              quickActions = [];
-            }
-
-            popupState = {
-              key,
-              issueData,
-              pullRequests,
-              pointerX,
-              pointerY,
-              quickActions,
-              actionsOpen: false,
-              actionLoadingKey: '',
-              actionError: '',
-              lastActionSuccess: '',
-              editState: null
-            };
-            await renderIssuePopup(popupState);
-          })(cancelToken).catch((error) => {
-            notifyJiraConnectionFailure(INSTANCE_URL, error);
-            lastHoveredKey = '';
-          });
-        }, 400);
+        triggerPopupForKey(key, e.pageX, e.pageY);
       } else if (!containerPinned) {
+        pendingHover = null;
         clearTimeout(hoverDelayTimeout);
         lastHoveredKey = '';
         hideTimeOut = setTimeout(hideContainer, 250);

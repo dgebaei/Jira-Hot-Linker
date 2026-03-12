@@ -160,6 +160,8 @@ function ConfigPage(props) {
     ...defaultConfig.displayFields,
     ...(props.displayFields || {})
   });
+  const [hoverDepth, setHoverDepth] = useState(props.hoverDepth || 'shallow');
+  const [hoverModifierKey, setHoverModifierKey] = useState(props.hoverModifierKey || 'none');
   const [customFields, setCustomFields] = useState(normalizeCustomFields(props.customFields));
   const [fieldCatalog, setFieldCatalog] = useState({});
   const [status, setStatus] = useState('');
@@ -254,6 +256,8 @@ function ConfigPage(props) {
       instanceUrl: normalizedInstanceUrl,
       domains,
       v15upgrade: true,
+      hoverDepth,
+      hoverModifierKey,
       displayFields,
       customFields: normalizeCustomFields(customFields)
     });
@@ -292,7 +296,7 @@ function ConfigPage(props) {
       </header>
 
       <div className='settingsGrid'>
-        <section className='settingsCard settingsCardWide'>
+        <section className='settingsCard'>
           <div className='sectionHeading'>
             <div>
               <h2>Connection</h2>
@@ -321,6 +325,42 @@ function ConfigPage(props) {
             <span className='fieldHelp'>
               Comma-separated domains, URLs, or valid <a href='https://developer.chrome.com/extensions/match_patterns'>match patterns</a>.
               You can also add a page directly from the extension icon.
+            </span>
+          </label>
+        </section>
+
+        <section className='settingsCard'>
+          <div className='sectionHeading'>
+            <div>
+              <h2>Hover Behavior</h2>
+              <p>Control when the tooltip appears as you move the mouse.</p>
+            </div>
+          </div>
+
+          <label className='formField'>
+            <span className='fieldLabel'>Trigger depth</span>
+            <select value={hoverDepth} onChange={event => setHoverDepth(event.target.value)}>
+              <option value='exact' title='Triggers only when the cursor is directly over text or a link containing a Jira key. Least sensitive — best for dense pages.'>Exact — only the hovered element itself</option>
+              <option value='shallow' title='Checks the hovered element and its immediate parent. Good balance between precision and convenience.'>Shallow — hovered element + immediate parent</option>
+              <option value='deep' title='Walks up to 5 levels of parent elements looking for Jira keys. Most sensitive — may trigger on nearby text you did not intend to hover.'>Deep — walk up to 5 ancestor levels (most sensitive)</option>
+            </select>
+            <span className='fieldHelp'>
+              How aggressively the extension searches surrounding DOM elements for Jira issue keys.
+              Use "Exact" if the tooltip triggers too often on pages with dense text.
+            </span>
+          </label>
+
+          <label className='formField'>
+            <span className='fieldLabel'>Modifier key</span>
+            <select value={hoverModifierKey} onChange={event => setHoverModifierKey(event.target.value)}>
+              <option value='none' title='The tooltip appears automatically whenever the cursor rests on a Jira key. No extra keys needed.'>None — hover alone triggers the tooltip</option>
+              <option value='alt' title='Hover over a Jira key, then press Alt to show the tooltip. You can also hold Alt before hovering.'>Alt — press Alt after hovering</option>
+              <option value='ctrl' title='Hover over a Jira key, then press Ctrl to show the tooltip. You can also hold Ctrl before hovering.'>Ctrl — press Ctrl after hovering</option>
+              <option value='shift' title='Hover over a Jira key, then press Shift to show the tooltip. You can also hold Shift before hovering.'>Shift — press Shift after hovering</option>
+            </select>
+            <span className='fieldHelp'>
+              When set, hover over a Jira key and then press the chosen key to reveal the tooltip.
+              You can also hold the key first and then hover. Useful for on-demand activation instead of automatic popups.
             </span>
           </label>
         </section>

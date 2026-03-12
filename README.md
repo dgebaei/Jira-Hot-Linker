@@ -101,6 +101,9 @@ Installation steps:
 
 - `Jira instance URL` points the extension at the Jira site used for issue metadata
 - `Allowed pages` controls where ticket detection is active
+- `Hover Behavior` lets you fine-tune when the tooltip appears:
+  - **Trigger depth** — choose how aggressively the extension looks for Jira keys around the cursor: `Exact` (only the element directly under the cursor), `Shallow` (element + immediate parent, the default), or `Deep` (up to 5 ancestor levels)
+  - **Modifier key** — optionally require a key press to activate the tooltip. Hover a Jira key and then press the modifier (Alt, Ctrl, or Shift) to show the popup on demand. You can also hold the key first and then hover. Set to `None` by default for automatic activation.
 - `Tooltip Layout` lets you choose which built-in fields appear in the hover card
 - `Custom Fields` lets you add Jira field IDs such as `customfield_12345` and place them in summary rows
 
