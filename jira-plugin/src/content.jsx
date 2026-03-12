@@ -10,11 +10,16 @@ import config from 'options/config.js';
 
 waitForDocument(() => require('src/content.scss'));
 
+// ── Config ──────────────────────────────────────────────────────
+
 const getInstanceUrl = async () => (await storageGet({
   instanceUrl: config.instanceUrl
 })).instanceUrl;
 
 const getConfig = async () => (await storageGet(config));
+
+// ── Field ID Resolution ─────────────────────────────────────────
+
 let allFieldsPromise;
 
 function getAllFields(instanceUrl) {
@@ -49,6 +54,7 @@ function getEpicLinkFieldIds(instanceUrl) {
   });
 }
 
+// ── Jira Key Matching ───────────────────────────────────────────
 
 function buildRegexMatcher(regex) {
   return function (text) {
@@ -85,6 +91,8 @@ function buildFallbackJiraKeyMatcher() {
   return buildRegexMatcher(/\b[A-Z][A-Z0-9]{1,14}[- ]\d+\b/g);
 }
 
+// ── Tips & Notifications ────────────────────────────────────────
+
 chrome.runtime.onMessage.addListener(function (msg) {
   if (msg.action === 'message') {
     snackBar(msg.message);
@@ -110,6 +118,8 @@ async function showTip(tipName, tipMessage) {
 storageGet({'ui_tips_shown': []}).then(function ({ui_tips_shown}) {
   ui_tips_shown_local = ui_tips_shown;
 });
+
+// ── Network / API ───────────────────────────────────────────────
 
 function unwrapResponse(response, defaultError = 'Request failed') {
   if (Object.prototype.hasOwnProperty.call(response, 'result')) {
@@ -144,6 +154,8 @@ async function uploadAttachment(url, file) {
 }
 
 
+// ── Connection Error Detection ──────────────────────────────────
+
 function isJiraConnectionFailure(error) {
   const message = String(error?.message || error?.inner || error || '');
   return CONNECTION_ERROR_PATTERN.test(message);
@@ -165,9 +177,15 @@ function notifyJiraConnectionFailure(instanceUrl, error) {
   return true;
 }
 
+// ═══════════════════════════════════════════════════════════════
+// Main Content Script
+// ═══════════════════════════════════════════════════════════════
+
 async function mainAsyncLocal() {
   const $ = require('jquery');
   const draggable = require('jquery-ui/ui/widgets/draggable');
+
+  // ── Initialization & State ──────────────────────────────────
 
   const config = await getConfig();
   const INSTANCE_URL = config.instanceUrl;
@@ -246,6 +264,8 @@ async function mainAsyncLocal() {
   let commentUploadSequence = 0;
 
 
+  // ── URL & Image Handling ───────────────────────────────────
+
   function toAbsoluteJiraUrl(url) {
     if (!url) {
       return url;
@@ -318,6 +338,8 @@ async function mainAsyncLocal() {
 
     await Promise.all(imageLoads);
   }
+
+  // ── Text & HTML Formatting ─────────────────────────────────
 
   function escapeHtml(input) {
     const node = document.createElement('div');
@@ -393,6 +415,8 @@ async function mainAsyncLocal() {
       timeStyle: 'short'
     }).format(createdAt);
   }
+
+  // ── HTML Sanitization ──────────────────────────────────────
 
   function sanitizeRichHtml(rawHtml) {
     const temp = document.createElement('div');
@@ -481,6 +505,8 @@ async function mainAsyncLocal() {
 
     return temp.innerHTML;
   }
+
+  // ── Comments ──────────────────────────────────────────────
 
   async function buildCommentsForDisplay(issueData) {
     const comments = [...(issueData.fields.comment?.comments || [])].sort((a, b) => {
@@ -1128,6 +1154,9 @@ async function mainAsyncLocal() {
     }
     await discardCommentComposerDraft();
   }
+
+  // ── Pull Requests & Dev Status ─────────────────────────────
+
   /***
    * Retrieve only the text that is directly owned by the node
    * @param node
@@ -1184,6 +1213,8 @@ async function mainAsyncLocal() {
     });
   }
 
+  // ── Caching ───────────────────────────────────────────────
+
   async function getCachedValue(cache, key, buildValue) {
     const existing = cache.get(key);
     if (existing && (Date.now() - existing.createdAt) < cacheTtlMs) {
@@ -1197,6 +1228,8 @@ async function mainAsyncLocal() {
     });
     return value;
   }
+
+  // ── Issue Data & Metadata ──────────────────────────────────
 
   async function getIssueMetaData(issueKey) {
     return getCachedValue(issueCache, issueKey, async () => {
@@ -1308,6 +1341,8 @@ async function mainAsyncLocal() {
         });
     });
   }
+
+  // ── Assignee Search ────────────────────────────────────────
 
   function normalizeAssignableUsers(users) {
     const uniqueById = new Map();
@@ -1467,6 +1502,8 @@ async function mainAsyncLocal() {
       };
     });
   }
+
+  // ── Issue Linkage & Hierarchy ──────────────────────────────
 
   function extractIssueKeyFromLinkageValue(value) {
     if (!value) {
@@ -1663,6 +1700,8 @@ async function mainAsyncLocal() {
     });
   }
 
+  // ── Labels ────────────────────────────────────────────────
+
   function stripSimpleHtml(value) {
     return String(value || '').replace(/<[^>]+>/g, '');
   }
@@ -1729,6 +1768,8 @@ async function mainAsyncLocal() {
     }
     return labelSuggestionSupportPromise;
   }
+
+  // ── Custom Fields ──────────────────────────────────────────
 
   function getCustomFieldPrimitive(entry) {
     if (entry === undefined || entry === null) {
@@ -2144,6 +2185,8 @@ async function mainAsyncLocal() {
     return chipsByRow;
   }
 
+  // ── Sprints & Versions ─────────────────────────────────────
+
   function getIssueSprintEntries(issueData) {
     const names = issueData.names || {};
     const fields = issueData.fields || {};
@@ -2273,6 +2316,8 @@ async function mainAsyncLocal() {
       .join(', ');
   }
 
+  // ── JQL & Display Utilities ────────────────────────────────
+
   function encodeJqlValue(value) {
     return `"${String(value || '').replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
   }
@@ -2362,6 +2407,8 @@ async function mainAsyncLocal() {
     return `project = ${encodeJqlValue(projectKey)} AND ${clause}`;
   }
 
+  // ── Chips & Activity Indicators ────────────────────────────
+
   function buildFilterChip(text, jql, extra = {}) {
     const linkUrl = jql ? buildJqlUrl(jql) : '';
     return {
@@ -2425,6 +2472,8 @@ async function mainAsyncLocal() {
     }));
   }
 
+  // ── Pull Request Display ───────────────────────────────────
+
   function formatPullRequestTitle(pr) {
     const id = pr?.id || pr?.number || pr?.key || '';
     const title = pr?.name || pr?.title || 'Untitled pull request';
@@ -2461,6 +2510,8 @@ async function mainAsyncLocal() {
   function buildQuickActionError(error) {
     return error?.message || error?.inner || 'Action failed';
   }
+
+  // ── User & Quick Actions ───────────────────────────────────
 
   function areSameJiraUser(left, right) {
     if (!left || !right) {
@@ -2523,6 +2574,8 @@ async function mainAsyncLocal() {
     return Array.isArray(response?.transitions) ? response.transitions : [];
   }
 
+  // ── Status Transitions ─────────────────────────────────────
+
   function isInProgressStatusCategory(statusCategory) {
     const key = String(statusCategory?.key || '').toLowerCase();
     const name = String(statusCategory?.name || '').toLowerCase();
@@ -2568,6 +2621,8 @@ async function mainAsyncLocal() {
   function buildEditFieldError(error) {
     return error?.message || error?.inner || 'Update failed';
   }
+
+  // ── Edit Options & Multi-Select ────────────────────────────
 
   function buildEditOption(id, label, extra = {}) {
     const normalizedLabel = String(label || '');
@@ -2659,6 +2714,8 @@ async function mainAsyncLocal() {
       hasChanges: !areSameOptionIds(selectedOptionIds, originalOptionIds)
     };
   }
+
+  // ── Field Option Retrieval ─────────────────────────────────
 
   async function getProjectVersionOptions(issueData, cacheKey) {
     const projectKey = String(issueData?.key || '').split('-')[0];
@@ -2842,6 +2899,8 @@ async function mainAsyncLocal() {
     }
     throw lastError || new Error('Could not update assignee');
   }
+
+  // ── Field Editor Definitions ───────────────────────────────
 
   async function getEditableFieldDefinition(fieldKey, issueData) {
     if (fieldKey === 'versions') {
@@ -3249,6 +3308,8 @@ async function mainAsyncLocal() {
     return null;
   }
 
+  // ── Edit UI Presentation ───────────────────────────────────
+
   function filterEditOptions(options, inputValue) {
     const normalizedInput = String(inputValue || '').trim().toLowerCase();
     const list = Array.isArray(options) ? options : [];
@@ -3357,6 +3418,8 @@ async function mainAsyncLocal() {
       editTitle: options.editTitle || `Edit ${baseChip.text}`
     };
   }
+
+  // ── Avatars & User Display ─────────────────────────────────
 
   function getUserInitials(displayName, fallbackInitials = 'NA') {
     const tokens = String(displayName || '')
@@ -3558,6 +3621,8 @@ async function mainAsyncLocal() {
     return populatedFieldId || sprintFieldIds?.[0] || '';
   }
 
+  // ── Quick Actions ──────────────────────────────────────────
+
   async function resolveQuickActions(issueData) {
 
     const actionResults = await Promise.allSettled([
@@ -3666,6 +3731,8 @@ async function mainAsyncLocal() {
       quickActions: actions
     };
   }
+
+  // ── Popup Data & Rendering ─────────────────────────────────
 
   async function buildPopupDisplayData(state) {
     const {key, issueData, pullRequests, actionLoadingKey, actionError, lastActionSuccess, actionsOpen, quickActions} = state;
@@ -3891,6 +3958,7 @@ async function mainAsyncLocal() {
     );
     return displayData;
   }
+  // ── Popup Positioning ──────────────────────────────────────
   function getRelativeHref(href) {
     const documentHref = document.location.href.split('#')[0];
     if (href.startsWith(documentHref)) {
@@ -3952,6 +4020,7 @@ async function mainAsyncLocal() {
     return clampContainerPosition(left, top);
   }
 
+  // ── Popup Rendering & State ────────────────────────────────
   const container = $('<div class="_JX_container">');
   const previewOverlay = $(`
     <div class="_JX_preview_overlay">
@@ -4063,6 +4132,7 @@ async function mainAsyncLocal() {
       snackBar(successMessage);
     }
   }
+  // ── Field Editing ─────────────────────────────────────────
   async function handleQuickAction(actionKey) {
     if (!popupState?.issueData || popupState.actionLoadingKey) {
       return;
@@ -4511,6 +4581,7 @@ async function mainAsyncLocal() {
     cancel: 'a, button, input, textarea, img, ._JX_description, ._JX_comments, ._JX_comment_body, ._JX_description_text, ._JX_related_pr'
   }, container);
   
+  // ── Clipboard & Copy ──────────────────────────────────────
   function buildPrettyLinkPayload(sourceElement) {
     const url = sourceElement?.getAttribute('data-url') || sourceElement?.getAttribute('href') || '';
     const ticket = sourceElement?.getAttribute('data-ticket') || '';
@@ -4572,6 +4643,7 @@ async function mainAsyncLocal() {
     }
   }
 
+  // ── Event Handlers ────────────────────────────────────────
   $(document.body).on('click', '._JX_copy_link', function (e) {
     e.preventDefault();
     copyPrettyLink(e.currentTarget).catch(() => snackBar('There was an error!'));
@@ -4790,6 +4862,7 @@ async function mainAsyncLocal() {
     handleCommentDiscard().catch(() => {});
   });
 
+  // ── Image Preview ─────────────────────────────────────────
   function closePreviewOverlay() {
     previewOverlay.removeClass('is-open');
     previewOverlay.find('img').attr('src', '');
@@ -4827,6 +4900,7 @@ async function mainAsyncLocal() {
     openPreviewOverlay(source).catch(() => {});
   });
 
+  // ── Container Lifecycle ────────────────────────────────────
   function hideContainer() {
     lastHoveredKey = '';
     popupState = null;
@@ -4856,6 +4930,7 @@ async function mainAsyncLocal() {
     }
   });
 
+  // ── Hover Detection & Script Bootstrap ─────────────────────
   let cancelToken = {};
 
   function passiveCancel(cooldown) {
