@@ -211,6 +211,7 @@ async function mainAsyncLocal() {
     sprint: true,
     fixVersions: true,
     affects: true,
+    environment: true,
     labels: true,
     epicParent: true,
     attachments: true,
@@ -1698,6 +1699,7 @@ async function mainAsyncLocal() {
         'status',
         'priority',
         'labels',
+        'environment',
         'versions',
         'parent',
         'fixVersions',
@@ -2746,6 +2748,19 @@ async function mainAsyncLocal() {
     return formatFixVersionText(versions);
   }
 
+  function formatEnvironmentDisplayText(environment) {
+    const normalizedText = String(environment || '')
+      .replace(/[\r\n]+/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (!normalizedText) {
+      return '--';
+    }
+    return normalizedText.length > 120
+      ? `${normalizedText.slice(0, 117).trimEnd()}...`
+      : normalizedText;
+  }
+
   function getVisibleSprintsForDisplay(sprints) {
     const sprintList = Array.isArray(sprints) ? sprints : [];
     const activeSprints = sprintList.filter(sprint => String(sprint?.state || '').toLowerCase() === 'active');
@@ -3282,6 +3297,119 @@ async function mainAsyncLocal() {
     return sprint.state ? `${sprint.name} (${String(sprint.state).toUpperCase()})` : sprint.name;
   }
 
+  function compareBoardRefs(left, right, issueProjectKey = '') {
+    const normalizedIssueProjectKey = String(issueProjectKey || '').trim();
+    const leftProjectKey = String(left?.projectKey || '').trim();
+    const rightProjectKey = String(right?.projectKey || '').trim();
+    const leftMatchesProject = normalizedIssueProjectKey && leftProjectKey === normalizedIssueProjectKey;
+    const rightMatchesProject = normalizedIssueProjectKey && rightProjectKey === normalizedIssueProjectKey;
+    if (leftMatchesProject !== rightMatchesProject) {
+      return leftMatchesProject ? -1 : 1;
+    }
+    const nameOrder = String(left?.name || '').localeCompare(String(right?.name || ''), undefined, {
+      numeric: true,
+      sensitivity: 'base'
+    });
+    if (nameOrder !== 0) {
+      return nameOrder;
+    }
+    return String(left?.id || '').localeCompare(String(right?.id || ''), undefined, {
+      numeric: true,
+      sensitivity: 'base'
+    });
+  }
+
+  function pickPreferredSprintBoardRef(sprint, issueProjectKey = '') {
+    const boardRefs = Array.isArray(sprint?.boardRefs) ? sprint.boardRefs : [];
+    const sortedBoardRefs = boardRefs.slice().sort((left, right) => compareBoardRefs(left, right, issueProjectKey));
+    return sortedBoardRefs[0] || null;
+  }
+
+  function getSprintBoardGroupMeta(sprint, issueData, issueBoardIds = []) {
+    const projectName = String(issueData?.fields?.project?.name || '').trim();
+    const projectKey = String(issueData?.key || '').split('-')[0];
+    const preferredBoardRef = pickPreferredSprintBoardRef(sprint, projectKey);
+    const boardId = String(preferredBoardRef?.id || '').trim();
+    const boardName = String(preferredBoardRef?.name || '').trim();
+    const boardProjectKey = String(preferredBoardRef?.projectKey || '').trim();
+    const issueBoardIdSet = new Set((Array.isArray(issueBoardIds) ? issueBoardIds : []).map(id => String(id || '')).filter(Boolean));
+    const isIssueBoard = Array.isArray(sprint?.boardRefs)
+      ? sprint.boardRefs.some(ref => issueBoardIdSet.has(String(ref?.id || '')))
+      : false;
+
+    return {
+      groupKey: boardId ? `board:${boardId}` : '__other_boards__',
+      groupLabel: boardName || (boardProjectKey ? `${boardProjectKey} board` : (projectName || projectKey || 'Other boards')),
+      sortKey: isIssueBoard ? '0' : '1'
+    };
+  }
+
+  function buildGroupedOptionList(options, optionsConfig = {}) {
+    const list = Array.isArray(options) ? options : [];
+    const includeUngrouped = optionsConfig.includeUngrouped !== false;
+    const ungroupedOptions = includeUngrouped
+      ? list.filter(option => !option?.groupKey)
+      : [];
+    const groupedOptions = list.filter(option => option?.groupKey);
+    const groups = new Map();
+
+    groupedOptions.forEach(option => {
+      const groupKey = String(option.groupKey || '').trim();
+      if (!groupKey) {
+        return;
+      }
+      const existingGroup = groups.get(groupKey) || {
+        key: groupKey,
+        label: String(option.groupLabel || groupKey),
+        sortKey: String(option.groupSortKey || '9'),
+        options: []
+      };
+      existingGroup.sortKey = String(option.groupSortKey || existingGroup.sortKey || '9');
+      existingGroup.options.push(option);
+      groups.set(groupKey, existingGroup);
+    });
+
+    const preferredGroupKey = String(optionsConfig.preferredGroupKey || '').trim();
+    const sortedGroups = [...groups.values()].sort((left, right) => {
+      if (preferredGroupKey) {
+        if (left.key === preferredGroupKey && right.key !== preferredGroupKey) {
+          return -1;
+        }
+        if (right.key === preferredGroupKey && left.key !== preferredGroupKey) {
+          return 1;
+        }
+      }
+      const sortKeyOrder = String(left.sortKey || '9').localeCompare(String(right.sortKey || '9'), undefined, {
+        numeric: true,
+        sensitivity: 'base'
+      });
+      if (sortKeyOrder !== 0) {
+        return sortKeyOrder;
+      }
+      return String(left.label || left.key).localeCompare(String(right.label || right.key), undefined, {
+        numeric: true,
+        sensitivity: 'base'
+      });
+      });
+
+    const showGroupLabels = !(optionsConfig.hideSingleGroup && sortedGroups.length <= 1);
+
+    return [
+      ...ungroupedOptions,
+      ...sortedGroups.flatMap(group => showGroupLabels
+        ? [
+            {
+              id: `__group__${group.key}`,
+              isGroupLabel: true,
+              label: group.label,
+              searchText: String(group.label || '').toLowerCase()
+            },
+            ...group.options
+          ]
+        : group.options)
+    ];
+  }
+
   function normalizeFixVersionSortName(name) {
     return String(name || '').trim().replace(/^v(?=\d)/i, '');
   }
@@ -3347,6 +3475,18 @@ async function mainAsyncLocal() {
     };
   }
 
+  function buildNextTextEditState(editState, changes = {}) {
+    const inputValue = String(changes.inputValue ?? editState.inputValue ?? '');
+    const originalInputValue = String(changes.originalInputValue ?? editState.originalInputValue ?? '');
+    return {
+      ...editState,
+      ...changes,
+      inputValue,
+      originalInputValue,
+      hasChanges: inputValue !== originalInputValue
+    };
+  }
+
   // ── Field Option Retrieval ─────────────────────────────────
 
   async function getProjectVersionOptions(issueData, cacheKey) {
@@ -3371,10 +3511,26 @@ async function mainAsyncLocal() {
     return getProjectVersionOptions(issueData, 'versions');
   }
 
-  async function getCandidateSprintBoards(issueData) {
+  async function getProjectSprintBoards(issueData) {
     const projectKey = String(issueData?.key || '').split('-')[0];
+    if (!projectKey) {
+      return [];
+    }
+    const boardResponse = await get(`${INSTANCE_URL}rest/agile/1.0/board?projectKeyOrId=${encodeURIComponent(projectKey)}&maxResults=50`).catch(() => null);
+    const projectBoards = Array.isArray(boardResponse?.values) ? boardResponse.values : [];
+    return projectBoards
+      .map(board => ({
+        ...board,
+        id: String(board?.id || '').trim(),
+        name: String(board?.name || '').trim(),
+        projectKey: String(board?.projectKey || projectKey)
+      }))
+      .filter(board => !!board.id);
+  }
+
+  function mergeSprintBoards(projectKey, ...boardLists) {
     const boardsById = new Map();
-    const addBoard = board => {
+    boardLists.flat().forEach(board => {
       const boardId = String(board?.id || '').trim();
       if (!boardId) {
         return;
@@ -3384,19 +3540,16 @@ async function mainAsyncLocal() {
         ...existingBoard,
         ...board,
         id: boardId,
-        name: String(board?.name || existingBoard.name || ''),
+        name: String(board?.name || existingBoard.name || '').trim(),
         projectKey: String(board?.projectKey || existingBoard.projectKey || projectKey)
       });
-    };
-
-    if (projectKey) {
-      const boardResponse = await get(`${INSTANCE_URL}rest/agile/1.0/board?projectKeyOrId=${encodeURIComponent(projectKey)}&maxResults=50`).catch(() => null);
-      const projectBoards = Array.isArray(boardResponse?.values) ? boardResponse.values : [];
-      projectBoards.forEach(addBoard);
-    }
-
-    readSprintBoardRefsFromIssue(issueData).forEach(addBoard);
+    });
     return [...boardsById.values()];
+  }
+
+  async function getCandidateSprintBoards(issueData) {
+    const projectKey = String(issueData?.key || '').split('-')[0];
+    return mergeSprintBoards(projectKey, await getProjectSprintBoards(issueData), readSprintBoardRefsFromIssue(issueData));
   }
 
   async function getSprintOptions(issueData) {
@@ -3413,10 +3566,12 @@ async function mainAsyncLocal() {
       .filter(Boolean)
       .sort()
       .join(',');
+    const issueBoardIds = issueBoardIdsKey ? issueBoardIdsKey.split(',').filter(Boolean) : [];
     return getCachedValue(fieldOptionsCache, `sprint__${projectKey}__${issueBoardIdsKey}`, async () => {
-      const boards = await getCandidateSprintBoards(issueData);
+      const projectBoards = await getProjectSprintBoards(issueData);
+      const baselineBoards = mergeSprintBoards(projectKey, projectBoards);
       const sprintMap = new Map();
-      const sprintResponses = await Promise.allSettled(boards.map(board => {
+      const sprintResponses = await Promise.allSettled(baselineBoards.map(board => {
         return get(`${INSTANCE_URL}rest/agile/1.0/board/${board.id}/sprint?state=active,future&maxResults=50`)
           .then(response => ({board, response}));
       }));
@@ -3450,13 +3605,56 @@ async function mainAsyncLocal() {
         });
       });
 
-      readSprintsFromIssue(issueData).forEach(sprint => {
-        if (sprint?.id && sprint?.name && !sprintMap.has(String(sprint.id))) {
-          sprintMap.set(String(sprint.id), sprint);
-        }
-      });
+      const currentSprints = readSprintsFromIssue(issueData);
+      const currentOpenSprints = currentSprints.filter(sprint => String(sprint?.state || '').toLowerCase() !== 'closed');
+      if (currentOpenSprints.length) {
+        const referencedBoards = readSprintBoardRefsFromIssue(issueData);
+        const extraBoards = mergeSprintBoards(
+          projectKey,
+          referencedBoards.filter(board => !baselineBoards.some(projectBoard => String(projectBoard.id) === String(board.id)))
+        );
+        if (extraBoards.length) {
+          const extraSprintResponses = await Promise.allSettled(extraBoards.map(board => {
+            return get(`${INSTANCE_URL}rest/agile/1.0/board/${board.id}/sprint?state=active,future&maxResults=50`)
+              .then(response => ({board, response}));
+          }));
 
-      const options = [...sprintMap.values()]
+          extraSprintResponses.forEach(result => {
+            if (result.status !== 'fulfilled') {
+              return;
+            }
+            const sprints = Array.isArray(result.value?.response?.values) ? result.value.response.values : [];
+            sprints.forEach(sprint => {
+              if (!sprint?.id || !sprint?.name) {
+                return;
+              }
+              const sprintId = String(sprint.id);
+              if (!currentOpenSprints.some(currentSprint => String(currentSprint?.id || '') === sprintId)) {
+                return;
+              }
+              const existingSprint = sprintMap.get(sprintId);
+              const boardRefs = Array.isArray(existingSprint?.boardRefs) ? existingSprint.boardRefs.slice() : [];
+              const board = result.value?.board || {};
+              const boardRefKey = String(board.id || '');
+              if (boardRefKey && !boardRefs.some(ref => String(ref.id) === boardRefKey)) {
+                boardRefs.push({
+                  id: board.id,
+                  name: board.name || '',
+                  projectKey: board.projectKey || projectKey
+                });
+              }
+              sprintMap.set(sprintId, {
+                ...(existingSprint || {}),
+                ...sprint,
+                boardRefs
+              });
+            });
+          });
+        }
+      }
+
+      const groupedSprintOptions = [...sprintMap.values()]
+        .filter(sprint => String(sprint?.state || '').toLowerCase() !== 'closed')
         .sort((left, right) => {
           const stateOrder = compareSprintState(left?.state, right?.state);
           if (stateOrder !== 0) {
@@ -3464,9 +3662,23 @@ async function mainAsyncLocal() {
           }
           return String(left?.name || '').localeCompare(String(right?.name || ''));
         })
-        .map(sprint => buildEditOption(sprint.id, formatSprintOptionLabel(sprint), {rawValue: sprint}));
+        .map(sprint => {
+          const groupMeta = getSprintBoardGroupMeta(sprint, issueData, issueBoardIds);
+          return buildEditOption(sprint.id, formatSprintOptionLabel(sprint), {
+            groupKey: groupMeta.groupKey,
+            groupLabel: groupMeta.groupLabel,
+            groupSortKey: groupMeta.sortKey,
+            rawValue: sprint
+          });
+        });
 
-      return [buildEditOption('', 'No sprint'), ...options];
+      return [
+        buildEditOption('', 'No sprint'),
+        ...buildGroupedOptionList(groupedSprintOptions, {
+          hideSingleGroup: true,
+          preferredGroupKey: ''
+        })
+      ];
     });
   }
 
@@ -3930,6 +4142,39 @@ async function mainAsyncLocal() {
       };
     }
 
+    if (fieldKey === 'environment') {
+      const capability = await getEditableFieldCapability(issueData, 'environment');
+      const operations = capability.operations || [];
+      if (!capability.editable || !operations.includes('set')) {
+        return null;
+      }
+      const currentEnvironment = String(issueData?.fields?.environment || '');
+      return {
+        fieldKey,
+        editorType: 'textarea',
+        label: 'Environment',
+        selectionMode: 'text',
+        currentText: currentEnvironment,
+        currentSelections: [],
+        initialInputValue: currentEnvironment,
+        inputPlaceholder: 'Describe the environment',
+        showActionButtons: true,
+        loadOptions: async () => [],
+        save: (selectedOptions, editState) => {
+          const nextEnvironment = String(editState?.inputValue || '');
+          return requestJson('PUT', `${INSTANCE_URL}rest/api/2/issue/${issueData.key}`, {
+            fields: {
+              environment: nextEnvironment.trim() ? nextEnvironment : null
+            }
+          });
+        },
+        successMessage: (selectedOptions, editState) => {
+          const nextEnvironment = String(editState?.inputValue || '').trim();
+          return nextEnvironment ? 'Environment updated' : 'Environment cleared';
+        }
+      };
+    }
+
     if (String(fieldKey || '').startsWith('customfield_')) {
       const customFieldDefinition = await getCustomFieldEditorDefinition(fieldKey, issueData);
       if (customFieldDefinition) {
@@ -3945,10 +4190,30 @@ async function mainAsyncLocal() {
   function filterEditOptions(options, inputValue) {
     const normalizedInput = String(inputValue || '').trim().toLowerCase();
     const list = Array.isArray(options) ? options : [];
-    const filtered = normalizedInput
-      ? list.filter(option => option.searchText.includes(normalizedInput))
-      : list;
-    return filtered;
+    const visibleOptions = normalizedInput
+      ? list.filter(option => !option?.isGroupLabel && option.searchText.includes(normalizedInput))
+      : list.filter(option => !option?.isGroupLabel);
+
+    const visibleOptionKeys = new Set(visibleOptions.map(option => `${String(option?.id || '')}::${String(option?.label || '')}`));
+    const groupedResult = [];
+    let pendingGroupLabel = null;
+
+    list.forEach(option => {
+      if (option?.isGroupLabel) {
+        pendingGroupLabel = option;
+        return;
+      }
+      if (!visibleOptionKeys.has(`${String(option?.id || '')}::${String(option?.label || '')}`)) {
+        return;
+      }
+      if (pendingGroupLabel) {
+        groupedResult.push(pendingGroupLabel);
+        pendingGroupLabel = null;
+      }
+      groupedResult.push(option);
+    });
+
+    return groupedResult;
   }
 
   function mergeEditOptions(primaryOptions, fallbackOptions) {
@@ -3973,15 +4238,16 @@ async function mainAsyncLocal() {
     }
 
     const isMultiSelect = editState.selectionMode === 'multi';
+    const isTextEditor = editState.selectionMode === 'text';
     const selectedOptionIds = new Set(isMultiSelect
       ? normalizeMultiSelectOptionIds(editState.selectedOptionIds)
       : (editState.selectedOptionId === null || typeof editState.selectedOptionId === 'undefined'
           ? []
           : [String(editState.selectedOptionId)]));
-    const filteredOptions = filterEditOptions(editState.options, editState.inputValue).map(option => ({
+    const filteredOptions = isTextEditor ? [] : filterEditOptions(editState.options, editState.inputValue).map(option => ({
       ...option,
       fieldKey,
-      isSelected: selectedOptionIds.has(option.id),
+      isSelected: option.isGroupLabel ? false : selectedOptionIds.has(option.id),
       isMultiSelect,
       title: option.label
     }));
@@ -4007,13 +4273,15 @@ async function mainAsyncLocal() {
       inputValue: editState.inputValue,
       inputPlaceholder: editState.inputPlaceholder || `Type to filter ${editState.label.toLowerCase()} values`,
       inputDisabled,
+      useTextarea: editState.editorType === 'textarea',
       loadingText,
       options: filteredOptions,
+      showDropdown: !isTextEditor,
       hasOptions: filteredOptions.length > 0,
-      editEmptyText: editState.loadingOptions ? 'Loading values...' : 'No matching values',
+      editEmptyText: editState.loadingOptions ? 'Loading values...' : (isTextEditor ? '' : 'No matching values'),
       editError: editState.errorMessage || '',
       isMultiSelect,
-      showActionButtons: isMultiSelect,
+      showActionButtons: !!(editState.showActionButtons || isMultiSelect || isTextEditor),
       showSelectedValues: isMultiSelect && selectedValues.length > 0,
       selectedValues,
       saveDisabled: !!(editState.loadingOptions || editState.saving || !editState.hasChanges),
@@ -4384,7 +4652,7 @@ async function mainAsyncLocal() {
     const statusName = issueData.fields.status?.name;
     const priorityName = issueData.fields.priority?.name;
     const projectKey = key.split('-')[0];
-    const [issueTypeCapability, priorityCapability, assigneeCapability, transitionOptions, sprintCapability, affectsCapability, fixVersionsCapability, labelsCapability, labelSuggestionSupport, timeTrackingCapability, customFieldChips] = await Promise.all([
+    const [issueTypeCapability, priorityCapability, assigneeCapability, transitionOptions, sprintCapability, affectsCapability, fixVersionsCapability, labelsCapability, environmentCapability, labelSuggestionSupport, timeTrackingCapability, customFieldChips] = await Promise.all([
       displayFields.issueType ? getEditableFieldCapability(issueData, 'issuetype') : Promise.resolve({editable: false, allowedValues: []}),
       displayFields.priority ? getEditableFieldCapability(issueData, 'priority') : Promise.resolve({editable: false}),
       displayFields.assignee ? getEditableFieldCapability(issueData, 'assignee') : Promise.resolve({editable: false}),
@@ -4393,6 +4661,7 @@ async function mainAsyncLocal() {
       displayFields.affects ? getEditableFieldCapability(issueData, 'versions') : Promise.resolve({editable: false}),
       displayFields.fixVersions ? getEditableFieldCapability(issueData, 'fixVersions') : Promise.resolve({editable: false}),
       displayFields.labels ? getEditableFieldCapability(issueData, 'labels') : Promise.resolve({editable: false}),
+      displayFields.environment ? getEditableFieldCapability(issueData, 'environment') : Promise.resolve({editable: false, operations: []}),
       displayFields.labels ? hasLabelSuggestionSupport() : Promise.resolve(false),
       getEditableFieldCapability(issueData, 'timetracking').catch(() => ({editable: false})),
       buildCustomFieldChips(issueData, customFields, state)
@@ -4402,6 +4671,7 @@ async function mainAsyncLocal() {
     const priorityEditable = !!priorityCapability?.editable;
     const assigneeEditable = !!assigneeCapability?.editable;
     const labelsEditable = !!labelsCapability?.editable && !!labelSuggestionSupport;
+    const environmentEditable = !!environmentCapability?.editable && (environmentCapability.operations || []).includes('set');
 
     const row1Chips = [
       displayFields.issueType ? buildEditableFieldChip('issuetype', buildFilterChip(
@@ -4487,7 +4757,24 @@ async function mainAsyncLocal() {
       ...customFieldChips[2]
     ].filter(Boolean);
 
+    const singleLabel = labels.length === 1 ? labels[0] : '';
+    const environmentText = formatEnvironmentDisplayText(issueData.fields.environment);
+    const environmentTooltip = String(issueData.fields.environment || '')
+      .replace(/\r\n/g, '\n')
+      .replace(/\r/g, '\n')
+      .trim();
     const row3Chips = [
+      displayFields.environment ? buildEditableFieldChip('environment', buildFilterChip(
+        `Environment: ${environmentText}`,
+        '',
+        {
+          chipTitle: environmentTooltip ? `Environment: ${environmentTooltip}` : 'Environment: --',
+          truncateText: true
+        }
+      ), state, {
+        canEdit: environmentEditable,
+        editTitle: 'Edit environment'
+      }) : null,
       displayFields.labels ? buildEditableFieldChip('labels', buildLabelsChip(labels, projectKey), state, {
         canEdit: labelsEditable,
         editTitle: 'Edit labels'
@@ -4919,6 +5206,7 @@ async function mainAsyncLocal() {
         editorType: definition.editorType || (isMultiSelect ? 'multi-select' : 'single-select'),
         selectionMode: definition.selectionMode || 'single',
         inputValue: initialValue,
+        originalInputValue: initialValue,
         inputPlaceholder: definition.inputPlaceholder || `Type to filter ${definition.label.toLowerCase()} values`,
         options: [],
         selectedOptionId: isMultiSelect ? null : definition.currentOptionId,
@@ -4929,6 +5217,7 @@ async function mainAsyncLocal() {
         loadingOptions: true,
         saving: false,
         errorMessage: '',
+        showActionButtons: !!definition.showActionButtons,
         searchRequestId: 0,
         selectionStart: initialValue.length,
         selectionEnd: initialValue.length
@@ -4947,6 +5236,16 @@ async function mainAsyncLocal() {
           editState: buildNextMultiSelectState(popupState.editState, {
             options,
             loadingOptions: false
+          })
+        };
+      } else if (popupState.editState.selectionMode === 'text') {
+        popupState = {
+          ...popupState,
+          editState: buildNextTextEditState(popupState.editState, {
+            options,
+            loadingOptions: false,
+            selectionStart: popupState.editState.inputValue.length,
+            selectionEnd: popupState.editState.inputValue.length
           })
         };
       } else {
@@ -4992,6 +5291,11 @@ async function mainAsyncLocal() {
               loadingOptions: false,
               errorMessage
             })
+          : popupState.editState.selectionMode === 'text'
+            ? buildNextTextEditState(popupState.editState, {
+                loadingOptions: false,
+                errorMessage
+              })
           : {
               ...popupState.editState,
               loadingOptions: false,
@@ -5044,6 +5348,19 @@ async function mainAsyncLocal() {
         renderIssuePopup(popupState).catch(() => {});
         scheduleLabelSearchOptionsForActiveEdit(popupState.editState.fieldKey, normalizedValue, searchRequestId);
       }
+      return;
+    }
+    if (popupState.editState.selectionMode === 'text') {
+      popupState = {
+        ...popupState,
+        editState: buildNextTextEditState(popupState.editState, {
+          inputValue: normalizedValue,
+          errorMessage: '',
+          selectionStart,
+          selectionEnd
+        })
+      };
+      renderIssuePopup(popupState).catch(() => {});
       return;
     }
     const exactOption = (popupState.editState.options || []).find(option => {
@@ -5153,6 +5470,9 @@ async function mainAsyncLocal() {
     if (!editState) {
       return [];
     }
+    if (editState.selectionMode === 'text') {
+      return [];
+    }
     if (editState.selectionMode === 'multi') {
       return Array.isArray(editState.selectedOptions) ? editState.selectedOptions : [];
     }
@@ -5198,6 +5518,10 @@ async function mainAsyncLocal() {
       if (!popupState.editState.hasChanges) {
         return;
       }
+    } else if (popupState.editState.selectionMode === 'text') {
+      if (!popupState.editState.hasChanges) {
+        return;
+      }
     } else if (!selectedOptions.length) {
       const errorMessage = 'Pick an existing value from the dropdown before pressing Enter';
       popupState = {
@@ -5219,6 +5543,11 @@ async function mainAsyncLocal() {
             saving: true,
             errorMessage: ''
           })
+        : popupState.editState.selectionMode === 'text'
+          ? buildNextTextEditState(popupState.editState, {
+              saving: true,
+              errorMessage: ''
+            })
         : {
             ...popupState.editState,
             saving: true,
@@ -5228,8 +5557,9 @@ async function mainAsyncLocal() {
     await renderIssuePopup(popupState);
 
     try {
-      await definition.save(selectedOptions);
-      await refreshPopupIssueState(definition.successMessage(selectedOptions));
+      const submittedEditState = popupState.editState;
+      await definition.save(selectedOptions, submittedEditState);
+      await refreshPopupIssueState(definition.successMessage(selectedOptions, submittedEditState));
     } catch (error) {
       const errorMessage = buildEditFieldError(error);
       if (!popupState?.editState || popupState.editState.fieldKey !== fieldKey) {
@@ -5242,6 +5572,11 @@ async function mainAsyncLocal() {
               saving: false,
               errorMessage
             })
+          : popupState.editState.selectionMode === 'text'
+            ? buildNextTextEditState(popupState.editState, {
+                saving: false,
+                errorMessage
+              })
           : {
               ...popupState.editState,
               saving: false,
@@ -5583,6 +5918,9 @@ async function mainAsyncLocal() {
     const fieldKey = e.currentTarget.getAttribute('data-field-key') || '';
     const editState = popupState?.editState;
     if (e.key === 'Enter') {
+      if (editState?.fieldKey === fieldKey && editState.selectionMode === 'text' && !(e.ctrlKey || e.metaKey)) {
+        return;
+      }
       e.preventDefault();
       if (editState?.fieldKey === fieldKey && editState.selectionMode === 'multi') {
         if (e.ctrlKey || e.metaKey) {
