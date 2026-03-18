@@ -331,6 +331,175 @@ body ._JX {
     font-weight: 700;
   }
 
+  &_time_tracking {
+    border-top: 1px solid #d0dbe5;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-top: 2px;
+    padding-top: 8px;
+  }
+
+  &_time_tracking_layout {
+    align-items: stretch;
+    column-gap: 8px;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    row-gap: 10px;
+  }
+
+  &_time_tracking_row {
+    align-items: end;
+    column-gap: 10px;
+    display: grid;
+    row-gap: 6px;
+  }
+
+  &_time_tracking_row_metrics {
+    align-items: start;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  &_time_tracking_row_log {
+    align-items: end;
+    column-gap: 8px;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  &_time_tracking_field {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+  }
+
+  &_time_tracking_field_log_inline {
+    align-items: center;
+    column-gap: 10px;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 96px;
+  }
+
+  &_time_tracking_save_wrap {
+    align-items: center;
+    display: flex;
+    grid-column: 2;
+    grid-row: 1 / span 2;
+    justify-content: center;
+  }
+
+  &_time_tracking_label {
+    color: #52657a;
+    font-size: 12px;
+    font-weight: 700;
+  }
+
+  &_time_tracking_label_log {
+    align-self: center;
+    margin: 0;
+  }
+
+  &_time_tracking_value {
+    align-items: center;
+    background: #f7f8f9;
+    border: 1px solid #d7dde5;
+    box-sizing: border-box;
+    border-radius: 6px;
+    color: #172b4d;
+    display: flex;
+    font-size: 12px;
+    line-height: 16px;
+    min-height: 34px;
+    padding: 7px 9px;
+  }
+
+  &_time_tracking_input {
+    appearance: none;
+    background: #fff;
+    border: 1px solid #c7d1db;
+    border-radius: 6px;
+    box-sizing: border-box;
+    color: #172b4d;
+    font-family: inherit;
+    font-size: 12px;
+    line-height: 16px;
+    min-height: 34px;
+    min-width: 0;
+    padding: 7px 9px;
+    width: 100%;
+  }
+
+  &_time_tracking_input_date {
+    padding-right: 30px;
+
+    &::-webkit-calendar-picker-indicator {
+      cursor: pointer;
+      opacity: 0.8;
+    }
+
+    &::-webkit-datetime-edit,
+    &::-webkit-datetime-edit-fields-wrapper,
+    &::-webkit-date-and-time-value {
+      color: inherit;
+    }
+  }
+
+  &_time_tracking_input_amount {
+    justify-self: end;
+    max-width: 96px;
+  }
+
+  &_time_tracking_input:focus {
+    border-color: #0c66e4;
+    box-shadow: 0 0 0 2px rgba(12, 102, 228, 0.18);
+    outline: none;
+  }
+
+  &_time_tracking_input:disabled {
+    background: #f7f8f9;
+    color: #7a869a;
+    cursor: not-allowed;
+  }
+
+  &_time_tracking_save {
+    background: #0c66e4;
+    border: 1px solid #0c66e4;
+    border-radius: 999px;
+    box-sizing: border-box;
+    color: #fff;
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 12px;
+    font-weight: 700;
+    line-height: 1.2;
+    min-height: 34px;
+    min-width: 82px;
+    padding: 8px 14px;
+    white-space: nowrap;
+  }
+
+  &_time_tracking_save:disabled {
+    background: #f3f4f6;
+    border-color: #d7dde5;
+    color: #7a869a;
+    cursor: not-allowed;
+  }
+
+  &_time_tracking_hint,
+  &_time_tracking_error {
+    font-size: 12px;
+    line-height: 1.4;
+  }
+
+  &_time_tracking_hint {
+    color: #5e6c84;
+  }
+
+  &_time_tracking_error {
+    color: #c9372c;
+    font-weight: 700;
+  }
+
   &_action_notice {
     border-bottom: 1px solid #dde4e6;
     font-size: 12px;
@@ -1219,6 +1388,26 @@ body ._JX {
       border-top: 1px solid #d9e1ea;
       padding-left: 0;
       padding-top: 8px;
+      width: 100%;
+    }
+
+    &_time_tracking_row_metrics,
+    &_time_tracking_row_log,
+    &_time_tracking_log_inputs {
+      grid-template-columns: 1fr;
+    }
+
+    &_time_tracking_layout {
+      grid-template-columns: 1fr;
+    }
+
+    &_time_tracking_save_wrap {
+      grid-column: auto;
+      grid-row: auto;
+      justify-content: stretch;
+    }
+
+    &_time_tracking_save {
       width: 100%;
     }
   }
