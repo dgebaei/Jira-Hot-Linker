@@ -1691,6 +1691,7 @@ async function mainAsyncLocal() {
         'reporter',
         'assignee',
         'summary',
+        'timetracking',
         'attachment',
         'comment',
         'issuetype',
@@ -3104,6 +3105,155 @@ async function mainAsyncLocal() {
     return error?.message || error?.inner || 'Update failed';
   }
 
+  function readTimeTrackingValues(issueData) {
+    const timeTracking = issueData?.fields?.timetracking || {};
+    return {
+      originalEstimate: String(timeTracking.originalEstimate || '').trim(),
+      remainingEstimate: String(timeTracking.remainingEstimate || '').trim(),
+      timeSpent: String(timeTracking.timeSpent || '').trim()
+    };
+  }
+
+  function getTodayDateInputValue() {
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const day = String(now.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  }
+
+  function buildWorklogStartedValue(dateValue) {
+    const normalizedDate = String(dateValue || '').trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(normalizedDate)) {
+      return '';
+    }
+    const localDate = new Date(`${normalizedDate}T12:00:00`);
+    if (Number.isNaN(localDate.getTime())) {
+      return '';
+    }
+    const timezoneOffsetMinutes = -localDate.getTimezoneOffset();
+    const sign = timezoneOffsetMinutes >= 0 ? '+' : '-';
+    const absoluteOffsetMinutes = Math.abs(timezoneOffsetMinutes);
+    const offsetHours = String(Math.floor(absoluteOffsetMinutes / 60)).padStart(2, '0');
+    const offsetMinutes = String(absoluteOffsetMinutes % 60).padStart(2, '0');
+    return `${normalizedDate}T12:00:00.000${sign}${offsetHours}${offsetMinutes}`;
+  }
+
+  function createTimeTrackingEditState(issueData, overrides = {}) {
+    const values = readTimeTrackingValues(issueData);
+    return {
+      originalEstimateValue: values.originalEstimate,
+      remainingEstimateValue: values.remainingEstimate,
+      timeSpentValue: values.timeSpent,
+      originalEstimateInput: values.originalEstimate,
+      remainingEstimateInput: values.remainingEstimate,
+      worklogAmountInput: '',
+      worklogDescriptionInput: '',
+      worklogDateInput: getTodayDateInputValue(),
+      activeInputField: '',
+      saving: false,
+      errorMessage: '',
+      ...overrides
+    };
+  }
+
+  function normalizeTimeTrackingInput(value) {
+    return String(value || '').trim();
+  }
+
+  function buildTimeTrackingSavePlan(timeTrackingState, options = {}) {
+    const canEditEstimates = options.canEditEstimates !== false;
+    const originalEstimateInput = normalizeTimeTrackingInput(timeTrackingState?.originalEstimateInput);
+    const remainingEstimateInput = normalizeTimeTrackingInput(timeTrackingState?.remainingEstimateInput);
+    const worklogAmountInput = normalizeTimeTrackingInput(timeTrackingState?.worklogAmountInput);
+    const worklogDescriptionInput = normalizeTimeTrackingInput(timeTrackingState?.worklogDescriptionInput);
+    const worklogDateInput = normalizeTimeTrackingInput(timeTrackingState?.worklogDateInput) || getTodayDateInputValue();
+    const originalEstimateChanged = canEditEstimates && originalEstimateInput !== normalizeTimeTrackingInput(timeTrackingState?.originalEstimateValue);
+    const remainingEstimateChanged = canEditEstimates && remainingEstimateInput !== normalizeTimeTrackingInput(timeTrackingState?.remainingEstimateValue);
+    const estimateFields = {};
+    const worklogStarted = buildWorklogStartedValue(worklogDateInput);
+    const worklogPayload = worklogAmountInput ? {
+      timeSpent: worklogAmountInput,
+      ...(worklogDescriptionInput ? {comment: worklogDescriptionInput} : {}),
+      ...(worklogStarted ? {started: worklogStarted} : {})
+    } : null;
+
+    if (originalEstimateChanged) {
+      estimateFields.originalEstimate = originalEstimateInput;
+    }
+    if (remainingEstimateChanged) {
+      estimateFields.remainingEstimate = remainingEstimateInput;
+    }
+
+    return {
+      originalEstimateInput,
+      remainingEstimateInput,
+      worklogAmountInput,
+      worklogDescriptionInput,
+      worklogDateInput,
+      worklogPayload,
+      hasEstimateChanges: Object.keys(estimateFields).length > 0,
+      hasWorklogChange: !!worklogPayload,
+      hasChanges: Object.keys(estimateFields).length > 0 || !!worklogPayload,
+      estimateFields
+    };
+  }
+
+  function buildTimeTrackingErrorMessage(result) {
+    const messages = [];
+    if (result?.estimateError) {
+      messages.push(`Estimates: ${buildEditFieldError(result.estimateError)}`);
+    }
+    if (result?.worklogError) {
+      messages.push(`Log work: ${buildEditFieldError(result.worklogError)}`);
+    }
+    return messages.join(' ');
+  }
+
+  function buildTimeTrackingSuccessMessage(result) {
+    if (result?.estimateSaved && result?.worklogSaved) {
+      return 'Time tracking updated';
+    }
+    if (result?.estimateSaved) {
+      return 'Estimates updated';
+    }
+    if (result?.worklogSaved) {
+      return 'Work logged';
+    }
+    return '';
+  }
+
+  function buildTimeTrackingSectionPresentation(issueData, timeTrackingState, timeTrackingCapability) {
+    const state = timeTrackingState || createTimeTrackingEditState(issueData);
+    const canEditEstimates = !!timeTrackingCapability?.editable;
+    const savePlan = buildTimeTrackingSavePlan(state, {canEditEstimates});
+    const hasTimeTrackingSection = issueData?.fields?.timetracking !== undefined || canEditEstimates;
+
+    if (!hasTimeTrackingSection) {
+      return null;
+    }
+
+    return {
+      canEditEstimates,
+      hasChanges: savePlan.hasChanges,
+      originalEstimateDisplay: state.originalEstimateValue || '--',
+      originalEstimateInput: state.originalEstimateInput || '',
+      remainingEstimateDisplay: state.remainingEstimateValue || '--',
+      remainingEstimateInput: state.remainingEstimateInput || '',
+      timeSpentDisplay: state.timeSpentValue || '--',
+      worklogAmountInput: state.worklogAmountInput || '',
+      worklogDescriptionInput: state.worklogDescriptionInput || '',
+      worklogDateInput: state.worklogDateInput || getTodayDateInputValue(),
+      saveButtonLabel: state.saving ? 'Saving...' : 'Save',
+      saveDisabled: !!(state.saving || !savePlan.hasChanges),
+      estimateInputsDisabled: !!(state.saving || !canEditEstimates),
+      worklogInputDisabled: !!state.saving,
+      showEstimateHint: !canEditEstimates,
+      estimateHintText: 'Jira does not allow editing estimates on this issue right now.',
+      errorMessage: state.errorMessage || ''
+    };
+  }
+
   // ── Edit Options & Multi-Select ────────────────────────────
 
   function buildEditOption(id, label, extra = {}) {
@@ -4234,7 +4384,7 @@ async function mainAsyncLocal() {
     const statusName = issueData.fields.status?.name;
     const priorityName = issueData.fields.priority?.name;
     const projectKey = key.split('-')[0];
-    const [issueTypeCapability, priorityCapability, assigneeCapability, transitionOptions, sprintCapability, affectsCapability, fixVersionsCapability, labelsCapability, labelSuggestionSupport, customFieldChips] = await Promise.all([
+    const [issueTypeCapability, priorityCapability, assigneeCapability, transitionOptions, sprintCapability, affectsCapability, fixVersionsCapability, labelsCapability, labelSuggestionSupport, timeTrackingCapability, customFieldChips] = await Promise.all([
       displayFields.issueType ? getEditableFieldCapability(issueData, 'issuetype') : Promise.resolve({editable: false, allowedValues: []}),
       displayFields.priority ? getEditableFieldCapability(issueData, 'priority') : Promise.resolve({editable: false}),
       displayFields.assignee ? getEditableFieldCapability(issueData, 'assignee') : Promise.resolve({editable: false}),
@@ -4244,6 +4394,7 @@ async function mainAsyncLocal() {
       displayFields.fixVersions ? getEditableFieldCapability(issueData, 'fixVersions') : Promise.resolve({editable: false}),
       displayFields.labels ? getEditableFieldCapability(issueData, 'labels') : Promise.resolve({editable: false}),
       displayFields.labels ? hasLabelSuggestionSupport() : Promise.resolve(false),
+      getEditableFieldCapability(issueData, 'timetracking').catch(() => ({editable: false})),
       buildCustomFieldChips(issueData, customFields, state)
     ]);
     const statusEditable = Array.isArray(transitionOptions) && transitionOptions.length > 0;
@@ -4360,6 +4511,7 @@ async function mainAsyncLocal() {
     const assigneeView = displayFields.assignee
       ? buildAssigneeAvatarView(state, issueData, assigneeEditable)
       : null;
+    const timeTrackingSection = buildTimeTrackingSectionPresentation(issueData, state.timeTrackingEditState, timeTrackingCapability);
     const displayData = {
       urlTitle: `[${key}] ${issueData.fields.summary}`,
       ticketKey: key,
@@ -4392,6 +4544,7 @@ async function mainAsyncLocal() {
       row1Chips,
       row2Chips,
       row3Chips,
+      timeTrackingSection,
       hasComments: visibleCommentsTotal > 0,
       commentsTotal: visibleCommentsTotal,
       attachmentChips: displayFields.attachments ? buildAttachmentChips(attachments) : [],
@@ -4557,6 +4710,17 @@ async function mainAsyncLocal() {
         const selectionEnd = Math.min(maxIndex, Number.isInteger(state.editState.selectionEnd) ? state.editState.selectionEnd : maxIndex);
         input.setSelectionRange(selectionStart, selectionEnd);
       }
+    } else if (state.timeTrackingEditState?.activeInputField) {
+      const input = container.find(`._JX_time_tracking_input[data-time-tracking-field="${state.timeTrackingEditState.activeInputField}"]`)[0];
+      if (input) {
+        input.focus();
+        if (typeof input.setSelectionRange === 'function' && input.type !== 'date') {
+          const maxIndex = input.value.length;
+          const selectionStart = Math.min(maxIndex, Number.isInteger(state.timeTrackingEditState.selectionStart) ? state.timeTrackingEditState.selectionStart : maxIndex);
+          const selectionEnd = Math.min(maxIndex, Number.isInteger(state.timeTrackingEditState.selectionEnd) ? state.timeTrackingEditState.selectionEnd : maxIndex);
+          input.setSelectionRange(selectionStart, selectionEnd);
+        }
+      }
     }
     if (state.commentSession?.mode === 'edit' && state.commentSession.commentId) {
       const commentInput = container.find(`._JX_comment_edit_input[data-comment-id="${state.commentSession.commentId}"]`)[0];
@@ -4599,7 +4763,7 @@ async function mainAsyncLocal() {
     if (!popupState?.key) {
       return;
     }
-    const {showSnackBar = false} = options;
+    const {showSnackBar = false, nextTimeTrackingEditState} = options;
     const popupKey = popupState.key;
     invalidatePopupCaches();
     const refreshedIssueData = await getIssueMetaData(popupKey);
@@ -4636,7 +4800,8 @@ async function mainAsyncLocal() {
       lastActionSuccess: showSnackBar ? '' : successMessage,
       actionsOpen: false,
       editState: null,
-      commentSession: null
+      commentSession: null,
+      timeTrackingEditState: nextTimeTrackingEditState || createTimeTrackingEditState(refreshedIssueData)
     };
     await renderIssuePopup(popupState);
     if (showSnackBar && successMessage) {
@@ -5087,6 +5252,161 @@ async function mainAsyncLocal() {
       snackBar(errorMessage);
     }
   }
+
+  function updateTimeTrackingEditState(changes = {}) {
+    if (!popupState?.issueData) {
+      return;
+    }
+    const currentState = popupState.timeTrackingEditState || createTimeTrackingEditState(popupState.issueData);
+    popupState = {
+      ...popupState,
+      timeTrackingEditState: {
+        ...currentState,
+        ...changes
+      }
+    };
+    renderIssuePopup(popupState).catch(() => {});
+  }
+
+  async function saveTimeTrackingEdit() {
+    if (!popupState?.issueData) {
+      return;
+    }
+    const issueData = popupState.issueData;
+    const issueKey = issueData.key;
+    const timeTrackingCapability = await getEditableFieldCapability(issueData, 'timetracking').catch(() => ({editable: false}));
+    const currentState = popupState.timeTrackingEditState || createTimeTrackingEditState(issueData);
+    const savePlan = buildTimeTrackingSavePlan(currentState, {
+      canEditEstimates: !!timeTrackingCapability?.editable
+    });
+    if (!savePlan.hasChanges || currentState.saving) {
+      return;
+    }
+
+    popupState = {
+      ...popupState,
+      timeTrackingEditState: {
+        ...currentState,
+        saving: true,
+        errorMessage: ''
+      }
+    };
+    await renderIssuePopup(popupState);
+
+    const requestPlans = [];
+    if (savePlan.hasEstimateChanges) {
+      requestPlans.push({
+        key: 'estimate',
+        run: () => requestJson('PUT', `${INSTANCE_URL}rest/api/2/issue/${issueKey}`, {
+          fields: {
+            timetracking: savePlan.estimateFields
+          }
+        })
+      });
+    }
+    if (savePlan.hasWorklogChange) {
+      requestPlans.push({
+        key: 'worklog',
+        run: () => requestJson('POST', `${INSTANCE_URL}rest/api/2/issue/${issueKey}/worklog?adjustEstimate=leave`, savePlan.worklogPayload)
+      });
+    }
+
+    const settled = await Promise.all(requestPlans.map(plan => plan.run().then(
+      value => ({key: plan.key, status: 'fulfilled', value}),
+      reason => ({key: plan.key, status: 'rejected', reason})
+    )));
+
+    const result = {
+      estimateSaved: settled.some(entry => entry.key === 'estimate' && entry.status === 'fulfilled'),
+      worklogSaved: settled.some(entry => entry.key === 'worklog' && entry.status === 'fulfilled'),
+      estimateError: settled.find(entry => entry.key === 'estimate' && entry.status === 'rejected')?.reason,
+      worklogError: settled.find(entry => entry.key === 'worklog' && entry.status === 'rejected')?.reason
+    };
+    const errorMessage = buildTimeTrackingErrorMessage(result);
+    const successMessage = buildTimeTrackingSuccessMessage(result);
+
+    if (result.estimateSaved || result.worklogSaved) {
+      try {
+        invalidatePopupCaches();
+        const refreshedIssueData = await getIssueMetaData(issueKey);
+        await normalizeIssueImages(refreshedIssueData);
+
+        let refreshedPullRequests = [];
+        if (displayFields.pullRequests) {
+          try {
+            const pullRequestResponse = await getPullRequestDataCached(refreshedIssueData.id);
+            refreshedPullRequests = normalizePullRequests(pullRequestResponse);
+          } catch (ex) {
+            refreshedPullRequests = [];
+          }
+        }
+
+        let quickActions = [];
+        try {
+          quickActions = await resolveQuickActions(refreshedIssueData);
+        } catch (ex) {
+          quickActions = [];
+        }
+
+        if (!popupState || popupState.key !== issueKey) {
+          return;
+        }
+
+        const refreshedTimeTrackingValues = readTimeTrackingValues(refreshedIssueData);
+        const refreshedTimeTrackingState = createTimeTrackingEditState(refreshedIssueData, {
+          originalEstimateInput: result.estimateSaved ? refreshedTimeTrackingValues.originalEstimate : currentState.originalEstimateInput,
+          remainingEstimateInput: result.estimateSaved ? refreshedTimeTrackingValues.remainingEstimate : currentState.remainingEstimateInput,
+          worklogAmountInput: result.worklogSaved ? '' : currentState.worklogAmountInput,
+          worklogDescriptionInput: result.worklogSaved ? '' : currentState.worklogDescriptionInput,
+          worklogDateInput: result.worklogSaved ? getTodayDateInputValue() : currentState.worklogDateInput,
+          saving: false,
+          errorMessage
+        });
+
+        popupState = {
+          ...popupState,
+          issueData: refreshedIssueData,
+          pullRequests: refreshedPullRequests,
+          quickActions,
+          actionLoadingKey: '',
+          actionError: '',
+          lastActionSuccess: '',
+          actionsOpen: false,
+          editState: null,
+          timeTrackingEditState: refreshedTimeTrackingState
+        };
+        await renderIssuePopup(popupState);
+
+        if (successMessage) {
+          snackBar(errorMessage ? `${successMessage}. ${errorMessage}` : successMessage);
+        }
+        return;
+      } catch (refreshError) {
+        popupState = {
+          ...popupState,
+          timeTrackingEditState: {
+            ...currentState,
+            saving: false,
+            errorMessage: errorMessage || 'Saved changes but failed to refresh the popup'
+          }
+        };
+        await renderIssuePopup(popupState);
+        snackBar(successMessage ? `${successMessage}. Refresh failed.` : 'Saved changes but failed to refresh the popup');
+        return;
+      }
+    }
+
+    popupState = {
+      ...popupState,
+      timeTrackingEditState: {
+        ...currentState,
+        saving: false,
+        errorMessage: errorMessage || 'Time tracking update failed'
+      }
+    };
+    await renderIssuePopup(popupState);
+    snackBar(errorMessage || 'Time tracking update failed');
+  }
   new draggable({
     handle: '._JX_title, ._JX_status',
     cancel: 'a, button, input, textarea, img, ._JX_description, ._JX_comments, ._JX_comment_body, ._JX_description_text, ._JX_related_pr'
@@ -5460,6 +5780,27 @@ async function mainAsyncLocal() {
     }
   });
 
+  $(document.body).on('input', '._JX_time_tracking_input', function (e) {
+    e.stopPropagation();
+    const fieldKey = e.currentTarget.getAttribute('data-time-tracking-field') || '';
+    if (!fieldKey) {
+      return;
+    }
+    updateTimeTrackingEditState({
+      [fieldKey]: e.currentTarget.value,
+      activeInputField: fieldKey,
+      selectionStart: e.currentTarget.selectionStart,
+      selectionEnd: e.currentTarget.selectionEnd,
+      errorMessage: ''
+    });
+  });
+
+  $(document.body).on('click', '._JX_time_tracking_save', function (e) {
+    e.preventDefault();
+    e.stopPropagation();
+    saveTimeTrackingEdit().catch(() => {});
+  });
+
   // ── Image Preview ─────────────────────────────────────────
   function closePreviewOverlay() {
     previewOverlay.removeClass('is-open');
@@ -5649,7 +5990,8 @@ async function mainAsyncLocal() {
         actionError: '',
         lastActionSuccess: '',
         editState: null,
-        commentSession: null
+        commentSession: null,
+        timeTrackingEditState: createTimeTrackingEditState(issueData)
       };
       await renderIssuePopup(popupState);
     })(cancelToken).catch((error) => {

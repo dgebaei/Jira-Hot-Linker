@@ -351,6 +351,44 @@
             {{/row3Chips}}
         </div>
         {{/row3Chips.length}}
+        {{#timeTrackingSection}}
+        <div class="_JX_time_tracking">
+            <div class="_JX_section_title">Time Tracking</div>
+            <div class="_JX_time_tracking_layout">
+                <div class="_JX_time_tracking_row _JX_time_tracking_row_metrics">
+                    <div class="_JX_time_tracking_field">
+                        <label class="_JX_time_tracking_label" for="_JX_time_tracking_original">Original estimate</label>
+                        <input id="_JX_time_tracking_original" class="_JX_time_tracking_input" data-time-tracking-field="originalEstimateInput" value="{{originalEstimateInput}}" placeholder="{{originalEstimateDisplay}}" {{#estimateInputsDisabled}}disabled{{/estimateInputsDisabled}}>
+                    </div>
+                    <div class="_JX_time_tracking_field">
+                        <label class="_JX_time_tracking_label" for="_JX_time_tracking_remaining">Remaining estimate</label>
+                        <input id="_JX_time_tracking_remaining" class="_JX_time_tracking_input" data-time-tracking-field="remainingEstimateInput" value="{{remainingEstimateInput}}" placeholder="{{remainingEstimateDisplay}}" {{#estimateInputsDisabled}}disabled{{/estimateInputsDisabled}}>
+                    </div>
+                    <div class="_JX_time_tracking_field">
+                        <div class="_JX_time_tracking_label">Time spent</div>
+                        <div class="_JX_time_tracking_value"><strong>{{timeSpentDisplay}}</strong></div>
+                    </div>
+                </div>
+                <div class="_JX_time_tracking_row _JX_time_tracking_row_log">
+                    <div class="_JX_time_tracking_field _JX_time_tracking_field_log_inline">
+                        <label class="_JX_time_tracking_label _JX_time_tracking_label_log" for="_JX_time_tracking_worklog_amount">Log time:</label>
+                        <input id="_JX_time_tracking_worklog_amount" class="_JX_time_tracking_input _JX_time_tracking_input_amount" data-time-tracking-field="worklogAmountInput" value="{{worklogAmountInput}}" placeholder="30m" {{#worklogInputDisabled}}disabled{{/worklogInputDisabled}}>
+                    </div>
+                    <div class="_JX_time_tracking_field">
+                        <input id="_JX_time_tracking_worklog_description" class="_JX_time_tracking_input" data-time-tracking-field="worklogDescriptionInput" value="{{worklogDescriptionInput}}" placeholder="Description" {{#worklogInputDisabled}}disabled{{/worklogInputDisabled}}>
+                    </div>
+                    <div class="_JX_time_tracking_field">
+                        <input id="_JX_time_tracking_worklog_date" class="_JX_time_tracking_input _JX_time_tracking_input_date" type="date" data-time-tracking-field="worklogDateInput" value="{{worklogDateInput}}" {{#worklogInputDisabled}}disabled{{/worklogInputDisabled}}>
+                    </div>
+                </div>
+                <div class="_JX_time_tracking_save_wrap">
+                    <button class="_JX_time_tracking_save" type="button" {{#saveDisabled}}disabled{{/saveDisabled}}>{{saveButtonLabel}}</button>
+                </div>
+            </div>
+            {{#showEstimateHint}}<div class="_JX_time_tracking_hint">{{estimateHintText}}</div>{{/showEstimateHint}}
+            {{#errorMessage}}<div class="_JX_time_tracking_error">{{errorMessage}}</div>{{/errorMessage}}
+        </div>
+        {{/timeTrackingSection}}
         </div>
     {{#hasActionNotice}}
     <div class="_JX_action_notice {{actionNoticeClass}}">{{actionNoticeText}}</div>
