@@ -14,6 +14,7 @@ export default {
     sprint: true,
     fixVersions: true,
     affects: true,
+    environment: true,
     labels: true,
     epicParent: true,
     attachments: true,

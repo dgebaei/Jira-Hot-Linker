@@ -20,6 +20,7 @@ const FIELD_OPTIONS = [
   {key: 'sprint', label: 'Sprint'},
   {key: 'fixVersions', label: 'Fix Version'},
   {key: 'affects', label: 'Affects Version'},
+  {key: 'environment', label: 'Environment'},
   {key: 'labels', label: 'Labels'},
   {key: 'epicParent', label: 'Epic/Parent'},
   {key: 'attachments', label: 'Attachments'},
@@ -44,7 +45,7 @@ const FIELD_GROUPS = [
   {
     title: 'Top bar - row 3',
     description: 'Metadata chips shown in the third summary row.',
-    keys: ['labels']
+    keys: ['environment', 'labels']
   },
   {
     title: 'Description block',
