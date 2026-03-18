@@ -1,8 +1,13 @@
 .idea/*
+.agents/
 .test.swp
 *.swp
 *.zip
 node_modules/
+tests/.auth/
+tests/output/
+playwright-report/
+test-results/
 jira-plugin/build/
 jira-plugin/options/build/
 jira-plugin/assets/

@@ -5,8 +5,21 @@
   "main": " ",
   "scripts": {
     "analyze": "webpack -p --bail --profile --json > stats.json || webpack-bundle-analyzer stats.json",
+    "build": "webpack --mode=development",
     "dev": "webpack --watch --mode=development",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "pwcli": ".agents/skills/openai-skills-playwright/scripts/playwright_cli.sh",
+    "test": "npm run test:e2e",
+    "test:e2e": "npm run test:e2e:extension",
+    "test:e2e:all": "node scripts/playwright/run-with-blob.js",
+    "test:e2e:extension": "node scripts/playwright/run-with-blob.js --project=extension",
+    "test:e2e:public": "node scripts/playwright/run-with-blob.js --project=public-jira",
+    "test:e2e:live": "node scripts/playwright/run-with-blob.js --project=live-jira",
+    "test:e2e:auth:live": "node scripts/playwright/capture-live-auth.js",
+    "test:e2e:headed": "node scripts/playwright/run-with-blob.js --headed",
+    "test:e2e:ui": "playwright test --ui",
+    "test:e2e:merge-report": "node scripts/playwright/merge-reports.js",
+    "test:e2e:show-report": "playwright show-report tests/output/playwright/report",
+    "test:e2e:reset-report-data": "node scripts/playwright/reset-reports.js"
   },
   "repository": {
     "type": "git",
@@ -23,6 +36,8 @@
     "@babel/core": "7.17.5",
     "@babel/preset-env": "7.16.11",
     "@babel/preset-react": "7.16.7",
+    "@playwright/cli": "^0.1.1",
+    "@playwright/test": "^1.58.2",
     "babel-eslint": "10.0.2",
     "babel-loader": "8.2.3",
     "bluebird": "3.7.2",
@@ -45,4 +60,3 @@
     "webpack-cli": "4.9.2"
   }
 }
-
