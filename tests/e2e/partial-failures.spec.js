@@ -49,7 +49,10 @@ test('falls back to a non-editable labels chip when label suggestions are unavai
 
   const page = await openPopup(extensionApp, servers);
   await expect(page.locator('._JX_field_chip_edit[data-field-key="labels"]')).toHaveCount(0);
-  await expect(page.locator('body')).toContainText('Labels: needs-triage, ux-bug');
+  const labelsChip = page.locator('._JX_labels_chip_content');
+  await expect(labelsChip).toContainText('Labels');
+  await expect(labelsChip).toContainText('needs-triage');
+  await expect(labelsChip).toContainText('ux-bug');
   await page.close();
 });
 
