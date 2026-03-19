@@ -15,6 +15,7 @@
     "test:e2e:public": "node scripts/playwright/run-with-blob.js --project=public-jira",
     "test:e2e:live": "node scripts/playwright/run-with-blob.js --project=live-jira",
     "test:e2e:auth:live": "node scripts/playwright/capture-live-auth.js",
+    "screenshots:marketing": "node scripts/playwright/capture-marketing-screenshots.js",
     "test:e2e:headed": "node scripts/playwright/run-with-blob.js --headed",
     "test:e2e:ui": "npm exec -- playwright test --ui",
     "test:e2e:merge-report": "node scripts/playwright/merge-reports.js",

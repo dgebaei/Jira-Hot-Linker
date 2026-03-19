@@ -62,6 +62,24 @@ Imagine the moment a Jira key appears on screen:
 5. If action is needed, you edit the issue or trigger a quick Jira workflow action.
 6. You keep reading, reviewing, replying, or shipping without breaking focus.
 
+## Screenshots 🖼️
+
+### Hover popup overview
+
+![Hover popup overview](docs/screenshots/popup-overview.png)
+
+### Quick actions menu
+
+![Quick actions menu](docs/screenshots/popup-actions.png)
+
+### Inline label editing
+
+![Inline label editing](docs/screenshots/popup-editor.png)
+
+### Options page
+
+![Options page](docs/screenshots/options-page.png)
+
 ## Privacy and authentication 🔐
 
 Jira HotLinker uses your existing Jira login session in the browser. In plain terms, if you are already signed in to Jira in your browser, the extension can request issue data with that same authenticated session.
