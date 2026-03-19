@@ -6,6 +6,9 @@ import Mustache from 'mustache';
 import {waitForDocument} from 'src/utils';
 import {sendMessage, storageGet, storageSet} from 'src/chrome';
 import {snackBar} from 'src/snack';
+import {createPopupEditing} from 'src/popup-editing';
+import {createPopupQuickActions} from 'src/popup-quick-actions';
+import {createPopupCommentComposer} from 'src/popup-comment-composer';
 import config from 'options/config.js';
 import {DEFAULT_THEME_MODE, syncDocumentTheme} from 'src/theme';
 
@@ -270,7 +273,6 @@ async function mainAsyncLocal() {
   const emptyCommentUploadState = () => ({
     items: []
   });
-  let currentUserPromise;
   const projectSprintOptionsPromises = new Map();
   const editMetaCache = new Map();
   const transitionOptionsCache = new Map();
@@ -282,7 +284,6 @@ async function mainAsyncLocal() {
   const labelLocalOptionsCache = new Map();
   const tempoAccountSearchCache = new Map();
   let labelSuggestionSupportPromise = null;
-  let preferredAssigneeIdentifier = '';
   let editSearchRequestCounter = 0;
   let labelSearchTimeoutId = null;
   let popupState = null;
@@ -297,6 +298,127 @@ async function mainAsyncLocal() {
   let commentComposerHadFocus = false;
   let commentComposerSelectionStart = 0;
   let commentComposerSelectionEnd = 0;
+
+
+  const {
+    buildEditOption,
+    buildNextMultiSelectState,
+    buildNextTextEditState,
+    filterEditOptions,
+    getEditableFieldDefinition,
+    mergeEditOptions,
+    normalizeMultiSelectOptionIds,
+    resolveSelectedEditOptions,
+    submitFieldEdit,
+  } = createPopupEditing({
+    INSTANCE_URL,
+    assigneeLocalOptionsCache,
+    buildEditFieldError,
+    compareSprintState,
+    fieldOptionsCache,
+    formatSprintOptionLabel,
+    formatSprintText,
+    formatVersionText,
+    get,
+    getCachedValue,
+    getCustomFieldEditorDefinition,
+    getEditableFieldCapability,
+    getLabelSuggestions,
+    getPopupState: () => popupState,
+    getRecentIssueSearchOptions,
+    getSprintFieldIds,
+    getTransitionOptions,
+    hasLabelSuggestionSupport,
+    labelLocalOptionsCache,
+    normalizeIssueTypeOptions,
+    pickSprintFieldId,
+    readSprintBoardRefsFromIssue,
+    readSprintsFromIssue,
+    refreshPopupIssueState,
+    renderIssuePopup,
+    requestJson,
+    resolveIssueLinkage,
+    searchAssignableUsers,
+    searchParentCandidates,
+    setPopupState: nextState => {
+      popupState = nextState;
+    },
+  });
+
+  const {
+    buildQuickActionError,
+    buildQuickActionViewData,
+    executeQuickAction,
+    getCurrentUserInfo,
+    resolveQuickActions,
+  } = createPopupQuickActions({
+    INSTANCE_URL,
+    formatSprintActionLabel,
+    get,
+    getProjectSprintOptions,
+    getSprintFieldIds,
+    pickSprintFieldId,
+    readSprintsFromIssue,
+    requestJson,
+  });
+
+  const {
+    applyCommentMentionSelection,
+    buildOptimisticCommentBodyHtml,
+    captureCommentComposerDraft,
+    clearCommentUploads,
+    discardCommentComposerDraft,
+    getClipboardImageFiles,
+    getCommentComposerElements,
+    getUploadedCommentAttachments,
+    hasCommentUploadInFlight,
+    moveCommentMentionSelection,
+    renderCommentMentionSuggestions,
+    renderCommentUploads,
+    resetCommentMentionState,
+    restoreCommentComposerDraft,
+    restoreCommentComposerState,
+    setCommentComposerError,
+    syncCommentComposerState,
+    syncCommentMentionSuggestions,
+    uploadPastedImage,
+  } = createPopupCommentComposer({
+    INSTANCE_URL,
+    emptyCommentMentionState,
+    emptyCommentUploadState,
+    escapeHtml,
+    get,
+    getActiveCommentContext: () => activeCommentContext,
+    getCommentComposerErrorMessage: () => commentComposerErrorMessage,
+    getCommentComposerHadFocus: () => commentComposerHadFocus,
+    getCommentComposerSelectionEnd: () => commentComposerSelectionEnd,
+    getCommentComposerSelectionStart: () => commentComposerSelectionStart,
+    getCommentComposerDraftValue: () => commentComposerDraftValue,
+    getCommentMentionRequestId: () => commentMentionRequestId,
+    getCommentMentionState: () => commentMentionState,
+    getCommentUploadSequence: () => commentUploadSequence,
+    getCommentUploadSessionId: () => commentUploadSessionId,
+    getCommentUploadState: () => commentUploadState,
+    getContainer: () => container,
+    getDisplayImageUrl,
+    keepContainerVisible,
+    requestJson,
+    setActiveCommentContext: nextValue => { activeCommentContext = nextValue; },
+    setCommentComposerErrorMessage: nextValue => { commentComposerErrorMessage = nextValue; },
+    setCommentComposerHadFocus: nextValue => { commentComposerHadFocus = nextValue; },
+    setCommentComposerSelectionEnd: nextValue => { commentComposerSelectionEnd = nextValue; },
+    setCommentComposerSelectionStart: nextValue => { commentComposerSelectionStart = nextValue; },
+    setCommentComposerDraftValue: nextValue => { commentComposerDraftValue = nextValue; },
+    setCommentMentionRequestId: nextValue => { commentMentionRequestId = nextValue; },
+    setCommentMentionState: nextValue => { commentMentionState = nextValue; },
+    setCommentUploadSequence: nextValue => { commentUploadSequence = nextValue; },
+    setCommentUploadSessionId: nextValue => { commentUploadSessionId = nextValue; },
+    setCommentUploadState: nextValue => { commentUploadState = nextValue; },
+    setPopupState: nextValue => { popupState = nextValue; },
+    textToLinkedHtml,
+    toAbsoluteJiraUrl,
+    uploadAttachment,
+  });
 
 
   // ── URL & Image Handling ───────────────────────────────────
@@ -668,31 +790,6 @@ async function mainAsyncLocal() {
     };
   }
 
-  async function getCurrentUserInfo() {
-    if (currentUserPromise) {
-      return currentUserPromise;
-    }
-
-    currentUserPromise = (async () => {
-      try {
-        const myself = await get(INSTANCE_URL + 'rest/api/2/myself');
-        return {
-          displayName: myself?.displayName || myself?.name || myself?.username || 'You'
-        };
-      } catch (primaryError) {
-        const session = await get(INSTANCE_URL + 'rest/auth/1/session');
-        const user = session?.user || {};
-        return {
-          displayName: user.displayName || user.name || user.username || 'You'
-        };
-      }
-    })().catch(error => {
-      currentUserPromise = null;
-      throw error;
-    });
-
-    return currentUserPromise;
-  }
 
   function getCommentMentionMarkup(candidate) {
     const username = candidate?.name || candidate?.username || '';
@@ -734,523 +831,6 @@ async function mainAsyncLocal() {
       .slice(0, 6);
   }
 
-  function getCommentComposerElements() {
-    return {
-      root: container.find('._JX_comment_compose'),
-      input: container.find('._JX_comment_input'),
-      mentions: container.find('._JX_comment_mentions'),
-      uploads: container.find('._JX_comment_uploads'),
-      save: container.find('._JX_comment_save'),
-      discard: container.find('._JX_comment_discard'),
-      error: container.find('._JX_comment_error')
-    };
-  }
-
-  function captureCommentComposerDraft() {
-    const {root, input, error} = getCommentComposerElements();
-    const inputElement = input.get(0);
-    if (!root.length || !inputElement) {
-      return null;
-    }
-    return {
-      errorText: error.text() || '',
-      hadFocus: document.activeElement === inputElement,
-      saving: root.attr('data-saving') === 'true',
-      selectionEnd: typeof inputElement.selectionEnd === 'number' ? inputElement.selectionEnd : (input.val() || '').length,
-      selectionStart: typeof inputElement.selectionStart === 'number' ? inputElement.selectionStart : (input.val() || '').length,
-      value: input.val() || ''
-    };
-  }
-
-  function restoreCommentComposerDraft(draft) {
-    if (!draft) {
-      return;
-    }
-    const {root, input} = getCommentComposerElements();
-    const inputElement = input.get(0);
-    if (!root.length || !inputElement) {
-      return;
-    }
-    input.val(draft.value || '');
-    root.attr('data-saving', draft.saving ? 'true' : 'false');
-    setCommentComposerError(draft.errorText || '');
-    const nextValue = String(draft.value || '');
-    const maxIndex = nextValue.length;
-    const selectionStart = Math.min(maxIndex, Number.isInteger(draft.selectionStart) ? draft.selectionStart : maxIndex);
-    const selectionEnd = Math.min(maxIndex, Number.isInteger(draft.selectionEnd) ? draft.selectionEnd : maxIndex);
-    if (!draft.saving) {
-      if (draft.hadFocus) {
-        inputElement.focus();
-      }
-      inputElement.setSelectionRange(selectionStart, selectionEnd);
-    }
-  }
-
-  function hasCommentUploadInFlight() {
-    return commentUploadState.items.some(item => item.status === 'uploading');
-  }
-
-  function getUploadedCommentAttachments() {
-    return commentUploadState.items.filter(item => item.status === 'uploaded' && item.attachmentId);
-  }
-
-  function renderCommentUploads() {
-    const {uploads} = getCommentComposerElements();
-    if (!uploads.length) {
-      return;
-    }
-
-    if (!commentUploadState.items.length) {
-      uploads.attr('hidden', 'hidden').empty();
-      keepContainerVisible();
-      return;
-    }
-
-    uploads.removeAttr('hidden').html(commentUploadState.items.map(item => {
-      const stateClass = item.status === 'error' ? ' is-error' : '';
-      const statusText = item.status === 'uploading'
-        ? 'Uploading to Jira...'
-        : (item.status === 'uploaded' ? 'Attached to issue' : (item.errorMessage || 'Upload failed'));
-      const previewHtml = item.previewUrl
-        ? `<img class="_JX_comment_upload_preview" src="${escapeHtml(item.previewUrl)}" alt="${escapeHtml(item.fileName)}" />`
-        : '<span class="_JX_comment_upload_preview"></span>';
-      return `
-        <div class="_JX_comment_upload${stateClass}">
-          ${previewHtml}
-          <span>
-            <span class="_JX_comment_upload_name">${escapeHtml(item.fileName)}</span>
-            <span class="_JX_comment_upload_status">${escapeHtml(statusText)}</span>
-          </span>
-        </div>
-      `;
-    }).join(''));
-    keepContainerVisible();
-  }
-
-  function updateCommentUploadItem(localId, updater) {
-    const nextItems = commentUploadState.items.map(item => {
-      if (item.localId !== localId) {
-        return item;
-      }
-      return typeof updater === 'function' ? updater(item) : {...item, ...updater};
-    });
-    commentUploadState = {items: nextItems};
-    renderCommentUploads();
-    syncCommentComposerState();
-  }
-
-  function buildPastedImageFileName(file) {
-    const mimeType = String(file?.type || '').toLowerCase();
-    const extensionByMimeType = {
-      'image/bmp': 'bmp',
-      'image/gif': 'gif',
-      'image/jpeg': 'jpg',
-      'image/jpg': 'jpg',
-      'image/png': 'png',
-      'image/webp': 'webp'
-    };
-    const extension = extensionByMimeType[mimeType] || 'png';
-    commentUploadSequence += 1;
-    const timestamp = new Date().toISOString().replace(/[^\d]/g, '').slice(0, 14);
-    return `pasted-image-${timestamp}-${commentUploadSequence}.${extension}`;
-  }
-
-  function buildCommentImageMarkup(fileName) {
-    return `!${fileName}!`;
-  }
-
-  function replaceCommentInputText(searchValue, replaceValue = '') {
-    const {input} = getCommentComposerElements();
-    const inputElement = input.get(0);
-    if (!inputElement || !searchValue) {
-      return false;
-    }
-    const currentValue = inputElement.value || '';
-    const nextValue = currentValue.replace(searchValue, replaceValue).replace(/\n{3,}/g, '\n\n');
-    if (nextValue === currentValue) {
-      return false;
-    }
-    input.val(nextValue);
-    commentComposerDraftValue = nextValue;
-    const caretPosition = Math.min(nextValue.length, (typeof inputElement.selectionStart === 'number' ? inputElement.selectionStart : nextValue.length));
-    inputElement.setSelectionRange(caretPosition, caretPosition);
-    return true;
-  }
-
-  function insertCommentInputText(text) {
-    const {input} = getCommentComposerElements();
-    const inputElement = input.get(0);
-    if (!inputElement) {
-      return false;
-    }
-    const value = inputElement.value || '';
-    const selectionStart = typeof inputElement.selectionStart === 'number' ? inputElement.selectionStart : value.length;
-    const selectionEnd = typeof inputElement.selectionEnd === 'number' ? inputElement.selectionEnd : selectionStart;
-    const prefix = selectionStart > 0 && value.charAt(selectionStart - 1) !== '\n' ? '\n' : '';
-    const suffix = selectionEnd < value.length
-      ? (value.charAt(selectionEnd) !== '\n' ? '\n' : '')
-      : '\n';
-    const insertedText = `${prefix}${text}${suffix}`;
-    const nextValue = value.slice(0, selectionStart) + insertedText + value.slice(selectionEnd);
-    input.val(nextValue);
-    commentComposerDraftValue = nextValue;
-    inputElement.focus();
-    const caretPosition = selectionStart + insertedText.length;
-    inputElement.setSelectionRange(caretPosition, caretPosition);
-    return true;
-  }
-
-  function revokeCommentUploadPreview(item) {
-    if (item?.previewUrl && item.previewUrl.startsWith('blob:')) {
-      URL.revokeObjectURL(item.previewUrl);
-    }
-  }
-
-  async function deleteCommentDraftAttachment(attachmentId) {
-    if (!attachmentId) {
-      return;
-    }
-    try {
-      await requestJson('DELETE', `${INSTANCE_URL}rest/api/2/attachment/${attachmentId}`);
-    } catch (error) {
-      console.warn('[Jira HotLinker] Could not delete draft attachment', {
-        attachmentId,
-        error: error?.message || String(error)
-      });
-    }
-  }
-
-  async function clearCommentUploads(options = {}) {
-    const {deleteUploaded = false} = options;
-    const previousItems = commentUploadState.items;
-    commentUploadSessionId += 1;
-    commentUploadState = emptyCommentUploadState();
-    renderCommentUploads();
-    syncCommentComposerState();
-    previousItems.forEach(revokeCommentUploadPreview);
-    if (deleteUploaded) {
-      await Promise.all(previousItems.map(item => deleteCommentDraftAttachment(item.attachmentId)));
-    }
-  }
-
-  async function discardCommentComposerDraft(options = {}) {
-    const {deleteUploaded = true} = options;
-    resetCommentMentionState();
-    commentComposerDraftValue = '';
-    commentComposerHadFocus = false;
-    commentComposerSelectionStart = 0;
-    commentComposerSelectionEnd = 0;
-    const {input} = getCommentComposerElements();
-    if (input.length) {
-      input.val('');
-    }
-    setCommentComposerError('');
-    await clearCommentUploads({deleteUploaded});
-    syncCommentComposerState();
-  }
-
-  async function buildOptimisticCommentBodyHtml(commentText, uploadedAttachments = []) {
-    const attachmentImagesByName = {};
-    for (const attachment of uploadedAttachments) {
-      if (!attachment?.fileName) {
-        continue;
-      }
-      const imageUrl = attachment.thumbnailUrl || attachment.contentUrl;
-      if (!imageUrl) {
-        continue;
-      }
-      const displaySrc = await getDisplayImageUrl(imageUrl).catch(() => imageUrl);
-      const previewSrc = attachment.contentUrl || imageUrl;
-      attachmentImagesByName[attachment.fileName] = `<img class="_JX_previewable" src="${escapeHtml(displaySrc || imageUrl)}" data-jx-preview-src="${escapeHtml(previewSrc)}" alt="${escapeHtml(attachment.fileName)}" style="max-height: 100px;" />`;
-    }
-    return textToLinkedHtml(commentText || '', {attachmentImagesByName});
-  }
-
-  async function uploadPastedImage(file) {
-    if (!activeCommentContext?.issueKey) {
-      return;
-    }
-
-    const issueKey = activeCommentContext.issueKey;
-    const fileName = buildPastedImageFileName(file);
-    const markup = buildCommentImageMarkup(fileName);
-    const localId = `upload-${Date.now()}-${commentUploadSequence}`;
-    const previewUrl = URL.createObjectURL(file);
-    const sessionId = commentUploadSessionId;
-    commentUploadState = {
-      items: [...commentUploadState.items, {
-        attachmentId: '',
-        contentUrl: '',
-        errorMessage: '',
-        fileName,
-        localId,
-        markup,
-        previewUrl,
-        status: 'uploading',
-        thumbnailUrl: ''
-      }]
-    };
-    renderCommentUploads();
-    insertCommentInputText(markup);
-    setCommentComposerError('');
-    syncCommentComposerState();
-
-    try {
-      const uploadResult = await uploadAttachment(`${INSTANCE_URL}rest/api/2/issue/${issueKey}/attachments`, new File([file], fileName, {type: file.type || 'image/png'}));
-      const uploadedAttachment = (Array.isArray(uploadResult) ? uploadResult : [uploadResult]).find(item => item && item.id);
-      if (!uploadedAttachment) {
-        throw new Error('Attachment upload failed');
-      }
-
-      if (sessionId !== commentUploadSessionId || activeCommentContext?.issueKey !== issueKey) {
-        await deleteCommentDraftAttachment(uploadedAttachment.id);
-        return;
-      }
-
-      const nextFileName = uploadedAttachment.filename || fileName;
-      const nextMarkup = buildCommentImageMarkup(nextFileName);
-      if (nextMarkup !== markup) {
-        replaceCommentInputText(markup, nextMarkup);
-      }
-      updateCommentUploadItem(localId, {
-        attachmentId: uploadedAttachment.id,
-        contentUrl: toAbsoluteJiraUrl(uploadedAttachment.content),
-        errorMessage: '',
-        fileName: nextFileName,
-        markup: nextMarkup,
-        status: 'uploaded',
-        thumbnailUrl: toAbsoluteJiraUrl(uploadedAttachment.thumbnail || uploadedAttachment.content)
-      });
-    } catch (error) {
-      if (sessionId !== commentUploadSessionId) {
-        return;
-      }
-      replaceCommentInputText(markup, '');
-      updateCommentUploadItem(localId, {
-        errorMessage: error?.message || error?.inner || 'Upload failed',
-        status: 'error'
-      });
-      setCommentComposerError(error?.message || error?.inner || 'Could not upload pasted image');
-    }
-  }
-
-  function getClipboardImageFiles(event) {
-    const clipboardData = event?.originalEvent?.clipboardData || event?.clipboardData;
-    if (!clipboardData) {
-      return [];
-    }
-
-    const items = Array.from(clipboardData.items || []);
-    const itemFiles = items
-      .filter(item => item && item.kind === 'file' && String(item.type || '').toLowerCase().startsWith('image/'))
-      .map(item => item.getAsFile())
-      .filter(Boolean);
-    if (itemFiles.length) {
-      return itemFiles;
-    }
-    return Array.from(clipboardData.files || []).filter(file => String(file?.type || '').toLowerCase().startsWith('image/'));
-  }
-
-  function renderCommentMentionSuggestions() {
-    const {mentions} = getCommentComposerElements();
-    if (!mentions.length) {
-      return;
-    }
-
-    if (!commentMentionState.visible) {
-      mentions.attr('hidden', 'hidden').empty();
-      keepContainerVisible();
-      return;
-    }
-
-    if (commentMentionState.loading) {
-      mentions.removeAttr('hidden').html('<div class="_JX_comment_mentions_status">Searching people...</div>');
-      keepContainerVisible();
-      return;
-    }
-
-    if (commentMentionState.error) {
-      mentions.removeAttr('hidden').html(`<div class="_JX_comment_mentions_status">${escapeHtml(commentMentionState.error)}</div>`);
-      keepContainerVisible();
-      return;
-    }
-
-    if (!commentMentionState.suggestions.length) {
-      mentions.removeAttr('hidden').html('<div class="_JX_comment_mentions_status">No people found.</div>');
-      keepContainerVisible();
-      return;
-    }
-
-    mentions.removeAttr('hidden').html(commentMentionState.suggestions.map(function (candidate, index) {
-      const selectedClass = index === commentMentionState.selectedIndex ? ' is-selected' : '';
-      const secondary = candidate.secondaryText
-        ? `<span class="_JX_comment_mention_secondary">${escapeHtml(candidate.secondaryText)}</span>`
-        : '';
-      return `
-        <button class="_JX_comment_mention_option${selectedClass}" type="button" data-mention-index="${index}">
-          <span>
-            <span class="_JX_comment_mention_primary">${escapeHtml(candidate.displayName)}</span>
-            ${secondary}
-          </span>
-        </button>
-      `;
-    }).join(''));
-    keepContainerVisible();
-  }
-
-  function resetCommentMentionState() {
-    commentMentionRequestId += 1;
-    debouncedLoadCommentMentionSuggestions.cancel();
-    commentMentionState = emptyCommentMentionState();
-    renderCommentMentionSuggestions();
-  }
-
-  function getActiveCommentMention(inputElement) {
-    if (!inputElement) {
-      return null;
-    }
-
-    const value = inputElement.value || '';
-    const caretStart = typeof inputElement.selectionStart === 'number' ? inputElement.selectionStart : value.length;
-    const caretEnd = typeof inputElement.selectionEnd === 'number' ? inputElement.selectionEnd : caretStart;
-    if (caretStart !== caretEnd) {
-      return null;
-    }
-
-    const beforeCaret = value.slice(0, caretStart);
-    const mentionMatch = beforeCaret.match(/(^|[\s(])@([^\s@]{1,50})$/);
-    if (!mentionMatch) {
-      return null;
-    }
-
-    let end = caretEnd;
-    while (end < value.length && !/\s/.test(value.charAt(end))) {
-      end += 1;
-    }
-
-    return {
-      end,
-      query: mentionMatch[2],
-      start: caretStart - mentionMatch[2].length - 1
-    };
-  }
-
-  async function loadCommentMentionSuggestions(mention) {
-    const requestId = ++commentMentionRequestId;
-    try {
-      const suggestions = await searchCommentMentionCandidates(mention.query);
-      if (requestId !== commentMentionRequestId) {
-        return;
-      }
-
-      commentMentionState = {
-        error: '',
-        loading: false,
-        query: mention.query,
-        range: mention,
-        selectedIndex: 0,
-        suggestions,
-        visible: true
-      };
-    } catch (error) {
-      if (requestId !== commentMentionRequestId) {
-        return;
-      }
-
-      commentMentionState = {
-        error: 'Could not load people.',
-        loading: false,
-        query: mention.query,
-        range: mention,
-        selectedIndex: 0,
-        suggestions: [],
-        visible: true
-      };
-    }
-
-    renderCommentMentionSuggestions();
-  }
-
-  const debouncedLoadCommentMentionSuggestions = debounce(function (mention) {
-    loadCommentMentionSuggestions(mention).catch(() => {});
-  }, 150);
-
-  function syncCommentMentionSuggestions(inputElement) {
-    const mention = getActiveCommentMention(inputElement);
-    if (!mention) {
-      resetCommentMentionState();
-      return;
-    }
-
-    commentMentionState = {
-      error: '',
-      loading: true,
-      query: mention.query,
-      range: mention,
-      selectedIndex: 0,
-      suggestions: [],
-      visible: true
-    };
-    renderCommentMentionSuggestions();
-    debouncedLoadCommentMentionSuggestions(mention);
-  }
-
-  function moveCommentMentionSelection(delta) {
-    if (!commentMentionState.visible || !commentMentionState.suggestions.length) {
-      return;
-    }
-    const suggestionsTotal = commentMentionState.suggestions.length;
-    const nextIndex = (commentMentionState.selectedIndex + delta + suggestionsTotal) % suggestionsTotal;
-    commentMentionState = {
-      ...commentMentionState,
-      selectedIndex: nextIndex
-    };
-    renderCommentMentionSuggestions();
-  }
-
-  function applyCommentMentionSelection(index) {
-    const {input} = getCommentComposerElements();
-    const inputElement = input.get(0);
-    const candidate = commentMentionState.suggestions[index];
-    const mentionRange = commentMentionState.range;
-    if (!inputElement || !candidate || !mentionRange) {
-      return;
-    }
-
-    const nextValue = inputElement.value.slice(0, mentionRange.start) +
-      `${candidate.mentionMarkup} ` +
-      inputElement.value.slice(mentionRange.end);
-    input.val(nextValue);
-    commentComposerDraftValue = nextValue;
-    inputElement.focus();
-    const caretPosition = mentionRange.start + candidate.mentionMarkup.length + 1;
-    inputElement.setSelectionRange(caretPosition, caretPosition);
-    resetCommentMentionState();
-    syncCommentComposerState();
-  }
-
-  function syncCommentComposerState() {
-    const elements = getCommentComposerElements();
-    if (!elements.root.length) {
-      return;
-    }
-    const isSaving = elements.root.attr('data-saving') === 'true';
-    const hasUploadsInFlight = hasCommentUploadInFlight();
-    const hasText = !!elements.input.val().trim();
-    const hasDraftUploads = commentUploadState.items.length > 0;
-    elements.input.prop('disabled', isSaving);
-    elements.save.prop('disabled', !hasText || isSaving || hasUploadsInFlight).text(isSaving ? 'Saving...' : (hasUploadsInFlight ? 'Uploading...' : 'Save'));
-    elements.discard.prop('disabled', (!hasText && !hasDraftUploads) || isSaving);
-  }
-
-  function setCommentComposerError(message) {
-    commentComposerErrorMessage = message || '';
-    const {error} = getCommentComposerElements();
-    if (!error.length) {
-      return;
-    }
-    error.text(message || '');
-  }
 
   function updateCommentActivityCount(delta) {
     const activityItem = container.find('._JX_activity_item').eq(1);
@@ -1467,25 +1047,6 @@ async function mainAsyncLocal() {
     await discardCommentComposerDraft();
   }
 
-  function restoreCommentComposerState() {
-    const elements = getCommentComposerElements();
-    if (!elements.root.length) {
-      return;
-    }
-    if (elements.input.val() !== commentComposerDraftValue) {
-      elements.input.val(commentComposerDraftValue);
-    }
-    setCommentComposerError(commentComposerErrorMessage);
-    const inputElement = elements.input.get(0);
-    if (inputElement && commentComposerHadFocus) {
-      inputElement.focus();
-      const maxIndex = inputElement.value.length;
-      inputElement.setSelectionRange(
-        Math.min(maxIndex, Number.isInteger(commentComposerSelectionStart) ? commentComposerSelectionStart : maxIndex),
-        Math.min(maxIndex, Number.isInteger(commentComposerSelectionEnd) ? commentComposerSelectionEnd : maxIndex)
-      );
-    }
-  }
 
   function getActiveCommentSession() {
     return popupState?.commentSession || null;
@@ -3017,12 +2578,6 @@ async function mainAsyncLocal() {
       }));
   }
 
-  function buildQuickActionError(error) {
-    return error?.message || error?.inner || 'Action failed';
-  }
-
-  // ── User & Quick Actions ───────────────────────────────────
-
   function areSameJiraUser(left, right) {
     if (!left || !right) {
       return false;
@@ -3032,101 +2587,6 @@ async function mainAsyncLocal() {
     return leftIds.some(value => rightIds.includes(value));
   }
 
-  async function getCurrentUserInfo() {
-    if (currentUserPromise) {
-      return currentUserPromise;
-    }
-
-    currentUserPromise = (async () => {
-      try {
-        const myself = await get(INSTANCE_URL + 'rest/api/2/myself');
-        return {
-          accountId: myself?.accountId || '',
-          name: myself?.name || myself?.username || myself?.key || '',
-          username: myself?.username || myself?.name || '',
-          key: myself?.key || '',
-          displayName: myself?.displayName || myself?.name || myself?.username || 'You'
-        };
-      } catch (primaryError) {
-        const session = await get(INSTANCE_URL + 'rest/auth/1/session');
-        const user = session?.user || {};
-        return {
-          accountId: '',
-          name: user.name || user.username || user.key || '',
-          username: user.username || user.name || '',
-          key: user.key || '',
-          displayName: user.displayName || user.name || user.username || 'You'
-        };
-      }
-    })().catch(error => {
-      currentUserPromise = null;
-      throw error;
-    });
-
-    return currentUserPromise;
-  }
-
-  function buildAssignPayload(user) {
-    if (user?.accountId) {
-      return {accountId: user.accountId};
-    }
-    if (user?.name) {
-      return {name: user.name};
-    }
-    if (user?.key) {
-      return {key: user.key};
-    }
-    throw new Error('Could not resolve the current Jira user');
-  }
-
-  async function getAvailableTransitions(issueKey) {
-    const response = await get(`${INSTANCE_URL}rest/api/2/issue/${issueKey}/transitions`);
-    return Array.isArray(response?.transitions) ? response.transitions : [];
-  }
-
-  // ── Status Transitions ─────────────────────────────────────
-
-  function isInProgressStatusCategory(statusCategory) {
-    const key = String(statusCategory?.key || '').toLowerCase();
-    const name = String(statusCategory?.name || '').toLowerCase();
-    return key === 'indeterminate' || name.includes('in progress');
-  }
-
-  function buildTransitionActionLabel(transition) {
-    const transitionName = String(transition?.name || '').trim();
-    const targetName = String(transition?.to?.name || '').trim();
-    const normalizedTransitionName = transitionName.toLowerCase();
-
-    if (
-      normalizedTransitionName.includes('start') ||
-      normalizedTransitionName.includes('progress') ||
-      normalizedTransitionName.includes('begin') ||
-      normalizedTransitionName.includes('resume')
-    ) {
-      return transitionName || 'Start progress';
-    }
-
-    if (targetName) {
-      return `Move to ${targetName}`;
-    }
-
-    return transitionName || 'Start progress';
-  }
-
-  function findStartProgressTransition(transitions) {
-    const candidates = Array.isArray(transitions) ? transitions.filter(Boolean) : [];
-    return candidates.find(transition => {
-      const transitionName = String(transition?.name || '').toLowerCase();
-      const targetName = String(transition?.to?.name || '').toLowerCase();
-      return isInProgressStatusCategory(transition?.to?.statusCategory) ||
-        targetName.includes('in progress') ||
-        transitionName.includes('start progress') ||
-        transitionName.includes('start work') ||
-        transitionName.includes('begin progress') ||
-        transitionName.includes('begin work') ||
-        transitionName.includes('resume progress');
-    }) || null;
-  }
 
   function buildEditFieldError(error) {
     return error?.message || error?.inner || 'Update failed';
@@ -3283,25 +2743,6 @@ async function mainAsyncLocal() {
 
   // ── Edit Options & Multi-Select ────────────────────────────
 
-  function buildEditOption(id, label, extra = {}) {
-    const normalizedLabel = String(label || '');
-    const normalizedSearchText = [
-      normalizedLabel,
-      String(extra.searchText || ''),
-      String(extra.metaText || '')
-    ]
-      .join(' ')
-      .trim()
-      .toLowerCase();
-    const option = {
-      id: id === '' ? '' : String(id || ''),
-      label: normalizedLabel,
-      ...extra
-    };
-    option.searchText = normalizedSearchText;
-    return option;
-  }
-
   function formatSprintOptionLabel(sprint) {
     if (!sprint) {
       return '';
@@ -3309,939 +2750,9 @@ async function mainAsyncLocal() {
     return sprint.state ? `${sprint.name} (${String(sprint.state).toUpperCase()})` : sprint.name;
   }
 
-  function compareBoardRefs(left, right, issueProjectKey = '') {
-    const normalizedIssueProjectKey = String(issueProjectKey || '').trim();
-    const leftProjectKey = String(left?.projectKey || '').trim();
-    const rightProjectKey = String(right?.projectKey || '').trim();
-    const leftMatchesProject = normalizedIssueProjectKey && leftProjectKey === normalizedIssueProjectKey;
-    const rightMatchesProject = normalizedIssueProjectKey && rightProjectKey === normalizedIssueProjectKey;
-    if (leftMatchesProject !== rightMatchesProject) {
-      return leftMatchesProject ? -1 : 1;
-    }
-    const nameOrder = String(left?.name || '').localeCompare(String(right?.name || ''), undefined, {
-      numeric: true,
-      sensitivity: 'base'
-    });
-    if (nameOrder !== 0) {
-      return nameOrder;
-    }
-    return String(left?.id || '').localeCompare(String(right?.id || ''), undefined, {
-      numeric: true,
-      sensitivity: 'base'
-    });
-  }
-
-  function pickPreferredSprintBoardRef(sprint, issueProjectKey = '') {
-    const boardRefs = Array.isArray(sprint?.boardRefs) ? sprint.boardRefs : [];
-    const sortedBoardRefs = boardRefs.slice().sort((left, right) => compareBoardRefs(left, right, issueProjectKey));
-    return sortedBoardRefs[0] || null;
-  }
-
-  function getSprintBoardGroupMeta(sprint, issueData, issueBoardIds = []) {
-    const projectName = String(issueData?.fields?.project?.name || '').trim();
-    const projectKey = String(issueData?.key || '').split('-')[0];
-    const preferredBoardRef = pickPreferredSprintBoardRef(sprint, projectKey);
-    const boardId = String(preferredBoardRef?.id || '').trim();
-    const boardName = String(preferredBoardRef?.name || '').trim();
-    const boardProjectKey = String(preferredBoardRef?.projectKey || '').trim();
-    const issueBoardIdSet = new Set((Array.isArray(issueBoardIds) ? issueBoardIds : []).map(id => String(id || '')).filter(Boolean));
-    const isIssueBoard = Array.isArray(sprint?.boardRefs)
-      ? sprint.boardRefs.some(ref => issueBoardIdSet.has(String(ref?.id || '')))
-      : false;
-
-    return {
-      groupKey: boardId ? `board:${boardId}` : '__other_boards__',
-      groupLabel: boardName || (boardProjectKey ? `${boardProjectKey} board` : (projectName || projectKey || 'Other boards')),
-      sortKey: isIssueBoard ? '0' : '1'
-    };
-  }
-
-  function buildGroupedOptionList(options, optionsConfig = {}) {
-    const list = Array.isArray(options) ? options : [];
-    const includeUngrouped = optionsConfig.includeUngrouped !== false;
-    const ungroupedOptions = includeUngrouped
-      ? list.filter(option => !option?.groupKey)
-      : [];
-    const groupedOptions = list.filter(option => option?.groupKey);
-    const groups = new Map();
-
-    groupedOptions.forEach(option => {
-      const groupKey = String(option.groupKey || '').trim();
-      if (!groupKey) {
-        return;
-      }
-      const existingGroup = groups.get(groupKey) || {
-        key: groupKey,
-        label: String(option.groupLabel || groupKey),
-        sortKey: String(option.groupSortKey || '9'),
-        options: []
-      };
-      existingGroup.sortKey = String(option.groupSortKey || existingGroup.sortKey || '9');
-      existingGroup.options.push(option);
-      groups.set(groupKey, existingGroup);
-    });
-
-    const preferredGroupKey = String(optionsConfig.preferredGroupKey || '').trim();
-    const sortedGroups = [...groups.values()].sort((left, right) => {
-      if (preferredGroupKey) {
-        if (left.key === preferredGroupKey && right.key !== preferredGroupKey) {
-          return -1;
-        }
-        if (right.key === preferredGroupKey && left.key !== preferredGroupKey) {
-          return 1;
-        }
-      }
-      const sortKeyOrder = String(left.sortKey || '9').localeCompare(String(right.sortKey || '9'), undefined, {
-        numeric: true,
-        sensitivity: 'base'
-      });
-      if (sortKeyOrder !== 0) {
-        return sortKeyOrder;
-      }
-      return String(left.label || left.key).localeCompare(String(right.label || right.key), undefined, {
-        numeric: true,
-        sensitivity: 'base'
-      });
-      });
-
-    const showGroupLabels = !(optionsConfig.hideSingleGroup && sortedGroups.length <= 1);
-
-    return [
-      ...ungroupedOptions,
-      ...sortedGroups.flatMap(group => showGroupLabels
-        ? [
-            {
-              id: `__group__${group.key}`,
-              isGroupLabel: true,
-              label: group.label,
-              searchText: String(group.label || '').toLowerCase()
-            },
-            ...group.options
-          ]
-        : group.options)
-    ];
-  }
-
-  function normalizeFixVersionSortName(name) {
-    return String(name || '').trim().replace(/^v(?=\d)/i, '');
-  }
-
-  function compareFixVersionOptions(left, right) {
-    return normalizeFixVersionSortName(right?.name).localeCompare(normalizeFixVersionSortName(left?.name), undefined, {
-      numeric: true,
-      sensitivity: 'base'
-    });
-  }
-
-  function normalizeMultiSelectOptionIds(optionIds) {
-    return [...new Set((Array.isArray(optionIds) ? optionIds : [])
-      .map(optionId => String(optionId || '').trim())
-      .filter(Boolean))];
-  }
-
-  function areSameOptionIds(left, right) {
-    const leftIds = normalizeMultiSelectOptionIds(left).sort();
-    const rightIds = normalizeMultiSelectOptionIds(right).sort();
-    if (leftIds.length !== rightIds.length) {
-      return false;
-    }
-    return leftIds.every((optionId, index) => optionId === rightIds[index]);
-  }
-
-  function resolveMultiSelectOptions(optionIds, options, fallbackOptions = []) {
-    const optionMap = new Map();
-    (Array.isArray(fallbackOptions) ? fallbackOptions : []).forEach(option => {
-      const optionId = String(option?.id || '').trim();
-      if (optionId) {
-        optionMap.set(optionId, option);
-      }
-    });
-    (Array.isArray(options) ? options : []).forEach(option => {
-      const optionId = String(option?.id || '').trim();
-      if (optionId) {
-        optionMap.set(optionId, option);
-      }
-    });
-    return normalizeMultiSelectOptionIds(optionIds)
-      .map(optionId => optionMap.get(optionId))
-      .filter(Boolean);
-  }
-
-  function buildNextMultiSelectState(editState, changes = {}) {
-    const selectedOptionIds = normalizeMultiSelectOptionIds(changes.selectedOptionIds ?? editState.selectedOptionIds);
-    const originalOptionIds = normalizeMultiSelectOptionIds(changes.originalOptionIds ?? editState.originalOptionIds);
-    const options = changes.options ?? editState.options;
-    const selectedOptions = resolveMultiSelectOptions(
-      selectedOptionIds,
-      options,
-      changes.selectedOptions ?? editState.selectedOptions
-    );
-    return {
-      ...editState,
-      ...changes,
-      options,
-      selectedOptionIds,
-      selectedOptions,
-      originalOptionIds,
-      hasChanges: !areSameOptionIds(selectedOptionIds, originalOptionIds)
-    };
-  }
-
-  function buildNextTextEditState(editState, changes = {}) {
-    const inputValue = String(changes.inputValue ?? editState.inputValue ?? '');
-    const originalInputValue = String(changes.originalInputValue ?? editState.originalInputValue ?? '');
-    return {
-      ...editState,
-      ...changes,
-      inputValue,
-      originalInputValue,
-      hasChanges: inputValue !== originalInputValue
-    };
-  }
-
-  // ── Field Option Retrieval ─────────────────────────────────
-
-  async function getProjectVersionOptions(issueData, cacheKey) {
-    const projectKey = String(issueData?.key || '').split('-')[0];
-    if (!projectKey) {
-      return [];
-    }
-    return getCachedValue(fieldOptionsCache, `${cacheKey}__${projectKey}`, async () => {
-      const versions = await get(`${INSTANCE_URL}rest/api/2/project/${encodeURIComponent(projectKey)}/versions`);
-      return (Array.isArray(versions) ? versions : [])
-        .filter(version => version?.name && !version?.archived)
-        .sort(compareFixVersionOptions)
-        .map(version => buildEditOption(version.id, version.name, {rawValue: version}));
-    });
-  }
-
-  async function getFixVersionOptions(issueData) {
-    return getProjectVersionOptions(issueData, 'fixVersions');
-  }
-
-  async function getAffectsVersionOptions(issueData) {
-    return getProjectVersionOptions(issueData, 'versions');
-  }
-
-  async function getProjectSprintBoards(issueData) {
-    const projectKey = String(issueData?.key || '').split('-')[0];
-    if (!projectKey) {
-      return [];
-    }
-    const boardResponse = await get(`${INSTANCE_URL}rest/agile/1.0/board?projectKeyOrId=${encodeURIComponent(projectKey)}&maxResults=50`).catch(() => null);
-    const projectBoards = Array.isArray(boardResponse?.values) ? boardResponse.values : [];
-    return projectBoards
-      .map(board => ({
-        ...board,
-        id: String(board?.id || '').trim(),
-        name: String(board?.name || '').trim(),
-        projectKey: String(board?.projectKey || projectKey)
-      }))
-      .filter(board => !!board.id);
-  }
-
-  function mergeSprintBoards(projectKey, ...boardLists) {
-    const boardsById = new Map();
-    boardLists.flat().forEach(board => {
-      const boardId = String(board?.id || '').trim();
-      if (!boardId) {
-        return;
-      }
-      const existingBoard = boardsById.get(boardId) || {};
-      boardsById.set(boardId, {
-        ...existingBoard,
-        ...board,
-        id: boardId,
-        name: String(board?.name || existingBoard.name || '').trim(),
-        projectKey: String(board?.projectKey || existingBoard.projectKey || projectKey)
-      });
-    });
-    return [...boardsById.values()];
-  }
-
-  async function getCandidateSprintBoards(issueData) {
-    const projectKey = String(issueData?.key || '').split('-')[0];
-    return mergeSprintBoards(projectKey, await getProjectSprintBoards(issueData), readSprintBoardRefsFromIssue(issueData));
-  }
-
-  async function getSprintOptions(issueData) {
-    const projectKey = String(issueData?.key || '').split('-')[0];
-    if (!projectKey) {
-      return [];
-    }
-    const sprintFieldIds = await getSprintFieldIds(INSTANCE_URL);
-    if (!sprintFieldIds.length) {
-      return [];
-    }
-    const issueBoardIdsKey = readSprintBoardRefsFromIssue(issueData)
-      .map(board => String(board.id || ''))
-      .filter(Boolean)
-      .sort()
-      .join(',');
-    const issueBoardIds = issueBoardIdsKey ? issueBoardIdsKey.split(',').filter(Boolean) : [];
-    return getCachedValue(fieldOptionsCache, `sprint__${projectKey}__${issueBoardIdsKey}`, async () => {
-      const projectBoards = await getProjectSprintBoards(issueData);
-      const baselineBoards = mergeSprintBoards(projectKey, projectBoards);
-      const sprintMap = new Map();
-      const sprintResponses = await Promise.allSettled(baselineBoards.map(board => {
-        return get(`${INSTANCE_URL}rest/agile/1.0/board/${board.id}/sprint?state=active,future&maxResults=50`)
-          .then(response => ({board, response}));
-      }));
-
-      sprintResponses.forEach(result => {
-        if (result.status !== 'fulfilled') {
-          return;
-        }
-        const sprints = Array.isArray(result.value?.response?.values) ? result.value.response.values : [];
-        sprints.forEach(sprint => {
-          if (!sprint?.id || !sprint?.name) {
-            return;
-          }
-          const sprintId = String(sprint.id);
-          const existingSprint = sprintMap.get(sprintId);
-          const boardRefs = Array.isArray(existingSprint?.boardRefs) ? existingSprint.boardRefs.slice() : [];
-          const board = result.value?.board || {};
-          const boardRefKey = String(board.id || '');
-          if (boardRefKey && !boardRefs.some(ref => String(ref.id) === boardRefKey)) {
-            boardRefs.push({
-              id: board.id,
-              name: board.name || '',
-              projectKey: board.projectKey || projectKey
-            });
-          }
-          sprintMap.set(sprintId, {
-            ...(existingSprint || {}),
-            ...sprint,
-            boardRefs
-          });
-        });
-      });
-
-      const currentSprints = readSprintsFromIssue(issueData);
-      const currentOpenSprints = currentSprints.filter(sprint => String(sprint?.state || '').toLowerCase() !== 'closed');
-      if (currentOpenSprints.length) {
-        const referencedBoards = readSprintBoardRefsFromIssue(issueData);
-        const extraBoards = mergeSprintBoards(
-          projectKey,
-          referencedBoards.filter(board => !baselineBoards.some(projectBoard => String(projectBoard.id) === String(board.id)))
-        );
-        if (extraBoards.length) {
-          const extraSprintResponses = await Promise.allSettled(extraBoards.map(board => {
-            return get(`${INSTANCE_URL}rest/agile/1.0/board/${board.id}/sprint?state=active,future&maxResults=50`)
-              .then(response => ({board, response}));
-          }));
-
-          extraSprintResponses.forEach(result => {
-            if (result.status !== 'fulfilled') {
-              return;
-            }
-            const sprints = Array.isArray(result.value?.response?.values) ? result.value.response.values : [];
-            sprints.forEach(sprint => {
-              if (!sprint?.id || !sprint?.name) {
-                return;
-              }
-              const sprintId = String(sprint.id);
-              if (!currentOpenSprints.some(currentSprint => String(currentSprint?.id || '') === sprintId)) {
-                return;
-              }
-              const existingSprint = sprintMap.get(sprintId);
-              const boardRefs = Array.isArray(existingSprint?.boardRefs) ? existingSprint.boardRefs.slice() : [];
-              const board = result.value?.board || {};
-              const boardRefKey = String(board.id || '');
-              if (boardRefKey && !boardRefs.some(ref => String(ref.id) === boardRefKey)) {
-                boardRefs.push({
-                  id: board.id,
-                  name: board.name || '',
-                  projectKey: board.projectKey || projectKey
-                });
-              }
-              sprintMap.set(sprintId, {
-                ...(existingSprint || {}),
-                ...sprint,
-                boardRefs
-              });
-            });
-          });
-        }
-      }
-
-      const groupedSprintOptions = [...sprintMap.values()]
-        .filter(sprint => String(sprint?.state || '').toLowerCase() !== 'closed')
-        .sort((left, right) => {
-          const stateOrder = compareSprintState(left?.state, right?.state);
-          if (stateOrder !== 0) {
-            return stateOrder;
-          }
-          return String(left?.name || '').localeCompare(String(right?.name || ''));
-        })
-        .map(sprint => {
-          const groupMeta = getSprintBoardGroupMeta(sprint, issueData, issueBoardIds);
-          return buildEditOption(sprint.id, formatSprintOptionLabel(sprint), {
-            groupKey: groupMeta.groupKey,
-            groupLabel: groupMeta.groupLabel,
-            groupSortKey: groupMeta.sortKey,
-            rawValue: sprint
-          });
-        });
-
-      return [
-        buildEditOption('', 'No sprint'),
-        ...buildGroupedOptionList(groupedSprintOptions, {
-          hideSingleGroup: true,
-          preferredGroupKey: ''
-        })
-      ];
-    });
-  }
-
-  function detectAssigneeIdentifier(issueData) {
-    if (preferredAssigneeIdentifier) {
-      return preferredAssigneeIdentifier;
-    }
-    const assignee = issueData?.fields?.assignee;
-    if (assignee?.accountId) {
-      return 'accountId';
-    }
-    if (assignee?.name) {
-      return 'name';
-    }
-    if (assignee?.key) {
-      return 'key';
-    }
-    return 'accountId';
-  }
-
-  function buildAssigneePayloadCandidates(selectedOption, issueData) {
-    const preferredIdentifier = detectAssigneeIdentifier(issueData);
-    const rawValue = selectedOption?.rawValue || {};
-    const isUnassigned = selectedOption?.id === '__unassigned__';
-    const payloadsByIdentifier = {
-      accountId: isUnassigned
-        ? {accountId: null}
-        : rawValue.accountId ? {accountId: rawValue.accountId} : null,
-      name: isUnassigned
-        ? {name: null}
-        : rawValue.name ? {name: rawValue.name} : null,
-      key: isUnassigned
-        ? {key: null}
-        : rawValue.key ? {key: rawValue.key} : null
-    };
-    const identifierOrder = [preferredIdentifier, 'accountId', 'name', 'key']
-      .filter((value, index, array) => value && array.indexOf(value) === index);
-    return identifierOrder
-      .map(identifier => ({identifier, payload: payloadsByIdentifier[identifier]}))
-      .filter(entry => entry.payload);
-  }
-
-  async function saveAssigneeSelection(issueData, selectedOptions) {
-    const selectedOption = selectedOptions[0];
-    if (!selectedOption) {
-      throw new Error('Pick an assignee before saving');
-    }
-    const payloadCandidates = buildAssigneePayloadCandidates(selectedOption, issueData);
-    if (!payloadCandidates.length) {
-      throw new Error('Could not build assignee payload');
-    }
-    const assigneeUrl = `${INSTANCE_URL}rest/api/2/issue/${issueData.key}/assignee`;
-    let lastError;
-    for (const candidate of payloadCandidates) {
-      try {
-        await requestJson('PUT', assigneeUrl, candidate.payload);
-        preferredAssigneeIdentifier = candidate.identifier;
-        return;
-      } catch (error) {
-        lastError = error;
-      }
-    }
-    throw lastError || new Error('Could not update assignee');
-  }
-
-  // ── Field Editor Definitions ───────────────────────────────
-
-  async function getEditableFieldDefinition(fieldKey, issueData) {
-    if (fieldKey === 'versions') {
-      const capability = await getEditableFieldCapability(issueData, fieldKey);
-      if (!capability.editable) {
-        return null;
-      }
-      const currentVersions = issueData?.fields?.versions || [];
-      return {
-        fieldKey,
-        editorType: 'multi-select',
-        label: 'Affects version',
-        selectionMode: 'multi',
-        currentText: formatVersionText(currentVersions),
-        currentSelections: currentVersions
-          .filter(version => version?.id && version?.name)
-          .map(version => buildEditOption(version.id, version.name, {rawValue: version})),
-        initialInputValue: '',
-        loadOptions: () => getAffectsVersionOptions(issueData),
-        save: selectedOptions => {
-          return requestJson('PUT', `${INSTANCE_URL}rest/api/2/issue/${issueData.key}`, {
-            fields: {
-              versions: selectedOptions.map(option => ({id: option.id}))
-            }
-          });
-        },
-        successMessage: selectedOptions => selectedOptions.length ? 'Affects versions updated' : 'Affects versions cleared'
-      };
-    }
-
-    if (fieldKey === 'fixVersions') {
-      const capability = await getEditableFieldCapability(issueData, fieldKey);
-      if (!capability.editable) {
-        return null;
-      }
-      const currentFixVersions = issueData?.fields?.fixVersions || [];
-      return {
-        fieldKey,
-        editorType: 'multi-select',
-        label: 'Fix version',
-        selectionMode: 'multi',
-        currentText: formatVersionText(currentFixVersions),
-        currentSelections: currentFixVersions
-          .filter(version => version?.id && version?.name)
-          .map(version => buildEditOption(version.id, version.name, {rawValue: version})),
-        initialInputValue: '',
-        loadOptions: () => getFixVersionOptions(issueData),
-        save: selectedOptions => {
-          return requestJson('PUT', `${INSTANCE_URL}rest/api/2/issue/${issueData.key}`, {
-            fields: {
-              fixVersions: selectedOptions.map(option => ({id: option.id}))
-            }
-          });
-        },
-        successMessage: selectedOptions => selectedOptions.length ? 'Fix versions updated' : 'Fix versions cleared'
-      };
-    }
-
-    if (fieldKey === 'sprint') {
-      const capability = await getEditableFieldCapability(issueData, fieldKey);
-      if (!capability.editable) {
-        return null;
-      }
-      const currentSprints = readSprintsFromIssue(issueData);
-      return {
-        fieldKey,
-        editorType: 'single-select',
-        label: 'Sprint',
-        selectionMode: 'single',
-        currentText: formatSprintText(currentSprints),
-        currentOptionId: currentSprints.length === 1 ? String(currentSprints[0]?.id || '') : null,
-        currentSelections: currentSprints.length === 1
-          ? [buildEditOption(currentSprints[0]?.id, formatSprintOptionLabel(currentSprints[0]), {rawValue: currentSprints[0]})]
-          : [],
-        initialInputValue: '',
-        loadOptions: () => getSprintOptions(issueData),
-        save: async selectedOptions => {
-          const option = selectedOptions[0] || buildEditOption('', 'No sprint');
-          const sprintFieldId = pickSprintFieldId(issueData, await getSprintFieldIds(INSTANCE_URL));
-          if (!sprintFieldId) {
-            throw new Error('Could not resolve the Sprint field');
-          }
-          await requestJson('PUT', `${INSTANCE_URL}rest/api/2/issue/${issueData.key}`, {
-            fields: {
-              [sprintFieldId]: option.id ? (Number(option.id) || option.id) : []
-            }
-          });
-        },
-        successMessage: selectedOptions => {
-          const option = selectedOptions[0] || buildEditOption('', 'No sprint');
-          return option.id ? `Sprint set to ${option.label}` : 'Sprint cleared';
-        }
-      };
-    }
-
-    if (fieldKey === 'priority') {
-      const capability = await getEditableFieldCapability(issueData, 'priority');
-      const allowedPriorities = capability.allowedValues || [];
-      if (!capability.editable || !allowedPriorities.length) {
-        return null;
-      }
-      const currentPriority = issueData?.fields?.priority;
-      return {
-        fieldKey,
-        editorType: 'single-select',
-        label: 'Priority',
-        selectionMode: 'single',
-        currentText: currentPriority?.name || '',
-        currentOptionId: currentPriority?.id ? String(currentPriority.id) : null,
-        currentSelections: currentPriority?.id && currentPriority?.name
-          ? [buildEditOption(currentPriority.id, currentPriority.name, {
-              iconUrl: currentPriority.iconUrl || ''
-            })]
-          : [],
-        initialInputValue: '',
-        loadOptions: async () => {
-          return allowedPriorities
-            .filter(priority => priority?.id && priority?.name)
-            .map(priority => buildEditOption(priority.id, priority.name, {
-              iconUrl: priority.iconUrl || ''
-            }));
-        },
-        save: selectedOptions => {
-          const selectedPriority = selectedOptions[0];
-          if (!selectedPriority?.id) {
-            throw new Error('Pick a priority before saving');
-          }
-          return requestJson('PUT', `${INSTANCE_URL}rest/api/2/issue/${issueData.key}`, {
-            fields: {
-              priority: {id: selectedPriority.id}
-            }
-          });
-        },
-        successMessage: selectedOptions => {
-          const selectedPriority = selectedOptions[0];
-          return selectedPriority?.label
-            ? `Priority set to ${selectedPriority.label}`
-            : 'Priority updated';
-        }
-      };
-    }
-
-    if (fieldKey === 'issuetype') {
-      const capability = await getEditableFieldCapability(issueData, 'issuetype');
-      const currentIssueType = issueData?.fields?.issuetype;
-      const issueTypeOptions = normalizeIssueTypeOptions(capability.allowedValues || [], currentIssueType);
-      const currentOption = currentIssueType?.id && currentIssueType?.name
-        ? buildEditOption(currentIssueType.id, currentIssueType.name, {
-            iconUrl: currentIssueType.iconUrl || '',
-            metaText: currentIssueType.description || '',
-            rawValue: currentIssueType
-          })
-        : null;
-      const allOptions = mergeEditOptions(currentOption ? [currentOption] : [], issueTypeOptions);
-      if (!capability.editable || allOptions.length < 2) {
-        return null;
-      }
-      return {
-        fieldKey,
-        editorType: 'single-select',
-        label: 'Issue type',
-        selectionMode: 'single',
-        currentText: currentIssueType?.name || '',
-        currentOptionId: currentOption?.id || null,
-        currentSelections: currentOption ? [currentOption] : [],
-        initialInputValue: '',
-        loadOptions: async () => allOptions,
-        save: selectedOptions => {
-          const selectedIssueType = selectedOptions[0];
-          if (!selectedIssueType?.id) {
-            throw new Error('Pick an issue type before saving');
-          }
-          return requestJson('PUT', `${INSTANCE_URL}rest/api/2/issue/${issueData.key}`, {
-            fields: {
-              issuetype: {id: selectedIssueType.id}
-            }
-          });
-        },
-        successMessage: selectedOptions => {
-          const selectedIssueType = selectedOptions[0];
-          return selectedIssueType?.label
-            ? `Issue type set to ${selectedIssueType.label}`
-            : 'Issue type updated';
-        }
-      };
-    }
-
-    if (fieldKey === 'status') {
-      const transitions = await getTransitionOptions(issueData?.key);
-      if (!transitions.length) {
-        return null;
-      }
-      return {
-        fieldKey,
-        editorType: 'transition-select',
-        label: 'Status transition',
-        selectionMode: 'single',
-        currentText: issueData?.fields?.status?.name || '',
-        currentOptionId: null,
-        currentSelections: [],
-        initialInputValue: '',
-        inputPlaceholder: 'Type to filter transitions',
-        loadOptions: () => transitions,
-        save: selectedOptions => {
-          const selectedTransition = selectedOptions[0];
-          if (!selectedTransition?.id) {
-            throw new Error('Pick a transition before saving');
-          }
-          return requestJson('POST', `${INSTANCE_URL}rest/api/2/issue/${issueData.key}/transitions`, {
-            transition: {id: selectedTransition.id}
-          });
-        },
-        successMessage: selectedOptions => {
-          const selectedTransition = selectedOptions[0];
-          if (selectedTransition?.targetStatusName) {
-            return `Status moved to ${selectedTransition.targetStatusName}`;
-          }
-          return 'Status updated';
-        }
-      };
-    }
-
-    if (fieldKey === 'assignee') {
-      const capability = await getEditableFieldCapability(issueData, 'assignee');
-      if (!capability.editable) {
-        return null;
-      }
-      const currentAssignee = issueData?.fields?.assignee;
-      const currentOption = currentAssignee
-        ? buildEditOption(currentAssignee.accountId || currentAssignee.name || currentAssignee.key, currentAssignee.displayName || currentAssignee.name || currentAssignee.key, {
-            avatarUrl: currentAssignee.avatarUrls?.['48x48'] || '',
-            metaText: currentAssignee.name || currentAssignee.key || '',
-            rawValue: {
-              accountId: currentAssignee.accountId || '',
-              name: currentAssignee.name || '',
-              key: currentAssignee.key || ''
-            }
-          })
-        : null;
-      return {
-        fieldKey,
-        editorType: 'user-search',
-        label: 'Assignee',
-        selectionMode: 'single',
-        currentText: currentAssignee?.displayName || 'Unassigned',
-        currentOptionId: currentOption?.id || '__unassigned__',
-        currentSelections: currentOption ? [currentOption] : [buildEditOption('__unassigned__', 'Unassigned', {
-          metaText: 'No assignee'
-        })],
-        initialInputValue: '',
-        inputPlaceholder: 'Search assignable users',
-        loadOptions: async () => {
-          const searchedOptions = await searchAssignableUsers('', issueData);
-          const options = [buildEditOption('__unassigned__', 'Unassigned', {metaText: 'Clear assignee'})];
-          if (currentOption && !options.find(option => option.id === currentOption.id)) {
-            options.push(currentOption);
-          }
-          searchedOptions.forEach(option => {
-            if (!options.find(existing => existing.id === option.id)) {
-              options.push(option);
-            }
-          });
-          assigneeLocalOptionsCache.set(issueData.key, options.filter(option => option.id !== '__unassigned__'));
-          return options;
-        },
-        searchOptions: async query => {
-          const localBaselineOptions = assigneeLocalOptionsCache.get(issueData.key) || [];
-          const searchedOptions = await searchAssignableUsers(query, issueData);
-          const mergedOptions = [buildEditOption('__unassigned__', 'Unassigned', {metaText: 'Clear assignee'}), ...searchedOptions, ...localBaselineOptions]
-            .filter((option, index, options) => {
-              return option?.id && options.findIndex(candidate => candidate.id === option.id) === index;
-            });
-          assigneeLocalOptionsCache.set(issueData.key, mergedOptions.filter(option => option.id !== '__unassigned__'));
-          return mergedOptions;
-        },
-        save: selectedOptions => saveAssigneeSelection(issueData, selectedOptions),
-        successMessage: selectedOptions => {
-          const selectedOption = selectedOptions[0];
-          if (!selectedOption || selectedOption.id === '__unassigned__') {
-            return 'Assignee cleared';
-          }
-          return `Assignee set to ${selectedOption.label}`;
-        }
-      };
-    }
-
-    if (fieldKey === 'parentLink') {
-      const linkage = await resolveIssueLinkage(issueData);
-      if (!linkage?.editable || !linkage.mode) {
-        return null;
-      }
-      const currentLink = linkage.currentLink;
-      const currentOption = currentLink
-        ? buildEditOption(currentLink.key, `[${currentLink.key}] ${currentLink.summary || currentLink.key}`, {
-            rawValue: {
-              key: currentLink.key,
-              summary: currentLink.summary || currentLink.key
-            }
-          })
-        : null;
-      return {
-        fieldKey,
-        editorType: 'issue-search',
-        label: linkage.label,
-        selectionMode: 'single',
-        currentText: currentLink ? `[${currentLink.key}] ${currentLink.summary || currentLink.key}` : `${linkage.label}: none`,
-        currentOptionId: currentOption?.id || null,
-        currentSelections: currentOption ? [currentOption] : [],
-        initialInputValue: '',
-        inputPlaceholder: 'Search issues by key or summary',
-        loadOptions: async () => {
-          const recentOptions = getRecentIssueSearchOptions(issueData, linkage.mode);
-          const searchedOptions = await searchParentCandidates('', issueData, linkage.mode).catch(() => []);
-          return mergeEditOptions(
-            [currentOption].filter(Boolean),
-            mergeEditOptions(searchedOptions, recentOptions)
-          );
-        },
-        searchOptions: query => searchParentCandidates(query, issueData, linkage.mode),
-        save: selectedOptions => {
-          const selectedOption = selectedOptions[0];
-          const selectedIssueKey = selectedOption?.rawValue?.key || selectedOption?.id;
-          if (!selectedIssueKey) {
-            throw new Error(`Pick a ${linkage.label.toLowerCase()} issue before saving`);
-          }
-          if (linkage.mode === 'parent') {
-            return requestJson('PUT', `${INSTANCE_URL}rest/api/2/issue/${issueData.key}`, {
-              fields: {
-                parent: {key: selectedIssueKey}
-              }
-            });
-          }
-          if (!linkage.fieldKey) {
-            throw new Error('Could not resolve Epic Link field');
-          }
-          return requestJson('PUT', `${INSTANCE_URL}rest/api/2/issue/${issueData.key}`, {
-            fields: {
-              [linkage.fieldKey]: selectedIssueKey
-            }
-          });
-        },
-        successMessage: selectedOptions => {
-          const selectedOption = selectedOptions[0];
-          const selectedIssueKey = selectedOption?.rawValue?.key || selectedOption?.id || '';
-          return selectedIssueKey
-            ? `${linkage.label} set to ${selectedIssueKey}`
-            : `${linkage.label} updated`;
-        }
-      };
-    }
-
-    if (fieldKey === 'labels') {
-      const capability = await getEditableFieldCapability(issueData, 'labels');
-      const suggestionSupport = await hasLabelSuggestionSupport();
-      if (!capability.editable || !suggestionSupport) {
-        return null;
-      }
-      const currentLabels = (issueData?.fields?.labels || []).filter(Boolean);
-      const currentSelections = currentLabels.map(label => buildLabelOption(label));
-      return {
-        fieldKey,
-        editorType: 'label-search',
-        label: 'Labels',
-        selectionMode: 'multi',
-        currentText: `Labels: ${currentLabels.join(', ') || '--'}`,
-        currentOptionId: null,
-        currentSelections,
-        initialInputValue: '',
-        inputPlaceholder: 'Search existing labels',
-        loadOptions: async () => {
-          const baselineSuggestions = await getLabelSuggestions('').catch(() => []);
-          const mergedOptions = mergeEditOptions(currentSelections, baselineSuggestions);
-          labelLocalOptionsCache.set(issueData.key, mergedOptions);
-          return mergedOptions;
-        },
-        searchOptions: async query => {
-          const normalizedQuery = String(query || '').trim();
-          const localBaselineOptions = labelLocalOptionsCache.get(issueData.key) || [];
-          const searchedOptions = await getLabelSuggestions(normalizedQuery);
-          const mergedOptions = normalizedQuery
-            ? searchedOptions
-            : mergeEditOptions(currentSelections, mergeEditOptions(searchedOptions, mergeEditOptions(localBaselineOptions, popupState?.editState?.options || [])));
-          labelLocalOptionsCache.set(issueData.key, mergedOptions);
-          return mergedOptions;
-        },
-        save: selectedOptions => {
-          const nextLabels = selectedOptions.map(option => option.id).filter(Boolean);
-          return requestJson('PUT', `${INSTANCE_URL}rest/api/2/issue/${issueData.key}`, {
-            fields: {
-              labels: nextLabels
-            }
-          });
-        },
-        successMessage: () => 'Labels updated'
-      };
-    }
-
-    if (fieldKey === 'environment') {
-      const capability = await getEditableFieldCapability(issueData, 'environment');
-      const operations = capability.operations || [];
-      if (!capability.editable || !operations.includes('set')) {
-        return null;
-      }
-      const currentEnvironment = String(issueData?.fields?.environment || '');
-      return {
-        fieldKey,
-        editorType: 'textarea',
-        label: 'Environment',
-        selectionMode: 'text',
-        currentText: currentEnvironment,
-        currentSelections: [],
-        initialInputValue: currentEnvironment,
-        inputPlaceholder: 'Describe the environment',
-        showActionButtons: true,
-        loadOptions: async () => [],
-        save: (selectedOptions, editState) => {
-          const nextEnvironment = String(editState?.inputValue || '');
-          return requestJson('PUT', `${INSTANCE_URL}rest/api/2/issue/${issueData.key}`, {
-            fields: {
-              environment: nextEnvironment.trim() ? nextEnvironment : null
-            }
-          });
-        },
-        successMessage: (selectedOptions, editState) => {
-          const nextEnvironment = String(editState?.inputValue || '').trim();
-          return nextEnvironment ? 'Environment updated' : 'Environment cleared';
-        }
-      };
-    }
-
-    if (String(fieldKey || '').startsWith('customfield_')) {
-      const customFieldDefinition = await getCustomFieldEditorDefinition(fieldKey, issueData);
-      if (customFieldDefinition) {
-        return customFieldDefinition;
-      }
-    }
-
-    return null;
-  }
 
   // ── Edit UI Presentation ───────────────────────────────────
 
-  function filterEditOptions(options, inputValue) {
-    const normalizedInput = String(inputValue || '').trim().toLowerCase();
-    const list = Array.isArray(options) ? options : [];
-    const visibleOptions = normalizedInput
-      ? list.filter(option => !option?.isGroupLabel && option.searchText.includes(normalizedInput))
-      : list.filter(option => !option?.isGroupLabel);
-
-    const visibleOptionKeys = new Set(visibleOptions.map(option => `${String(option?.id || '')}::${String(option?.label || '')}`));
-    const groupedResult = [];
-    let pendingGroupLabel = null;
-
-    list.forEach(option => {
-      if (option?.isGroupLabel) {
-        pendingGroupLabel = option;
-        return;
-      }
-      if (!visibleOptionKeys.has(`${String(option?.id || '')}::${String(option?.label || '')}`)) {
-        return;
-      }
-      if (pendingGroupLabel) {
-        groupedResult.push(pendingGroupLabel);
-        pendingGroupLabel = null;
-      }
-      groupedResult.push(option);
-    });
-
-    return groupedResult;
-  }
-
-  function mergeEditOptions(primaryOptions, fallbackOptions) {
-    const mergedOptions = [];
-    const seen = new Set();
-    [...(Array.isArray(primaryOptions) ? primaryOptions : []), ...(Array.isArray(fallbackOptions) ? fallbackOptions : [])]
-      .forEach(option => {
-        const optionId = String(option?.id || '');
-        if (!optionId || seen.has(optionId)) {
-          return;
-        }
-        seen.add(optionId);
-        mergedOptions.push(option);
-      });
-    return mergedOptions;
-  }
 
   function buildActiveEditPresentation(fieldKey, state, options = {}) {
     const editState = state?.editState;
@@ -4414,6 +2925,47 @@ async function mainAsyncLocal() {
     return `Move to Sprint ${sprintName}${stateSuffix}`.trim();
   }
 
+  async function getProjectSprintBoards(issueData) {
+    const projectKey = String(issueData?.key || '').split('-')[0];
+    if (!projectKey) {
+      return [];
+    }
+    const boardResponse = await get(`${INSTANCE_URL}rest/agile/1.0/board?projectKeyOrId=${encodeURIComponent(projectKey)}&maxResults=50`).catch(() => null);
+    const projectBoards = Array.isArray(boardResponse?.values) ? boardResponse.values : [];
+    return projectBoards
+      .map(board => ({
+        ...board,
+        id: String(board?.id || '').trim(),
+        name: String(board?.name || '').trim(),
+        projectKey: String(board?.projectKey || projectKey),
+      }))
+      .filter(board => !!board.id);
+  }
+
+  function mergeSprintBoards(projectKey, ...boardLists) {
+    const boardsById = new Map();
+    boardLists.flat().forEach(board => {
+      const boardId = String(board?.id || '').trim();
+      if (!boardId) {
+        return;
+      }
+      const existingBoard = boardsById.get(boardId) || {};
+      boardsById.set(boardId, {
+        ...existingBoard,
+        ...board,
+        id: boardId,
+        name: String(board?.name || existingBoard.name || '').trim(),
+        projectKey: String(board?.projectKey || existingBoard.projectKey || projectKey),
+      });
+    });
+    return [...boardsById.values()];
+  }
+
+  async function getCandidateSprintBoards(issueData) {
+    const projectKey = String(issueData?.key || '').split('-')[0];
+    return mergeSprintBoards(projectKey, await getProjectSprintBoards(issueData), readSprintBoardRefsFromIssue(issueData));
+  }
+
   async function getProjectSprintOptions(issueData) {
     const projectKey = String(issueData?.key || '').split('-')[0];
     if (!projectKey) {
@@ -4535,114 +3087,6 @@ async function mainAsyncLocal() {
 
   // ── Quick Actions ──────────────────────────────────────────
 
-  async function resolveQuickActions(issueData) {
-
-    const actionResults = await Promise.allSettled([
-      getCurrentUserInfo(),
-      getAvailableTransitions(issueData.key),
-      getProjectSprintOptions(issueData),
-      getSprintFieldIds(INSTANCE_URL)
-    ]);
-
-    const currentUser = actionResults[0].status === 'fulfilled' ? actionResults[0].value : null;
-    const transitions = actionResults[1].status === 'fulfilled' ? actionResults[1].value : [];
-    const sprintOptions = actionResults[2].status === 'fulfilled' ? actionResults[2].value : {activeSprints: [], upcomingSprint: null};
-    const sprintFieldIds = actionResults[3].status === 'fulfilled' ? actionResults[3].value : [];
-    const actions = [];
-
-    if (currentUser && !areSameJiraUser(issueData.fields.assignee, currentUser)) {
-      actions.push({
-        key: 'assign-to-me',
-        label: 'Assign to me',
-        successMessage: 'Assigned to you',
-        payload: buildAssignPayload(currentUser)
-      });
-    }
-
-    const startProgressTransition = findStartProgressTransition(transitions);
-    if (startProgressTransition) {
-      actions.push({
-        key: 'start-progress',
-        label: buildTransitionActionLabel(startProgressTransition),
-        successMessage: `Moved to ${startProgressTransition.to?.name || startProgressTransition.name}`,
-        transitionId: startProgressTransition.id
-      });
-    }
-
-    const sprintFieldId = pickSprintFieldId(issueData, sprintFieldIds);
-    const existingSprints = readSprintsFromIssue(issueData)
-      .map(sprint => String(sprint.id || ''))
-      .filter(Boolean);
-    const sprintCandidates = [
-      ...(Array.isArray(sprintOptions.activeSprints) ? sprintOptions.activeSprints : []),
-      ...(sprintOptions.upcomingSprint ? [sprintOptions.upcomingSprint] : [])
-    ].filter(sprint => sprint?.id && !existingSprints.includes(String(sprint.id)));
-    const seenSprintIds = new Set();
-    sprintCandidates.forEach(sprint => {
-      const sprintId = String(sprint.id);
-      if (seenSprintIds.has(sprintId) || !sprintFieldId) {
-        return;
-      }
-      seenSprintIds.add(sprintId);
-      actions.push({
-        key: `move-to-sprint-${sprintId}`,
-        kind: 'move-to-sprint',
-        label: formatSprintActionLabel(sprint),
-        successMessage: `Moved to Sprint ${sprint.name}`,
-        sprintId,
-        sprintFieldId
-      });
-    });
-
-    return actions;
-  }
-
-  async function executeQuickAction(action, issueData) {
-    if (!action) {
-      throw new Error('Action is unavailable');
-    }
-
-    if (action.key === 'assign-to-me') {
-      await requestJson('PUT', `${INSTANCE_URL}rest/api/2/issue/${issueData.key}/assignee`, action.payload);
-      return action.successMessage;
-    }
-
-    if (action.key === 'start-progress') {
-      await requestJson('POST', `${INSTANCE_URL}rest/api/2/issue/${issueData.key}/transitions`, {
-        transition: {id: action.transitionId}
-      });
-      return action.successMessage;
-    }
-
-    if (action.kind === 'move-to-sprint') {
-      await requestJson('PUT', `${INSTANCE_URL}rest/api/2/issue/${issueData.key}`, {
-        fields: {
-          [action.sprintFieldId]: action.sprintId
-        }
-      });
-      return action.successMessage;
-    }
-
-    throw new Error('Unknown action');
-  }
-
-  function buildQuickActionViewData(actionsOpen, actionLoadingKey, quickActions) {
-    const sourceActions = Array.isArray(quickActions) ? quickActions : [];
-    const firstSprintActionIndex = sourceActions.findIndex(action => action?.kind === 'move-to-sprint');
-    const actions = sourceActions.map((action, index) => ({
-      ...action,
-      showDividerBefore: firstSprintActionIndex > 0 && index === firstSprintActionIndex,
-      disabled: actionLoadingKey && actionLoadingKey !== action.key,
-      disabledAttr: actionLoadingKey && actionLoadingKey !== action.key ? 'disabled' : '',
-      isLoading: actionLoadingKey === action.key,
-      labelText: actionLoadingKey === action.key ? `${action.label}...` : action.label
-    }));
-    return {
-      hasQuickActions: actions.length > 0,
-      actionsOpen: actionsOpen && actions.length > 0,
-      quickActions: actions
-    };
-  }
 
   // ── Popup Data & Rendering ─────────────────────────────────
 
@@ -5058,6 +3502,32 @@ async function mainAsyncLocal() {
       });
     }
   }
+
+  function updatePopupState(nextStateOrUpdater) {
+    popupState = typeof nextStateOrUpdater === 'function'
+      ? nextStateOrUpdater(popupState)
+      : nextStateOrUpdater;
+    return popupState;
+  }
+
+  function buildPopupInteractionReset(overrides = {}) {
+    return {
+      actionLoadingKey: '',
+      actionError: '',
+      lastActionSuccess: '',
+      actionsOpen: false,
+      editState: null,
+      commentSession: null,
+      ...overrides,
+    };
+  }
+
+  async function renderUpdatedPopupState(nextStateOrUpdater) {
+    const nextState = updatePopupState(nextStateOrUpdater);
+    await renderIssuePopup(nextState);
+    return nextState;
+  }
+
   async function refreshPopupIssueState(successMessage = '', options = {}) {
     if (!popupState?.key) {
       return;
@@ -5089,20 +3559,16 @@ async function mainAsyncLocal() {
       return;
     }
 
-    popupState = {
-      ...popupState,
+    await renderUpdatedPopupState(currentState => ({
+      ...currentState,
       issueData: refreshedIssueData,
       pullRequests: refreshedPullRequests,
       quickActions,
-      actionLoadingKey: '',
-      actionError: '',
-      lastActionSuccess: showSnackBar ? '' : successMessage,
-      actionsOpen: false,
-      editState: null,
-      commentSession: null,
-      timeTrackingEditState: nextTimeTrackingEditState || createTimeTrackingEditState(refreshedIssueData)
-    };
-    await renderIssuePopup(popupState);
+      ...buildPopupInteractionReset({
+        lastActionSuccess: showSnackBar ? '' : successMessage,
+      }),
+      timeTrackingEditState: nextTimeTrackingEditState || createTimeTrackingEditState(refreshedIssueData),
+    }));
     if (showSnackBar && successMessage) {
       snackBar(successMessage);
     }
@@ -5117,26 +3583,24 @@ async function mainAsyncLocal() {
       return;
     }
 
-    popupState = {
-      ...popupState,
+    await renderUpdatedPopupState(currentState => ({
+      ...currentState,
       actionsOpen: false,
       actionLoadingKey: action.key,
       actionError: '',
-      lastActionSuccess: ''
-    };
-    await renderIssuePopup(popupState);
+      lastActionSuccess: '',
+    }));
 
     try {
       const successMessage = await executeQuickAction(action, popupState.issueData);
       await refreshPopupIssueState(successMessage);
     } catch (error) {
-      popupState = {
-        ...popupState,
+      await renderUpdatedPopupState(currentState => ({
+        ...currentState,
         actionLoadingKey: '',
         actionError: buildQuickActionError(error),
-        lastActionSuccess: ''
-      };
-      await renderIssuePopup(popupState);
+        lastActionSuccess: '',
+      }));
     }
   }
   async function runSearchOptionsForActiveEdit(fieldKey, queryText, requestId) {
@@ -5478,127 +3942,6 @@ async function mainAsyncLocal() {
     }
   }
 
-  function resolveSelectedEditOptions(editState) {
-    if (!editState) {
-      return [];
-    }
-    if (editState.selectionMode === 'text') {
-      return [];
-    }
-    if (editState.selectionMode === 'multi') {
-      return Array.isArray(editState.selectedOptions) ? editState.selectedOptions : [];
-    }
-    if (editState.selectedOptionId !== null && typeof editState.selectedOptionId !== 'undefined') {
-      const selectedOption = (editState.options || []).find(option => option.id === editState.selectedOptionId);
-      if (selectedOption) {
-        return [selectedOption];
-      }
-    }
-    const normalizedInput = String(editState.inputValue || '').trim().toLowerCase();
-    if (!normalizedInput) {
-      return [];
-    }
-    const exactOption = (editState.options || []).find(option => option.label.toLowerCase() === normalizedInput);
-    return exactOption ? [exactOption] : [];
-  }
-
-  function toggleMultiSelectOptionFromInput(fieldKey) {
-    if (!popupState?.editState || popupState.editState.fieldKey !== fieldKey || popupState.editState.selectionMode !== 'multi') {
-      return;
-    }
-    const normalizedInput = String(popupState.editState.inputValue || '').trim().toLowerCase();
-    if (!normalizedInput) {
-      return;
-    }
-    const exactOption = (popupState.editState.options || []).find(option => option.label.toLowerCase() === normalizedInput);
-    if (!exactOption) {
-      return;
-    }
-    selectFieldEditOption(exactOption.id);
-  }
-
-  async function submitFieldEdit(fieldKey) {
-    if (!popupState?.editState || popupState.editState.fieldKey !== fieldKey || popupState.editState.loadingOptions || popupState.editState.saving) {
-      return;
-    }
-    const definition = await getEditableFieldDefinition(fieldKey, popupState.issueData);
-    if (!definition) {
-      return;
-    }
-    const selectedOptions = resolveSelectedEditOptions(popupState.editState);
-    if (popupState.editState.selectionMode === 'multi') {
-      if (!popupState.editState.hasChanges) {
-        return;
-      }
-    } else if (popupState.editState.selectionMode === 'text') {
-      if (!popupState.editState.hasChanges) {
-        return;
-      }
-    } else if (!selectedOptions.length) {
-      const errorMessage = 'Pick an existing value from the dropdown before pressing Enter';
-      popupState = {
-        ...popupState,
-        editState: {
-          ...popupState.editState,
-          errorMessage
-        }
-      };
-      await renderIssuePopup(popupState);
-      snackBar(errorMessage);
-      return;
-    }
-
-    popupState = {
-      ...popupState,
-      editState: popupState.editState.selectionMode === 'multi'
-        ? buildNextMultiSelectState(popupState.editState, {
-            saving: true,
-            errorMessage: ''
-          })
-        : popupState.editState.selectionMode === 'text'
-          ? buildNextTextEditState(popupState.editState, {
-              saving: true,
-              errorMessage: ''
-            })
-        : {
-            ...popupState.editState,
-            saving: true,
-            errorMessage: ''
-          }
-    };
-    await renderIssuePopup(popupState);
-
-    try {
-      const submittedEditState = popupState.editState;
-      await definition.save(selectedOptions, submittedEditState);
-      await refreshPopupIssueState(definition.successMessage(selectedOptions, submittedEditState));
-    } catch (error) {
-      const errorMessage = buildEditFieldError(error);
-      if (!popupState?.editState || popupState.editState.fieldKey !== fieldKey) {
-        return;
-      }
-      popupState = {
-        ...popupState,
-        editState: popupState.editState.selectionMode === 'multi'
-          ? buildNextMultiSelectState(popupState.editState, {
-              saving: false,
-              errorMessage
-            })
-          : popupState.editState.selectionMode === 'text'
-            ? buildNextTextEditState(popupState.editState, {
-                saving: false,
-                errorMessage
-              })
-          : {
-              ...popupState.editState,
-              saving: false,
-              errorMessage
-            }
-      };
-      await renderIssuePopup(popupState);
-      snackBar(errorMessage);
-    }
-  }
 
   function updateTimeTrackingEditState(changes = {}) {
     if (!popupState?.issueData) {
@@ -5710,19 +4053,14 @@ async function mainAsyncLocal() {
           errorMessage
         });
 
-        popupState = {
-          ...popupState,
+        await renderUpdatedPopupState(currentPopupState => ({
+          ...currentPopupState,
           issueData: refreshedIssueData,
           pullRequests: refreshedPullRequests,
           quickActions,
-          actionLoadingKey: '',
-          actionError: '',
-          lastActionSuccess: '',
-          actionsOpen: false,
-          editState: null,
-          timeTrackingEditState: refreshedTimeTrackingState
-        };
-        await renderIssuePopup(popupState);
+          ...buildPopupInteractionReset(),
+          timeTrackingEditState: refreshedTimeTrackingState,
+        }));
 
         if (successMessage) {
           snackBar(errorMessage ? `${successMessage}. ${errorMessage}` : successMessage);
@@ -6327,7 +4665,7 @@ async function mainAsyncLocal() {
         quickActions = [];
       }
 
-      popupState = {
+      await renderUpdatedPopupState({
         key,
         issueData,
         pullRequests,
@@ -6335,15 +4673,9 @@ async function mainAsyncLocal() {
         pointerY,
         quickActions,
         commentReactionState: emptyCommentReactionState(),
-        actionsOpen: false,
-        actionLoadingKey: '',
-        actionError: '',
-        lastActionSuccess: '',
-        editState: null,
-        commentSession: null,
-        timeTrackingEditState: createTimeTrackingEditState(issueData)
-      };
-      await renderIssuePopup(popupState);
+        ...buildPopupInteractionReset(),
+        timeTrackingEditState: createTimeTrackingEditState(issueData),
+      });
     })(cancelToken).catch((error) => {
       notifyJiraConnectionFailure(INSTANCE_URL, error);
       lastHoveredKey = '';
