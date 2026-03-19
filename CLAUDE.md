@@ -25,6 +25,7 @@ npx webpack --mode=development
 ## Release process
 
 1. Ensure master is up to date: `git checkout master && git pull origin master --rebase`
-2. Build: `npx webpack --mode=development`
-3. Package: `powershell -Command "Remove-Item -Force jira-plugin-build.zip -ErrorAction SilentlyContinue; Compress-Archive -Path jira-plugin/build, jira-plugin/resources, jira-plugin/options, jira-plugin/manifest.json -DestinationPath jira-plugin-build.zip"`
-4. Create release: `gh release create <version> jira-plugin-build.zip --repo dgebaei/Jira-Hot-Linker --title "<version> - <title>" --notes "<release notes>"`
+2. Before building or publishing, bump the extension version in both `jira-plugin/manifest.json` and `package.json`, and keep that version in sync with the GitHub release tag/title.
+3. Build: `npx webpack --mode=development`
+4. Package: `powershell -Command "Remove-Item -Force jira-plugin-build.zip -ErrorAction SilentlyContinue; Compress-Archive -Path jira-plugin/build, jira-plugin/resources, jira-plugin/options, jira-plugin/manifest.json -DestinationPath jira-plugin-build.zip"`
+5. Create release: `gh release create <version> jira-plugin-build.zip --repo dgebaei/Jira-Hot-Linker --title "<version> - <title>" --notes "<release notes>"`
