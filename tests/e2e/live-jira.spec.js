@@ -62,6 +62,35 @@ async function rehydrateLivePopupAfterReload(extensionApp, page, issueKey) {
   await expect(page.locator('._JX_container')).toContainText(issueKey);
 }
 
+async function injectLiveHoverAnchor(page, issueKey) {
+  await page.evaluate(key => {
+    const existing = document.getElementById('playwright-live-issue-key');
+    if (existing) {
+      existing.remove();
+    }
+    const link = document.createElement('a');
+    link.id = 'playwright-live-issue-key';
+    link.href = `/browse/${key}`;
+    link.textContent = key;
+    link.style.position = 'fixed';
+    link.style.top = '8px';
+    link.style.right = '8px';
+    link.style.zIndex = '2147483647';
+    link.style.background = '#fff';
+    link.style.padding = '4px 6px';
+    link.style.color = '#0052cc';
+    document.body.appendChild(link);
+  }, issueKey);
+}
+
+async function rehydrateLivePopupAfterReload(extensionApp, page, issueKey) {
+  await injectContentScript(extensionApp, page);
+  await expect.poll(async () => page.locator('._JX_container').count()).toBe(1);
+  await injectLiveHoverAnchor(page, issueKey);
+  await hoverIssueKey(page, '#playwright-live-issue-key');
+  await expect(page.locator('._JX_container')).toContainText(issueKey);
+}
+
 async function openLivePopupForIssue(extensionApp, optionsPage, config, issueKey) {
   assertAllowedLiveIssue(issueKey, config);
   const issue = await getLiveIssue(issueKey, config);

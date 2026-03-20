@@ -16,9 +16,10 @@ test('shows validation for an empty Jira instance URL', async ({optionsPage}) =>
   await expect(optionsPage.locator('.saveNotice')).toContainText('You must provide your Jira instance URL.');
 });
 
-test.skip('validates custom field ids and resolves their names from Jira metadata', async ({optionsPage, servers}) => {
+test('validates custom field ids and resolves their names from Jira metadata', async ({optionsPage, servers}) => {
   const target = requireJiraTestTarget(test, servers, {requireAuth: false});
-  await configureExtension(optionsPage, baseConfig(servers, target));
+  await configureExtension(optionsPage, baseConfig(servers, target), true);
+  await expect(optionsPage.locator('.saveNotice')).toContainText('Options saved successfully.');
   await optionsPage.reload();
 
   const showButton = optionsPage.getByRole('button', {name: 'Show'});
@@ -35,16 +36,17 @@ test.skip('validates custom field ids and resolves their names from Jira metadat
 
   const customFieldId = target.mode === 'mock' ? 'customfield_12345' : await getFirstCustomFieldId(target);
   test.skip(!customFieldId, 'No Jira custom field is available for metadata resolution.');
-  await row.locator('input[placeholder="customfield_12345"]').fill(customFieldId);
+  await row.getByLabel('Field ID').fill(customFieldId);
   await expect(row.locator('.customFieldMeta')).toContainText(/Resolved field name:|Waiting for Jira field metadata\./);
   await expect(optionsPage.getByRole('button', {name: 'Save'})).toBeEnabled();
 });
 
-test.skip('persists hover behavior and layout settings through the options page', async ({optionsPage, servers}) => {
+test('persists hover behavior and layout settings through the options page', async ({optionsPage, servers}) => {
   const target = requireJiraTestTarget(test, servers, {requireAuth: false});
   const customFieldId = target.mode === 'mock' ? 'customfield_12345' : await getFirstCustomFieldId(target);
   test.skip(!customFieldId, 'No Jira custom field is available for options persistence coverage.');
-  await configureExtension(optionsPage, baseConfig(servers, target));
+  await configureExtension(optionsPage, baseConfig(servers, target), true);
+  await expect(optionsPage.locator('.saveNotice')).toContainText('Options saved successfully.');
   await optionsPage.reload();
 
   const showButton = optionsPage.getByRole('button', {name: 'Show'});
@@ -61,7 +63,7 @@ test.skip('persists hover behavior and layout settings through the options page'
       pullRequests: false,
     },
     customFields: [{fieldId: customFieldId, row: 2}],
-  });
+  }, true);
 
   await optionsPage.reload();
 
@@ -74,5 +76,11 @@ test.skip('persists hover behavior and layout settings through the options page'
   await expect(optionsPage.getByLabel('Modifier key')).toHaveValue('shift');
   await expect(optionsPage.locator('#displayField_comments')).not.toBeChecked();
   await expect(optionsPage.locator('#displayField_pullRequests')).not.toBeChecked();
-  await expect(optionsPage.locator('.customFieldRow').first().locator('input[placeholder="customfield_12345"]')).toHaveValue(customFieldId);
+  await expect(optionsPage.locator('.customFieldRow').first().getByLabel('Field ID')).toHaveValue(customFieldId);
+});
+
+test('shows an error when optional host permissions are denied', async ({optionsPage, servers}) => {
+  const target = requireJiraTestTarget(test, servers, {requireAuth: false});
+  await configureExtension(optionsPage, baseConfig(servers, target), false);
+  await expect(optionsPage.locator('.saveNotice')).toContainText('Options not saved.');
 });

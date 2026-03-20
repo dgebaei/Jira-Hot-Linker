@@ -6,13 +6,6 @@ const path = require('path');
 const repoRoot = path.resolve(__dirname, '../..');
 const runWithBlobScript = path.join(repoRoot, 'scripts/playwright/run-with-blob.js');
 
-function timestamp() {
-  return new Date().toISOString().replace(/[:.]/g, '-');
-}
-
-const parentRunId = `all-tests-${timestamp()}`;
-const parentRunLabel = 'Test Run';
-
 const suites = [
   {label: 'mock-edge', args: ['--project=mock-edge']},
   {label: 'public-smoke', args: ['--project=public-smoke']},
@@ -22,11 +15,7 @@ const suites = [
 for (const suite of suites) {
   const result = spawnSync(process.execPath, [runWithBlobScript, ...suite.args], {
     cwd: repoRoot,
-    env: {
-      ...process.env,
-      PLAYWRIGHT_PARENT_RUN_ID: parentRunId,
-      PLAYWRIGHT_PARENT_RUN_LABEL: parentRunLabel,
-    },
+    env: process.env,
     stdio: 'inherit',
   });
 

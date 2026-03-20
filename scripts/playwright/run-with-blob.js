@@ -50,8 +50,6 @@ const label = detectLabel(args).replace(/[^a-zA-Z0-9_-]+/g, '-');
 const runId = `${label}-${timestamp()}`;
 const outputName = `${runId}.zip`;
 const projectEnv = deriveProjectEnv(label, process.env);
-const parentRunId = String(process.env.PLAYWRIGHT_PARENT_RUN_ID || '').trim();
-const parentRunLabel = String(process.env.PLAYWRIGHT_PARENT_RUN_LABEL || '').trim();
 const env = {
   ...projectEnv,
   PLAYWRIGHT_BLOB_OUTPUT_DIR: blobDir,

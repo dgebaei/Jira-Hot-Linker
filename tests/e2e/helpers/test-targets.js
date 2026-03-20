@@ -75,25 +75,6 @@ function buildExtensionConfig(servers, overrides = {}, target = getJiraTestTarge
     hoverDepth: 'shallow',
     hoverModifierKey: 'none',
     customFields: [],
-    displayFields: {
-      issueType: true,
-      status: true,
-      priority: true,
-      sprint: true,
-      fixVersions: true,
-      affects: true,
-      environment: true,
-      labels: true,
-      epicParent: true,
-      attachments: true,
-      comments: true,
-      description: true,
-      reporter: true,
-      assignee: true,
-      pullRequests: true,
-      timeTracking: true,
-      ...(overrides.displayFields || {})
-    },
     ...overrides,
   };
 }

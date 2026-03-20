@@ -20,7 +20,8 @@ async function openAllowedPage(extensionApp, servers, target, route = '/popup-ac
 
 test('injects only on configured domains', async ({extensionApp, optionsPage, servers}) => {
   const target = requireJiraTestTarget(test, servers, {requireAuth: targetModeRequiresAuth()});
-  await configureExtension(optionsPage, baseConfig(servers, target));
+  await configureExtension(optionsPage, baseConfig(servers, target), true);
+  await expect(optionsPage.locator('.saveNotice')).toContainText('Options saved successfully.');
 
   const {page: allowed} = await openAllowedPage(extensionApp, servers, target, '/');
   const disallowed = await extensionApp.context.newPage();
@@ -35,7 +36,7 @@ test('injects only on configured domains', async ({extensionApp, optionsPage, se
 
 test('respects exact, shallow, and deep hover detection modes', async ({extensionApp, optionsPage, servers}) => {
   const target = requireJiraTestTarget(test, servers, {requireAuth: targetModeRequiresAuth()});
-  await configureExtension(optionsPage, baseConfig(servers, target, {hoverDepth: 'exact'}));
+  await configureExtension(optionsPage, baseConfig(servers, target, {hoverDepth: 'exact'}), true);
   let result = await openAllowedPage(extensionApp, servers, target, '/hover-depth');
   let page = result.page;
   const resolvedTarget = result.target;
@@ -47,7 +48,7 @@ test('respects exact, shallow, and deep hover detection modes', async ({extensio
   await page.close();
 
   await optionsPage.goto(`chrome-extension://${extensionApp.extensionId}/options/options.html`);
-  await configureExtension(optionsPage, baseConfig(servers, target, {hoverDepth: 'shallow'}));
+  await configureExtension(optionsPage, baseConfig(servers, target, {hoverDepth: 'shallow'}), true);
   result = await openAllowedPage(extensionApp, servers, target, '/hover-depth');
   page = result.page;
   await hoverIssueKey(page, '#shallow-child');
@@ -56,7 +57,7 @@ test('respects exact, shallow, and deep hover detection modes', async ({extensio
   await page.close();
 
   await optionsPage.goto(`chrome-extension://${extensionApp.extensionId}/options/options.html`);
-  await configureExtension(optionsPage, baseConfig(servers, target, {hoverDepth: 'deep'}));
+  await configureExtension(optionsPage, baseConfig(servers, target, {hoverDepth: 'deep'}), true);
   result = await openAllowedPage(extensionApp, servers, target, '/hover-depth');
   page = result.page;
   await hoverIssueKey(page, '#deep-child');
@@ -66,7 +67,7 @@ test('respects exact, shallow, and deep hover detection modes', async ({extensio
 
 test('requires the configured modifier key before opening the popup', async ({extensionApp, optionsPage, servers}) => {
   const target = requireJiraTestTarget(test, servers, {requireAuth: targetModeRequiresAuth()});
-  await configureExtension(optionsPage, baseConfig(servers, target, {hoverModifierKey: 'shift'}));
+  await configureExtension(optionsPage, baseConfig(servers, target, {hoverModifierKey: 'shift'}), true);
   const {page, target: resolvedTarget} = await openAllowedPage(extensionApp, servers, target, '/popup-actions');
 
   await hoverIssueKey(page, '#popup-key');
@@ -79,7 +80,7 @@ test('requires the configured modifier key before opening the popup', async ({ex
 
 test('supports pinning and closing the popup', async ({extensionApp, optionsPage, servers}) => {
   const target = requireJiraTestTarget(test, servers, {requireAuth: targetModeRequiresAuth()});
-  await configureExtension(optionsPage, baseConfig(servers, target));
+  await configureExtension(optionsPage, baseConfig(servers, target), true);
   const {page, target: resolvedTarget} = await openAllowedPage(extensionApp, servers, target, '/popup-actions');
 
   await hoverIssueKey(page, '#popup-key');
