@@ -1,6 +1,7 @@
 .idea/*
 .agents/
 .opencode/
+.env.playwright.local
 .test.swp
 *.swp
 *.zip
