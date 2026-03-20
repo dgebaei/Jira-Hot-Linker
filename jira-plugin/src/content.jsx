@@ -1804,7 +1804,16 @@ async function mainAsyncLocal() {
         jqlParts.push(`(${searchClauses.join(' OR ')})`);
       }
       const jql = `${jqlParts.join(' AND ')} ORDER BY updated DESC`;
-      const response = await get(`${INSTANCE_URL}rest/api/2/search?maxResults=20&fields=summary,issuetype,status&jql=${encodeURIComponent(jql)}`);
+      let response;
+      try {
+        response = await get(`${INSTANCE_URL}rest/api/2/search?maxResults=20&fields=summary,issuetype,status&jql=${encodeURIComponent(jql)}`);
+      } catch (error) {
+        const errorText = String(error?.message || error?.inner || error || '');
+        if (!errorText.includes('410')) {
+          throw error;
+        }
+        response = await get(`${INSTANCE_URL}rest/api/3/search/jql?maxResults=20&fields=summary,issuetype,status&jql=${encodeURIComponent(jql)}`);
+      }
       const issues = Array.isArray(response?.issues) ? response.issues : [];
       const options = issues
         .map(issue => buildIssueSearchOption(issue))
@@ -3831,7 +3840,7 @@ async function mainAsyncLocal() {
       }
       await renderIssuePopup(popupState);
 
-      if (popupState?.editState?.fieldKey === fieldKey && (popupState.editState.editorType === 'user-search' || popupState.editState.editorType === 'issue-search' || popupState.editState.editorType === 'label-search' || popupState.editState.editorType === 'tempo-account-search')) {
+      if (popupState?.editState?.fieldKey === fieldKey && (popupState.editState.editorType === 'user-search' || popupState.editState.editorType === 'issue-search' || popupState.editState.editorType === 'tempo-account-search')) {
         const searchRequestId = ++editSearchRequestCounter;
         popupState = {
           ...popupState,
@@ -3842,9 +3851,7 @@ async function mainAsyncLocal() {
           }
         };
         await renderIssuePopup(popupState);
-        if (popupState.editState.editorType !== 'label-search') {
-          triggerSearchOptionsForActiveEdit(fieldKey, popupState.editState.inputValue, searchRequestId);
-        }
+        triggerSearchOptionsForActiveEdit(fieldKey, popupState.editState.inputValue, searchRequestId);
       }
     } catch (error) {
       const errorMessage = buildEditFieldError(error);
