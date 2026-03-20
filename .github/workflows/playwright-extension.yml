@@ -77,7 +77,7 @@ jobs:
 
   live-authenticated:
     name: Live Authenticated
-    if: ${{ github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' || github.event_name == 'push' }}
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' || github.event_name == 'push' || github.event_name == 'pull_request' }}
     runs-on: ubuntu-latest
     env:
       JIRA_LIVE_INSTANCE_URL: ${{ vars.JIRA_LIVE_INSTANCE_URL }}
