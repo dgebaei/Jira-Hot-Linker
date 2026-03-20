@@ -366,6 +366,13 @@ async function createMockJiraServer() {
         state: entry.state,
       }));
     }
+    if (state.scenario === 'empty-optional-fields') {
+      state.issue.labels = [];
+      state.issue.fixVersions = [];
+      state.issue.parent = null;
+      state.labels = [];
+      state.issueSearchCatalog = [];
+    }
   };
 
   const scenarioIn = (...names) => names.includes(state.scenario);

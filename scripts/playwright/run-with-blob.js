@@ -1,3 +1,5 @@
+require('./load-env-defaults');
+
 const {spawnSync} = require('child_process');
 const fs = require('fs');
 const path = require('path');
@@ -19,6 +21,25 @@ function detectLabel(cliArgs) {
   return 'all-projects';
 }
 
+function deriveProjectEnv(label, currentEnv) {
+  const env = {...currentEnv};
+
+  if (label === 'mock-edge') {
+    env.MOCK = env.MOCK || 'true';
+  }
+
+  if (label === 'public-smoke') {
+    env.RUN_PUBLIC_JIRA_TESTS = env.RUN_PUBLIC_JIRA_TESTS || '1';
+    env.MOCK = env.MOCK || 'true';
+  }
+
+  if (label === 'live-authenticated') {
+    env.MOCK = env.MOCK || 'false';
+  }
+
+  return env;
+}
+
 function timestamp() {
   return new Date().toISOString().replace(/[:.]/g, '-');
 }
@@ -28,8 +49,9 @@ fs.mkdirSync(blobDir, {recursive: true});
 const label = detectLabel(args).replace(/[^a-zA-Z0-9_-]+/g, '-');
 const runId = `${label}-${timestamp()}`;
 const outputName = `${runId}.zip`;
+const projectEnv = deriveProjectEnv(label, process.env);
 const env = {
-  ...process.env,
+  ...projectEnv,
   PLAYWRIGHT_BLOB_OUTPUT_DIR: blobDir,
   PLAYWRIGHT_BLOB_OUTPUT_NAME: outputName,
   PLAYWRIGHT_OUTPUT_DIR: path.join('tests/output/playwright/test-results', runId),

@@ -1804,7 +1804,16 @@ async function mainAsyncLocal() {
         jqlParts.push(`(${searchClauses.join(' OR ')})`);
       }
       const jql = `${jqlParts.join(' AND ')} ORDER BY updated DESC`;
-      const response = await get(`${INSTANCE_URL}rest/api/2/search?maxResults=20&fields=summary,issuetype,status&jql=${encodeURIComponent(jql)}`);
+      let response;
+      try {
+        response = await get(`${INSTANCE_URL}rest/api/2/search?maxResults=20&fields=summary,issuetype,status&jql=${encodeURIComponent(jql)}`);
+      } catch (error) {
+        const errorText = String(error?.message || error?.inner || error || '');
+        if (!errorText.includes('410')) {
+          throw error;
+        }
+        response = await get(`${INSTANCE_URL}rest/api/3/search/jql?maxResults=20&fields=summary,issuetype,status&jql=${encodeURIComponent(jql)}`);
+      }
       const issues = Array.isArray(response?.issues) ? response.issues : [];
       const options = issues
         .map(issue => buildIssueSearchOption(issue))
