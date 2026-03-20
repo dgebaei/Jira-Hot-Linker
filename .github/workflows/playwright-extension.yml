@@ -174,8 +174,8 @@ jobs:
         uses: actions/deploy-pages@v4
 
   comment-pr:
-    name: Comment PR with Test Links
-    if: github.event_name == 'pull_request' && needs.deploy-pages.result != 'skipped'
+    name: Comment with Test Links
+    if: needs.deploy-pages.result != 'skipped'
     runs-on: ubuntu-latest
     needs: [deploy-pages]
 
@@ -209,29 +209,33 @@ jobs:
             
             const body = '## Playwright Test Results\n\nView interactive dashboard: https://dgebaei.github.io/Jira-Hot-Linker/playwright/\n\n### Latest Runs:\n' + runsList + '\n\n> Built from `' + context.sha.slice(0, 7) + '`';
             
-            await github.rest.issues.createComment({
-              issue_number: context.issue.number,
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              body: body
-            });
+            const issueNumber = context.issue && context.issue.number;
+            if (issueNumber) {
+              await github.rest.issues.createComment({
+                issue_number: issueNumber,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body: body
+              });
+            } else if (context.eventName === 'push') {
+              const prs = await github.rest.pulls.list({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                state: 'closed',
+                sort: 'updated',
+                direction: 'desc',
+                per_page: 1
+              });
+              const mergedPR = prs.data.find(pr => pr.merge_commit_sha === context.sha);
+              if (mergedPR) {
+                await github.rest.issues.createComment({
+                  issue_number: mergedPR.number,
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  body: body
+                });
+              } else {
+                console.log('No merged PR found for this push, skipping comment');
+              }
+            }
 
-  comment-pr-simple:
-    name: Comment PR Status
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    needs: [mock-edge, public-smoke, live-authenticated]
-
-    steps:
-      - name: Create PR Comment
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const body = '## Playwright Test Results\n\nTests completed successfully!\n\nThe interactive dashboard will be available after merging to master.\n\n> Built from `' + context.sha.slice(0, 7) + '`';
-            
-            await github.rest.issues.createComment({
-              issue_number: context.issue.number,
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              body: body
-            });
