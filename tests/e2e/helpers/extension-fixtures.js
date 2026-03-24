@@ -113,8 +113,6 @@ async function configureExtension(optionsPage, config) {
   await optionsPage.evaluate(data => {
     return new Promise(resolve => chrome.storage.sync.set(data, resolve));
   }, payload);
-
-}
 }
 
 async function hoverIssueKey(page, selector, modifier) {
