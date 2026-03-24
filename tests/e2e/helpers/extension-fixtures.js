@@ -96,6 +96,7 @@ async function configureExtension(optionsPage, config) {
   const payload = {
     instanceUrl,
     domains: Array.isArray(config.domains) ? config.domains : [],
+    v15upgrade: true,
   };
   if (config.hoverDepth) {
     payload.hoverDepth = config.hoverDepth;
@@ -113,14 +114,19 @@ async function configureExtension(optionsPage, config) {
     return new Promise(resolve => chrome.storage.sync.set(data, resolve));
   }, payload);
 
-  // Verify the config was persisted and readable from the service worker.
+  // Verify origins match from the service worker's perspective.
   const serviceWorker = optionsPage.context().serviceWorkers()[0];
   if (serviceWorker) {
-    const swUrl = await serviceWorker.evaluate(() => {
-      return new Promise(resolve => chrome.storage.sync.get('instanceUrl', r => resolve(r.instanceUrl)));
-    });
-    if (swUrl !== payload.instanceUrl) {
-      throw new Error(`configureExtension: service worker sees instanceUrl="${swUrl}", expected "${payload.instanceUrl}"`);
+    const diag = await serviceWorker.evaluate(async (expectedUrl) => {
+      const {instanceUrl} = await new Promise(r => chrome.storage.sync.get('instanceUrl', r));
+      let storedOrigin = '';
+      let expectedOrigin = '';
+      try { storedOrigin = new URL(instanceUrl).origin; } catch (e) { storedOrigin = `INVALID: ${instanceUrl}`; }
+      try { expectedOrigin = new URL(expectedUrl).origin; } catch (e) { expectedOrigin = `INVALID: ${expectedUrl}`; }
+      return {instanceUrl, storedOrigin, expectedOrigin, match: storedOrigin === expectedOrigin};
+    }, payload.instanceUrl + 'rest/api/2/myself');
+    if (!diag.match) {
+      throw new Error(`configureExtension: origin mismatch! stored="${diag.storedOrigin}" vs expected="${diag.expectedOrigin}", instanceUrl="${diag.instanceUrl}"`);
     }
   }
 }
