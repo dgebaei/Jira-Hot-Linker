@@ -120,8 +120,12 @@ async function configureExtension(optionsPage, config) {
     await optionsPage.getByLabel('Modifier key').selectOption(config.hoverModifierKey);
   }
 
-  await optionsPage.getByRole('button', {name: 'Save'}).click();
-  await optionsPage.locator('.saveNotice').waitFor();
+  const saveButton = optionsPage.locator('.saveBtn');
+  await saveButton.click();
+  // Wait for the async save to finish — the button becomes disabled with text
+  // "Saving..." during the operation and re-enables when done.
+  await expect(saveButton).toBeDisabled();
+  await expect(saveButton).toBeEnabled();
 
   // displayFields and customFields are configured via drag-and-drop in the
   // redesigned options page.  Rather than automating DnD interactions, write
