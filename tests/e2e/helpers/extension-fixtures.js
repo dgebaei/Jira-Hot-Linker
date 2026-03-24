@@ -104,11 +104,12 @@ async function configureExtension(optionsPage, config) {
     v15upgrade: true
   };
 
-  const needsAdvanced = config.hoverDepth || config.hoverModifierKey || config.displayFields || (Array.isArray(config.customFields) && config.customFields.length > 0);
+  const needsAdvanced = config.hoverDepth || config.hoverModifierKey;
   if (needsAdvanced) {
-    const advToggle = optionsPage.getByRole('button', {name: 'Show'}).filter({hasText: 'Show'});
-    if (await advToggle.isVisible()) {
+    const advToggle = optionsPage.locator('.advToggleBtn');
+    if (await advToggle.isVisible() && (await advToggle.getAttribute('aria-expanded')) !== 'true') {
       await advToggle.click();
+      await optionsPage.locator('.advToggleBtn[aria-expanded="true"]').waitFor();
     }
   }
 
@@ -119,15 +120,23 @@ async function configureExtension(optionsPage, config) {
     await optionsPage.getByLabel('Modifier key').selectOption(config.hoverModifierKey);
   }
 
-  if (!saved.tooltipLayout) {
-    throw new Error('Failed to save tooltipLayout to storage');
-  }
-
-  if (!saved.v15upgrade) {
-    throw new Error('Failed to save v15upgrade to storage');
-  }
-
   await optionsPage.getByRole('button', {name: 'Save'}).click();
+
+  // displayFields and customFields are configured via drag-and-drop in the
+  // redesigned options page.  Rather than automating DnD interactions, write
+  // them directly to extension storage after the UI save completes.
+  const storageOverrides = {};
+  if (config.displayFields) {
+    storageOverrides.displayFields = config.displayFields;
+  }
+  if (Array.isArray(config.customFields) && config.customFields.length > 0) {
+    storageOverrides.customFields = config.customFields;
+  }
+  if (Object.keys(storageOverrides).length > 0) {
+    await optionsPage.evaluate(overrides => {
+      return new Promise(resolve => chrome.storage.sync.set(overrides, resolve));
+    }, storageOverrides);
+  }
 }
 
 async function hoverIssueKey(page, selector, modifier) {

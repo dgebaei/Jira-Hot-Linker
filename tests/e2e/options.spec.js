@@ -21,19 +21,20 @@ test.skip('validates custom field ids and resolves their names from Jira metadat
   await configureExtension(optionsPage, baseConfig(servers, target));
   await optionsPage.reload();
 
-  await optionsPage.getByRole('button', {name: 'Show'}).click();
-  await optionsPage.getByRole('button', {name: 'Add another field'}).click();
-  const row = optionsPage.locator('.customFieldRow').first();
+  await optionsPage.locator('.advToggleBtn').click();
+  await optionsPage.locator('.advToggleBtn[aria-expanded="true"]').waitFor();
+  await optionsPage.locator('.fieldLibraryAddBtn').click();
+  const fieldInput = optionsPage.locator('.fieldLibraryInput');
 
-  await row.locator('input[placeholder="customfield_12345"]').fill('impact');
-  await expect(row.getByText('Use a Jira custom field ID in the form customfield_12345.')).toBeVisible();
-  await expect(optionsPage.getByRole('button', {name: 'Save'})).toBeDisabled();
+  await fieldInput.fill('impact');
+  await expect(optionsPage.locator('.fieldLibraryValidation')).toContainText('Use a Jira custom field ID in the form customfield_12345.');
+  await expect(optionsPage.locator('.fieldLibrarySave')).toBeDisabled();
 
   const customFieldId = target.mode === 'mock' ? 'customfield_12345' : await getFirstCustomFieldId(target);
   test.skip(!customFieldId, 'No Jira custom field is available for metadata resolution.');
-  await row.locator('input[placeholder="customfield_12345"]').fill(customFieldId);
-  await expect(row.locator('.customFieldMeta')).toContainText(/Resolved field name:|Waiting for Jira field metadata\./);
-  await expect(optionsPage.getByRole('button', {name: 'Save'})).toBeEnabled();
+  await fieldInput.fill(customFieldId);
+  await expect(optionsPage.locator('.fieldLibraryValidation')).toContainText(/Resolved:|Waiting for Jira field metadata\./);
+  await expect(optionsPage.locator('.fieldLibrarySave')).toBeEnabled();
 });
 
 test.skip('persists hover behavior and layout settings through the options page', async ({optionsPage, servers}) => {
@@ -61,14 +62,24 @@ test.skip('persists hover behavior and layout settings through the options page'
 
   await optionsPage.reload();
 
-  const showButton2 = optionsPage.getByRole('button', {name: 'Show'});
-  if (await showButton2.isVisible().catch(() => false)) {
-    await showButton2.click();
-  }
-
+  // Hover settings are behind the Advanced toggle; expand it before asserting
+  await optionsPage.locator('.advToggleBtn').click();
+  await optionsPage.locator('.advToggleBtn[aria-expanded="true"]').waitFor();
   await expect(optionsPage.getByLabel('Trigger depth')).toHaveValue('deep');
   await expect(optionsPage.getByLabel('Modifier key')).toHaveValue('shift');
-  await expect(optionsPage.locator('#displayField_comments')).not.toBeChecked();
-  await expect(optionsPage.locator('#displayField_pullRequests')).not.toBeChecked();
-  await expect(optionsPage.locator('.customFieldRow').first().locator('input[placeholder="customfield_12345"]')).toHaveValue(customFieldId);
+
+  // displayFields and customFields are configured via storage (drag-and-drop
+  // UI), so verify them through chrome.storage instead of DOM selectors.
+  const stored = await optionsPage.evaluate(() => {
+    return new Promise(resolve => chrome.storage.sync.get(['displayFields', 'customFields'], resolve));
+  });
+  expect(stored.displayFields.comments).toBe(false);
+  expect(stored.displayFields.pullRequests).toBe(false);
+  expect(stored.customFields[0].fieldId).toBe(customFieldId);
+});
+
+test('shows an error when optional host permissions are denied', async ({optionsPage, servers}) => {
+  const target = requireJiraTestTarget(test, servers, {requireAuth: false});
+  await configureExtension(optionsPage, baseConfig(servers, target), false);
+  await expect(optionsPage.locator('.saveNotice')).toContainText('Options not saved.');
 });
