@@ -112,6 +112,17 @@ async function configureExtension(optionsPage, config) {
   await optionsPage.evaluate(data => {
     return new Promise(resolve => chrome.storage.sync.set(data, resolve));
   }, payload);
+
+  // Verify the config was persisted and readable from the service worker.
+  const serviceWorker = optionsPage.context().serviceWorkers()[0];
+  if (serviceWorker) {
+    const swUrl = await serviceWorker.evaluate(() => {
+      return new Promise(resolve => chrome.storage.sync.get('instanceUrl', r => resolve(r.instanceUrl)));
+    });
+    if (swUrl !== payload.instanceUrl) {
+      throw new Error(`configureExtension: service worker sees instanceUrl="${swUrl}", expected "${payload.instanceUrl}"`);
+    }
+  }
 }
 
 async function hoverIssueKey(page, selector, modifier) {
