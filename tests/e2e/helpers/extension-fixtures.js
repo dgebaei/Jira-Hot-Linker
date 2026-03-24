@@ -125,6 +125,14 @@ async function configureExtension(optionsPage, config) {
   // text — either success or error — once storageSet finishes.
   await expect(optionsPage.locator('.saveNotice')).toContainText(/saved|not saved|error/i);
 
+  // Verify the config was actually persisted to chrome.storage.sync.
+  const storedUrl = await optionsPage.evaluate(() => {
+    return new Promise(resolve => chrome.storage.sync.get('instanceUrl', result => resolve(result.instanceUrl)));
+  });
+  if (!storedUrl) {
+    throw new Error('configureExtension: instanceUrl was not persisted to chrome.storage.sync after save');
+  }
+
   // displayFields and customFields are configured via drag-and-drop in the
   // redesigned options page.  Rather than automating DnD interactions, write
   // them directly to extension storage after the UI save completes.
