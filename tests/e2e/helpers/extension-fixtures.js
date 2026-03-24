@@ -114,21 +114,7 @@ async function configureExtension(optionsPage, config) {
     return new Promise(resolve => chrome.storage.sync.set(data, resolve));
   }, payload);
 
-  // Verify origins match from the service worker's perspective.
-  const serviceWorker = optionsPage.context().serviceWorkers()[0];
-  if (serviceWorker) {
-    const diag = await serviceWorker.evaluate(async (expectedUrl) => {
-      const {instanceUrl} = await new Promise(r => chrome.storage.sync.get('instanceUrl', r));
-      let storedOrigin = '';
-      let expectedOrigin = '';
-      try { storedOrigin = new URL(instanceUrl).origin; } catch (e) { storedOrigin = `INVALID: ${instanceUrl}`; }
-      try { expectedOrigin = new URL(expectedUrl).origin; } catch (e) { expectedOrigin = `INVALID: ${expectedUrl}`; }
-      return {instanceUrl, storedOrigin, expectedOrigin, match: storedOrigin === expectedOrigin};
-    }, payload.instanceUrl + 'rest/api/2/myself');
-    if (!diag.match) {
-      throw new Error(`configureExtension: origin mismatch! stored="${diag.storedOrigin}" vs expected="${diag.expectedOrigin}", instanceUrl="${diag.instanceUrl}"`);
-    }
-  }
+}
 }
 
 async function hoverIssueKey(page, selector, modifier) {

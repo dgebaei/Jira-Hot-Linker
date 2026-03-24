@@ -11,6 +11,9 @@ function baseConfig(servers, target) {
 async function openPopup(extensionApp, servers, target) {
   const resolvedTarget = await resolveTargetIssueKeys(target);
   const page = await extensionApp.context.newPage();
+  const consoleLogs = [];
+  page.on('console', msg => consoleLogs.push(`[${msg.type()}] ${msg.text()}`));
+  page.on('pageerror', err => consoleLogs.push(`[PAGE_ERROR] ${err.message}`));
   await page.goto(`${servers.allowedPage.origin}/popup-actions`);
   await replaceIssueKeysOnPage(page, [
     {from: 'JRACLOUD-97846', to: resolvedTarget.primaryIssueKey},
@@ -19,7 +22,12 @@ async function openPopup(extensionApp, servers, target) {
   await injectContentScript(extensionApp, page);
   await expect.poll(async () => page.locator('._JX_container').count()).toBe(1);
   await hoverIssueKey(page, '#popup-key');
-  await expect(page.locator('._JX_container')).toContainText(resolvedTarget.primaryIssueKey);
+  try {
+    await expect(page.locator('._JX_container')).toContainText(resolvedTarget.primaryIssueKey);
+  } catch (err) {
+    const html = await page.locator('._JX_container').innerHTML().catch(() => '<failed to get>');
+    throw new Error(`Popup empty. Container HTML: "${html.slice(0, 200)}"\nConsole (${consoleLogs.length} msgs):\n${consoleLogs.slice(-20).join('\n')}\n\nOriginal: ${err.message}`);
+  }
   return {page, target: resolvedTarget};
 }
 
