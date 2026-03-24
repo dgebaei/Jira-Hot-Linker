@@ -120,12 +120,10 @@ async function configureExtension(optionsPage, config) {
     await optionsPage.getByLabel('Modifier key').selectOption(config.hoverModifierKey);
   }
 
-  const saveButton = optionsPage.locator('.saveBtn');
-  await saveButton.click();
-  // Wait for the async save to finish — the button becomes disabled with text
-  // "Saving..." during the operation and re-enables when done.
-  await expect(saveButton).toBeDisabled();
-  await expect(saveButton).toBeEnabled();
+  await optionsPage.locator('.saveBtn').click();
+  // Wait for the async save to complete. The saveNotice shows the final status
+  // text — either success or error — once storageSet finishes.
+  await expect(optionsPage.locator('.saveNotice')).toContainText(/saved|not saved|error/i);
 
   // displayFields and customFields are configured via drag-and-drop in the
   // redesigned options page.  Rather than automating DnD interactions, write
