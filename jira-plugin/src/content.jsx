@@ -227,7 +227,13 @@ async function mainAsyncLocal() {
     timeTracking: true,
     ...(config.displayFields || {})
   };
-  const tooltipLayout = config.tooltipLayout;
+  const tooltipLayout = config.tooltipLayout || {
+    row1: ['issueType', 'status', 'priority', 'epicParent'],
+    row2: ['sprint', 'affects', 'fixVersions'],
+    row3: ['environment', 'labels'],
+    contentBlocks: ['description', 'attachments', 'comments', 'pullRequests'],
+    people: ['reporter', 'assignee']
+  };
   const hoverDepth = config.hoverDepth || 'shallow';
   const hoverModifierKey = config.hoverModifierKey || 'none';
   const customFields = normalizeCustomFields(config.customFields);
