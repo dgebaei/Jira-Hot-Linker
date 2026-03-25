@@ -331,11 +331,17 @@ body ._JX {
     font-weight: 700;
   }
 
+  &_status_row_lower {
+    border-top: 1px solid #e2e8f0;
+    margin-top: 2px;
+    padding-top: 6px;
+  }
+
   &_time_tracking {
     border-top: 1px solid #d0dbe5;
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: 6px;
     margin-top: 2px;
     padding-top: 8px;
   }
@@ -407,10 +413,10 @@ body ._JX {
     border-radius: 6px;
     color: #172b4d;
     display: flex;
-    font-size: 12px;
-    line-height: 16px;
-    min-height: 34px;
-    padding: 7px 9px;
+    font-size: 11px;
+    line-height: 14px;
+    min-height: 26px;
+    padding: 4px 7px;
   }
 
   &_time_tracking_input {
@@ -421,11 +427,11 @@ body ._JX {
     box-sizing: border-box;
     color: #172b4d;
     font-family: inherit;
-    font-size: 12px;
-    line-height: 16px;
-    min-height: 34px;
+    font-size: 11px;
+    line-height: 14px;
+    min-height: 26px;
     min-width: 0;
-    padding: 7px 9px;
+    padding: 4px 7px;
     width: 100%;
   }
 
@@ -469,12 +475,12 @@ body ._JX {
     color: #fff;
     cursor: pointer;
     font-family: inherit;
-    font-size: 12px;
+    font-size: 11px;
     font-weight: 700;
     line-height: 1.2;
-    min-height: 34px;
-    min-width: 82px;
-    padding: 8px 14px;
+    min-height: 26px;
+    min-width: 70px;
+    padding: 5px 12px;
     white-space: nowrap;
   }
 

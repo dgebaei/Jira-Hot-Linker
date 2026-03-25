@@ -345,6 +345,10 @@ a {
   margin-top: 16px;
 }
 
+.hoverRow .formField + .formField {
+  margin-top: 0;
+}
+
 .fieldLabel {
   color: var(--field-label-color);
   display: block;
@@ -774,7 +778,7 @@ button:disabled {
 }
 
 .actionControls {
-  align-items: center;
+  align-items: end;
   display: flex;
   flex-direction: column;
   gap: 8px;

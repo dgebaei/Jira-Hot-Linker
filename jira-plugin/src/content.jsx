@@ -3578,6 +3578,17 @@ async function mainAsyncLocal() {
     const descriptionScrollLeft = existingDescription.length ? existingDescription.scrollLeft() : 0;
     const descriptionScrollTop = existingDescription.length ? existingDescription.scrollTop() : 0;
     container.html(Mustache.render(annotationTemplate, displayData));
+    const contentBlocksContainer = container.find('._JX_content_blocks');
+    if (contentBlocksContainer.length) {
+      const blocks = contentBlocksContainer.children('[data-content-block]');
+      const order = layoutContentBlocks;
+      blocks.sort((a, b) => {
+        const ai = order.indexOf(a.getAttribute('data-content-block'));
+        const bi = order.indexOf(b.getAttribute('data-content-block'));
+        return (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi);
+      });
+      contentBlocksContainer.prepend(blocks);
+    }
     activeCommentContext = displayFields.comments ? {issueKey: state.key, issueId: state.issueData.id} : null;
     const nextDescription = container.find('._JX_description');
     if (nextDescription.length) {
