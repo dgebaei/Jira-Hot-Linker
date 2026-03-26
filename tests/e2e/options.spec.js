@@ -1,5 +1,6 @@
 const {test, expect, configureExtension} = require('./helpers/extension-fixtures');
 const {getFirstCustomFieldId} = require('./helpers/live-jira-api');
+const {optionsPageModel} = require('./helpers/options-page');
 const {buildExtensionConfig, requireJiraTestTarget} = require('./helpers/test-targets');
 
 function baseConfig(servers, target, overrides = {}) {
@@ -11,9 +12,10 @@ function baseConfig(servers, target, overrides = {}) {
 }
 
 test('shows validation for an empty Jira instance URL', async ({optionsPage}) => {
-  await optionsPage.getByLabel('Jira instance URL').fill('');
-  await optionsPage.getByRole('button', {name: 'Save'}).click();
-  await expect(optionsPage.locator('.saveNotice')).toContainText('You must provide your Jira instance URL.');
+  const form = optionsPageModel(optionsPage);
+  await form.instanceUrlInput.fill('');
+  await form.saveButton.click();
+  await expect(form.saveNotice).toContainText('You must provide your Jira instance URL.');
 });
 
 test.skip('validates custom field ids and resolves their names from Jira metadata', async ({optionsPage, servers}) => {
