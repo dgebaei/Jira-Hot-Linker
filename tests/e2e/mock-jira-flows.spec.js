@@ -1,4 +1,5 @@
 const {test, expect, configureExtension, hoverIssueKey, injectContentScript} = require('./helpers/extension-fixtures');
+const {popupModel} = require('./helpers/popup');
 const {deleteIssueComment, getIssueComments, getLiveIssue, getMentionUsers} = require('./helpers/live-jira-api');
 const {ensurePreviewAttachment} = require('./helpers/live-jira-seed');
 const {buildExtensionConfig, requireJiraTestTarget, replaceIssueKeysOnPage, resolveTargetIssueKeys} = require('./helpers/test-targets');
@@ -76,8 +77,9 @@ test('copies the Jira issue link and previews attachment images', async ({extens
   const previewable = page.locator('._JX_previewable');
   await expect.poll(async () => previewable.count(), {timeout: 10000}).toBeGreaterThan(0);
   await previewable.first().click();
-  await expect(page.locator('._JX_preview_overlay')).toHaveClass(/is-open/);
-  await expect(page.locator('._JX_preview_image')).toHaveAttribute('src', /\S+/);
+  const popup = popupModel(page);
+  await expect(popup.previewOverlay).toHaveClass(/is-open/);
+  await expect(popup.previewImage).toHaveAttribute('src', /\S+/);
   await page.keyboard.press('Escape');
   await page.close();
 });

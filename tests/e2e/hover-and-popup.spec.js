@@ -1,4 +1,5 @@
 const {test, expect, configureExtension, hoverIssueKey, injectContentScript} = require('./helpers/extension-fixtures');
+const {popupModel} = require('./helpers/popup');
 const {buildExtensionConfig, requireJiraTestTarget, replaceIssueKeysOnPage, resolveTargetIssueKeys} = require('./helpers/test-targets');
 
 function baseConfig(servers, target, overrides = {}) {
@@ -83,7 +84,7 @@ test('supports pinning and closing the popup', async ({extensionApp, optionsPage
   const {page, target: resolvedTarget} = await openAllowedPage(extensionApp, servers, target, '/popup-actions');
 
   await hoverIssueKey(page, '#popup-key');
-  const popup = page.locator('._JX_container');
+  const popup = popupModel(page).root;
   await expect(popup).toContainText(resolvedTarget.primaryIssueKey);
 
   await page.locator('._JX_pin_button').click();

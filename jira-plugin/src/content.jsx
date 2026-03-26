@@ -4074,8 +4074,8 @@ async function mainAsyncLocal() {
   // ── Popup Rendering & State ────────────────────────────────
   const container = $('<div class="_JX_container" data-testid="jira-popup-root">');
   const previewOverlay = $(`
-    <div class="_JX_preview_overlay">
-      <img class="_JX_preview_image" />
+    <div class="_JX_preview_overlay" data-testid="jira-popup-preview-overlay">
+      <img class="_JX_preview_image" data-testid="jira-popup-preview-image" />
     </div>
   `);
   $(document.body).append(container);
