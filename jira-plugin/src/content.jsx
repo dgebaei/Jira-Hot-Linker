@@ -776,37 +776,48 @@ async function mainAsyncLocal() {
   function buildCommentReactionOptions(commentId, reactionState = popupState?.commentReactionState) {
     const normalizedState = normalizeCommentReactionState(reactionState);
     if (!normalizedState.supported || !commentId) {
-      return [];
+      return {pills: [], menuOptions: []};
     }
-    // Jira's reaction read/toggle APIs are still unknown, so this only reflects adds from the current popup session.
-    return COMMENT_REACTION_OPTIONS.map(option => {
-      const reactionEntry = getCommentReactionEntry(commentId, option.emojiId, normalizedState);
-      const addedCount = Number(reactionEntry.addedCount) || 0;
-      const isPending = !!reactionEntry.pending;
-      const isSelected = !!reactionEntry.selected;
-      const title = isPending
-        ? `${option.label}...`
-        : option.label;
-      return {
+    const pills = [];
+    const menuOptions = [];
+    for (const option of COMMENT_REACTION_OPTIONS) {
+      const entry = getCommentReactionEntry(commentId, option.emojiId, normalizedState);
+      const count = Number(entry.count) || 0;
+      const reacted = !!entry.reacted;
+      const pending = !!entry.pending;
+      menuOptions.push({
         commentId,
-        count: addedCount,
-        disabledAttr: (isPending || isSelected) ? 'disabled' : '',
         emoji: option.emoji,
         emojiId: option.emojiId,
-        hasCount: addedCount > 0,
-        isPending,
-        isSelected,
         label: option.label,
-        title
-      };
-    });
+        title: pending ? `${option.label}...` : option.label,
+        isReacted: reacted,
+        isPending: pending,
+        disabledAttr: pending ? 'disabled' : ''
+      });
+      if (count > 0) {
+        pills.push({
+          commentId,
+          emoji: option.emoji,
+          emojiId: option.emojiId,
+          count,
+          reacted,
+          pending,
+          title: pending ? `${option.label}...` : `${option.label} (${count})`,
+          disabledAttr: pending ? 'disabled' : ''
+        });
+      }
+    }
+    return {pills, menuOptions};
   }
 
   function buildCommentReactionUi(commentId, reactionState = popupState?.commentReactionState) {
-    const reactionOptions = buildCommentReactionOptions(commentId, reactionState);
+    const {pills, menuOptions} = buildCommentReactionOptions(commentId, reactionState);
     return {
-      hasReactionOptions: reactionOptions.length > 0,
-      menuReactionOptions: reactionOptions
+      hasReactionOptions: menuOptions.length > 0,
+      reactionPills: pills,
+      hasReactionPills: pills.length > 0,
+      menuReactionOptions: menuOptions
     };
   }
 
@@ -909,6 +920,14 @@ async function mainAsyncLocal() {
     return /http\s+(401|403|404|405)\b/i.test(message) || /forbidden|not found|method not allowed/i.test(message);
   }
 
+  async function fetchCommentReactions(commentIds) {
+    return requestJson('POST', `${INSTANCE_URL}rest/internal/2/reactions/view`, {
+      commentIds: commentIds.map(id => Number(id))
+    }, {
+      'X-Atlassian-Token': 'no-check'
+    });
+  }
+
   async function addCommentReaction(commentId, emojiId) {
     return requestJson('POST', `${INSTANCE_URL}rest/internal/2/reactions`, {
       commentId: String(commentId),
@@ -918,39 +937,77 @@ async function mainAsyncLocal() {
     });
   }
 
+  async function deleteCommentReaction(commentId, emojiId) {
+    return requestJson('DELETE', `${INSTANCE_URL}rest/internal/2/reactions?commentId=${encodeURIComponent(commentId)}&emojiId=${encodeURIComponent(emojiId)}`, undefined, {
+      'X-Atlassian-Token': 'no-check'
+    });
+  }
+
+  function buildInitialReactionState(serverReactions) {
+    const byCommentId = {};
+    if (Array.isArray(serverReactions)) {
+      for (const entry of serverReactions) {
+        const commentId = String(entry.commentId || '');
+        const emojiId = entry.emojiId || '';
+        if (!commentId || !emojiId) continue;
+        if (!byCommentId[commentId]) {
+          byCommentId[commentId] = {};
+        }
+        byCommentId[commentId][emojiId] = {
+          count: Number(entry.count) || 0,
+          reacted: !!entry.reacted,
+          pending: false
+        };
+      }
+    }
+    return {byCommentId, supported: true};
+  }
+
   async function handleCommentReactionClick(commentId, emojiId) {
     if (!popupState?.issueData || !commentId || !emojiId) {
       return;
     }
     const currentEntry = getCommentReactionEntry(commentId, emojiId);
-    if (currentEntry.pending || currentEntry.selected) {
+    if (currentEntry.pending) {
       return;
     }
 
+    const wasReacted = !!currentEntry.reacted;
+    const oldCount = Number(currentEntry.count) || 0;
+
     setCommentReactionEntry(commentId, '__comment__', {error: ''});
-    setCommentReactionEntry(commentId, emojiId, {pending: true});
+    setCommentReactionEntry(commentId, emojiId, {
+      count: wasReacted ? Math.max(0, oldCount - 1) : oldCount + 1,
+      reacted: !wasReacted,
+      pending: true
+    });
     await renderIssuePopup(popupState);
 
     try {
-      await addCommentReaction(commentId, emojiId);
-      const addedCount = (Number(getCommentReactionEntry(commentId, emojiId).addedCount) || 0) + 1;
-      setCommentReactionEntry(commentId, emojiId, {
-        addedCount,
-        pending: false,
-        selected: true
-      });
+      if (wasReacted) {
+        await deleteCommentReaction(commentId, emojiId);
+      } else {
+        await addCommentReaction(commentId, emojiId);
+      }
+      setCommentReactionEntry(commentId, emojiId, {pending: false});
       await renderIssuePopup(popupState);
     } catch (error) {
-      if (isCommentReactionUnsupportedError(error)) {
+      if (!wasReacted && isCommentReactionUnsupportedError(error)) {
         disableCommentReactions();
         await renderIssuePopup(popupState);
         snackBar('Comment reactions are not available in this Jira context');
         return;
       }
-      setCommentReactionEntry(commentId, emojiId, {pending: false});
-      setCommentReactionEntry(commentId, '__comment__', {
-        error: error?.message || error?.inner || 'Could not add reaction'
+      setCommentReactionEntry(commentId, emojiId, {
+        count: oldCount,
+        reacted: wasReacted,
+        pending: false
       });
+      if (!wasReacted) {
+        setCommentReactionEntry(commentId, '__comment__', {
+          error: error?.message || error?.inner || 'Could not update reaction'
+        });
+      }
       await renderIssuePopup(popupState);
     }
   }
@@ -982,6 +1039,12 @@ async function mainAsyncLocal() {
           ${reactionUi.hasReactionOptions ? `
             <div class="_JX_comment_reactions">
               <div class="_JX_comment_reaction_bar">
+                ${reactionUi.reactionPills.map(pill => `
+                  <button class="_JX_comment_reaction_pill${pill.reacted ? ' is-reacted' : ''}${pill.pending ? ' is-pending' : ''}" type="button" data-comment-id="${escapeHtml(pill.commentId)}" data-emoji-id="${escapeHtml(pill.emojiId)}" title="${escapeHtml(pill.title)}" aria-label="${escapeHtml(pill.title)}" ${pill.disabledAttr}>
+                    <span class="_JX_comment_reaction_emoji" aria-hidden="true">${escapeHtml(pill.emoji)}</span>
+                    <span class="_JX_comment_reaction_count">${pill.count}</span>
+                  </button>
+                `).join('')}
                 <details class="_JX_comment_reaction_dropdown">
                   <summary class="_JX_comment_reaction_more" aria-label="Add reaction" title="Add reaction">
                     <svg class="_JX_comment_reaction_more_icon" width="16" height="16" viewBox="0 0 24 24" focusable="false" aria-hidden="true">
@@ -991,7 +1054,7 @@ async function mainAsyncLocal() {
                   </summary>
                   <div class="_JX_comment_reaction_menu">
                     ${reactionUi.menuReactionOptions.map(option => `
-                      <button class="_JX_comment_reaction_button${option.isSelected ? ' is-selected' : ''}${option.isPending ? ' is-pending' : ''}" type="button" data-comment-id="${escapeHtml(option.commentId)}" data-emoji-id="${escapeHtml(option.emojiId)}" title="${escapeHtml(option.title)}" aria-label="${escapeHtml(option.title)}" ${option.disabledAttr}>
+                      <button class="_JX_comment_reaction_button${option.isReacted ? ' is-reacted' : ''}${option.isPending ? ' is-pending' : ''}" type="button" data-comment-id="${escapeHtml(option.commentId)}" data-emoji-id="${escapeHtml(option.emojiId)}" title="${escapeHtml(option.title)}" aria-label="${escapeHtml(option.title)}" ${option.disabledAttr}>
                         <span class="_JX_comment_reaction_emoji" aria-hidden="true">${escapeHtml(option.emoji)}</span>
                       </button>
                     `).join('')}
@@ -4572,7 +4635,7 @@ async function mainAsyncLocal() {
     handleCommentDiscard().catch(() => {});
   });
 
-  $(document.body).on('click', '._JX_comment_reaction_button', function (e) {
+  $(document.body).on('click', '._JX_comment_reaction_button, ._JX_comment_reaction_pill', function (e) {
     e.preventDefault();
     const commentId = e.currentTarget.getAttribute('data-comment-id');
     const emojiId = e.currentTarget.getAttribute('data-emoji-id');
@@ -4894,6 +4957,19 @@ async function mainAsyncLocal() {
         quickActions = [];
       }
 
+      let commentReactionState = emptyCommentReactionState();
+      const commentIds = (issueData.fields.comment?.comments || [])
+        .map(c => c.id)
+        .filter(Boolean);
+      if (commentIds.length > 0) {
+        try {
+          const serverReactions = await fetchCommentReactions(commentIds);
+          commentReactionState = buildInitialReactionState(serverReactions);
+        } catch (ex) {
+          // Reactions may not be supported; fall back to empty state
+        }
+      }
+
       await renderUpdatedPopupState({
         key,
         issueData,
@@ -4901,7 +4977,7 @@ async function mainAsyncLocal() {
         pointerX,
         pointerY,
         quickActions,
-        commentReactionState: emptyCommentReactionState(),
+        commentReactionState,
         ...buildPopupInteractionReset(),
         timeTrackingEditState: createTimeTrackingEditState(issueData),
       });
