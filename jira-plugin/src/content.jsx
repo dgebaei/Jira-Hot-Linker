@@ -271,6 +271,7 @@ async function mainAsyncLocal() {
   const cacheTtlMs = 60 * 1000;
   const issueCache = new Map();
   const pullRequestCache = new Map();
+  const changelogCache = new Map();
   const fieldOptionsCache = new Map();
   const emptyCommentMentionState = () => ({
     error: '',
@@ -1455,6 +1456,47 @@ async function mainAsyncLocal() {
       value
     });
     return value;
+  }
+
+  // ── Changelog ────────────────────────────────────────────
+
+  async function getIssueChangelog(issueKey) {
+    return getCachedValue(changelogCache, issueKey, async () => {
+      const response = await get(`${INSTANCE_URL}rest/api/2/issue/${encodeURIComponent(issueKey)}?expand=changelog&fields=id`);
+      return response?.changelog || {histories: []};
+    });
+  }
+
+  function formatChangelogForDisplay(changelog) {
+    const histories = changelog?.histories || [];
+    const sorted = histories.slice().sort((a, b) => {
+      return new Date(b.created) - new Date(a.created);
+    });
+    return sorted.map(entry => {
+      const created = new Date(entry.created);
+      const dateStr = created.toLocaleDateString('en-US', {month: 'short', day: 'numeric'});
+      const timeStr = created.toLocaleTimeString('en-US', {hour: '2-digit', minute: '2-digit', hour12: false});
+      const authorName = entry.author?.displayName || entry.author?.name || 'Unknown';
+      const items = (entry.items || []).map(item => {
+        const field = item.field || 'Unknown field';
+        const fromString = item.fromString || '';
+        const toString = item.toString || '';
+        const isLong = fromString.length > 80 || toString.length > 80;
+        return {
+          field,
+          fromString,
+          toString,
+          isLong,
+          isShort: !isLong
+        };
+      });
+      return {
+        timestamp: `${dateStr}, ${timeStr}`,
+        authorName,
+        items,
+        hasItems: items.length > 0
+      };
+    });
   }
 
   // ── Issue Data & Metadata ──────────────────────────────────
@@ -3225,17 +3267,19 @@ async function mainAsyncLocal() {
   }
 
 
-  function buildActivityIndicators(attachments, commentsTotal, pullRequestsTotal) {
+  function buildActivityIndicators(attachments, commentsTotal, pullRequestsTotal, changelogTotal) {
     const attachmentCount = Array.isArray(attachments) ? attachments.length : 0;
     const commentCount = Number(commentsTotal) || 0;
     const pullRequestCount = Number(pullRequestsTotal) || 0;
+    const historyCount = Number(changelogTotal) || 0;
     return [
-      {icon: '📎', count: attachmentCount, label: 'Attachments'},
-      {icon: '💬', count: commentCount, label: 'Comments'},
-      {icon: '🔀', count: pullRequestCount, label: 'Pull requests'}
+      {icon: '📎', count: attachmentCount, label: 'Attachments', hasCount: true},
+      {icon: '💬', count: commentCount, label: 'Comments', hasCount: true},
+      {icon: '🔀', count: pullRequestCount, label: 'Pull requests', hasCount: true},
+      {icon: '🕓', count: historyCount, label: 'History', isHistory: true, clickable: true, hasCount: historyCount > 0}
     ].map(item => ({
       ...item,
-      title: item.count + ' ' + item.label.toLowerCase()
+      title: item.hasCount ? item.count + ' ' + item.label.toLowerCase() : item.label
     }));
   }
 
@@ -3857,7 +3901,7 @@ async function mainAsyncLocal() {
   // ── Popup Data & Rendering ─────────────────────────────────
 
   async function buildPopupDisplayData(state) {
-    const {key, issueData, pullRequests, actionLoadingKey, actionError, lastActionSuccess, actionsOpen, quickActions} = state;
+    const {key, issueData, pullRequests, actionLoadingKey, actionError, lastActionSuccess, actionsOpen, quickActions, historyOpen, changelogData, changelogLoading} = state;
     const normalizedDescription = await normalizeRichHtml(issueData.renderedFields.description, {
       imageMaxHeight: 180
     });
@@ -4138,13 +4182,20 @@ async function mainAsyncLocal() {
         };
       });
     }
+    const changelogHistories = changelogData?.histories || [];
     displayData.activityIndicators = buildActivityIndicators(
       displayFields.attachments ? attachments : [],
       visibleCommentsTotal,
-      displayData.prs.length
+      displayData.prs.length,
+      changelogHistories.length
     );
     displayData.hasRow1Meta = !!displayData.watchersTrigger || displayData.activityIndicators.length > 0;
     displayData.hasPrimaryStatusRow = row1Chips.length > 0 || displayData.hasRow1Meta;
+    displayData.historyOpen = !!historyOpen;
+    displayData.changelogLoading = !!changelogLoading;
+    displayData.changelogEntries = historyOpen ? formatChangelogForDisplay(changelogData) : [];
+    displayData.hasChangelogEntries = historyOpen && displayData.changelogEntries.length > 0;
+    displayData.showChangelogEmpty = historyOpen && !changelogLoading && displayData.changelogEntries.length === 0;
     return displayData;
   }
   // ── Popup Positioning ──────────────────────────────────────
@@ -4317,6 +4368,7 @@ async function mainAsyncLocal() {
     }
     issueCache.delete(popupState.key);
     watcherListCache.delete(popupState.key);
+    changelogCache.delete(popupState.key);
     editMetaCache.delete(popupState.key);
     transitionOptionsCache.delete(popupState.key);
     assigneeLocalOptionsCache.delete(popupState.key);
@@ -4355,6 +4407,9 @@ async function mainAsyncLocal() {
       actionError: '',
       lastActionSuccess: '',
       actionsOpen: false,
+      historyOpen: false,
+      changelogData: null,
+      changelogLoading: false,
       editState: null,
       commentSession: null,
       ...overrides,
@@ -5355,14 +5410,69 @@ async function mainAsyncLocal() {
     renderIssuePopup(popupState).catch(() => {});
   });
 
-  $(document.body).on('mousedown', function (e) {
-    if (!popupState?.watchersState?.open) {
+    $(document.body).on('mousedown', function (e) {
+      if (!popupState?.watchersState?.open) {
+        return;
+      }
+      if ($(e.target).closest('._JX_watchers_group').length) {
+        return;
+      }
+      closeWatchersPanel();
+  });
+
+  $(document.body).on('click', '._JX_history_toggle', function (e) {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!popupState) {
       return;
     }
-    if ($(e.target).closest('._JX_watchers_group').length) {
+    const nextOpen = !popupState.historyOpen;
+    popupState = {
+      ...popupState,
+      historyOpen: nextOpen
+    };
+    if (nextOpen && !popupState.changelogData && !popupState.changelogLoading) {
+      popupState.changelogLoading = true;
+      renderIssuePopup(popupState).catch(() => {});
+      const issueKey = popupState.key;
+      getIssueChangelog(issueKey).then(changelog => {
+        if (!popupState || popupState.key !== issueKey || !popupState.historyOpen) {
+          return;
+        }
+        popupState = {
+          ...popupState,
+          changelogData: changelog,
+          changelogLoading: false
+        };
+        renderIssuePopup(popupState).catch(() => {});
+      }).catch(() => {
+        if (!popupState || popupState.key !== issueKey) {
+          return;
+        }
+        popupState = {
+          ...popupState,
+          changelogData: {histories: []},
+          changelogLoading: false
+        };
+        renderIssuePopup(popupState).catch(() => {});
+      });
+    } else {
+      renderIssuePopup(popupState).catch(() => {});
+    }
+  });
+
+  $(document.body).on('click', function (e) {
+    if (!popupState?.historyOpen) {
       return;
     }
-    closeWatchersPanel();
+    if ($(e.target).closest('._JX_history_flyout').length || $(e.target).closest('._JX_history_toggle').length) {
+      return;
+    }
+    popupState = {
+      ...popupState,
+      historyOpen: false
+    };
+    renderIssuePopup(popupState).catch(() => {});
   });
 
   $(document.body).on('click', function (e) {
@@ -5696,6 +5806,14 @@ async function mainAsyncLocal() {
     // TODO: escape not captured in google docs
     const ESCAPE_KEY_CODE = 27;
     if (e.keyCode === ESCAPE_KEY_CODE) {
+      if (popupState?.historyOpen) {
+        popupState = {
+          ...popupState,
+          historyOpen: false
+        };
+        renderIssuePopup(popupState).catch(() => {});
+        return;
+      }
       if (previewOverlay.hasClass('is-open')) {
         closePreviewOverlay();
         return;
