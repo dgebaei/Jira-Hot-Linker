@@ -204,16 +204,6 @@ async function mainAsyncLocal() {
   const $ = require('jquery');
   const draggable = require('jquery-ui/ui/widgets/draggable');
 
-  if (isOfficeOverlaySite()) {
-    console.log('[Jira HotLinker][Frame init]', {
-      href: window.location.href,
-      origin: window.location.origin,
-      isTopFrame: window === window.top,
-      frameElementId: window.frameElement?.id || '',
-      frameElementTitle: window.frameElement?.getAttribute?.('title') || ''
-    });
-  }
-
   // ── Initialization & State ──────────────────────────────────
 
   const config = await getConfig();
@@ -228,26 +218,27 @@ async function mainAsyncLocal() {
     environment: true,
     labels: true,
     epicParent: true,
-    attachments: true,
+    attachments: false,
     comments: true,
     description: true,
     reporter: true,
     assignee: true,
     pullRequests: true,
+    timeTracking: true,
     ...(config.displayFields || {})
   };
   const tooltipLayout = config.tooltipLayout || {
-    row1: ['issueType', 'status', 'priority', 'epicParent'],
-    row2: ['sprint', 'affects', 'fixVersions'],
+    row1: ['issueType', 'status', 'priority'],
+    row2: ['epicParent', 'sprint', 'affects', 'fixVersions'],
     row3: ['environment', 'labels'],
-    contentBlocks: ['description', 'attachments', 'comments', 'pullRequests'],
+    contentBlocks: ['description', 'timeTracking', 'pullRequests', 'comments'],
     people: ['reporter', 'assignee']
   };
-  const layoutContentBlocks = (tooltipLayout.contentBlocks || ['description', 'attachments', 'comments', 'pullRequests'])
+  const layoutContentBlocks = (tooltipLayout.contentBlocks || ['description', 'timeTracking', 'pullRequests', 'comments'])
     .filter(k => displayFields[k] !== false);
   const showPullRequests = layoutContentBlocks.includes('pullRequests');
-  const hoverDepth = config.hoverDepth || 'shallow';
-  const hoverModifierKey = config.hoverModifierKey || 'none';
+  const hoverDepth = config.hoverDepth || 'exact';
+  const hoverModifierKey = config.hoverModifierKey || 'any';
   const customFields = normalizeCustomFields(config.customFields);
   let stopSyncDocumentTheme = syncDocumentTheme(document, config.themeMode || DEFAULT_THEME_MODE);
   let jiraProjects = [];
@@ -3246,8 +3237,8 @@ async function mainAsyncLocal() {
     const labelsEditable = !!labelsCapability?.editable && !!labelSuggestionSupport;
     const environmentEditable = !!environmentCapability?.editable && (environmentCapability.operations || []).includes('set');
 
-    const layoutRow1 = tooltipLayout?.row1 || ['issueType', 'status', 'priority', 'epicParent'];
-    const layoutRow2 = tooltipLayout?.row2 || ['sprint', 'affects', 'fixVersions'];
+    const layoutRow1 = tooltipLayout?.row1 || ['issueType', 'status', 'priority'];
+    const layoutRow2 = tooltipLayout?.row2 || ['epicParent', 'sprint', 'affects', 'fixVersions'];
     const layoutRow3 = tooltipLayout?.row3 || ['environment', 'labels'];
 
     const singleAffectsVersion = affectsVersions.length === 1 ? affectsVersions[0]?.name : '';
@@ -4779,70 +4770,24 @@ async function mainAsyncLocal() {
     return keys;
   }
 
-  let officeHoverDebugLastKey = '';
-  let officeHoverDebugLastAt = 0;
-
-  function describeElementForDebug(element) {
-    if (!element) {
-      return null;
-    }
-    const texts = getNodeSearchTexts(element).slice(0, 5);
-    return {
-      tag: element.tagName,
-      id: element.id || '',
-      className: typeof element.className === 'string' ? element.className.slice(0, 200) : '',
-      role: element.getAttribute('role') || '',
-      ariaLabel: element.getAttribute('aria-label') || '',
-      title: element.getAttribute('title') || '',
-      src: element.getAttribute('src') || '',
-      texts,
-      childCount: element.children ? element.children.length : 0
-    };
-  }
-
-  function logOfficeHoverDebug(primaryElement, layeredElements, layeredKeys) {
-    if (!isOfficeOverlaySite()) {
-      return;
-    }
-
-    const now = Date.now();
-    const summary = JSON.stringify({
-      primary: describeElementForDebug(primaryElement),
-      layered: layeredElements.slice(0, 4).map(describeElementForDebug),
-      layeredKeys
-    });
-
-    if (summary === officeHoverDebugLastKey && now - officeHoverDebugLastAt < 1500) {
-      return;
-    }
-
-    officeHoverDebugLastKey = summary;
-    officeHoverDebugLastAt = now;
-    console.log('[Jira HotLinker][Office debug]', JSON.parse(summary));
-  }
-
   function detectLayeredJiraKeysFromPoint(clientX, clientY) {
     if (!isEditorOverlaySite() || typeof document.elementsFromPoint !== 'function') {
       return [];
     }
 
     const elementsAtPoint = document.elementsFromPoint(clientX, clientY).filter(Boolean);
-    const candidates = [];
 
     for (const element of elementsAtPoint) {
       if (!element || element === container[0] || $.contains(container[0], element)) {
         continue;
       }
 
-      candidates.push(element);
       const keys = detectJiraKeysAtPoint(element);
       if (size(keys)) {
-        logOfficeHoverDebug(document.elementFromPoint(clientX, clientY), candidates, keys);
         return keys;
       }
     }
 
-    logOfficeHoverDebug(document.elementFromPoint(clientX, clientY), candidates, []);
     return [];
   }
 
