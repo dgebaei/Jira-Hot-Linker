@@ -730,9 +730,9 @@ function TooltipLayoutEditor({ tooltipLayout, setTooltipLayout, customFields, se
                       <span>Description</span>
                       <span className='contentBlockAlways'>Always shown</span>
                     </div>
-                    {tooltipLayout.contentBlocks.length > 0 && (
-                      <SortableContext items={tooltipLayout.contentBlocks} strategy={verticalListSortingStrategy}>
-                        {tooltipLayout.contentBlocks.map(key => {
+                    {tooltipLayout.contentBlocks.filter(k => k !== 'description').length > 0 && (
+                      <SortableContext items={tooltipLayout.contentBlocks.filter(k => k !== 'description')} strategy={verticalListSortingStrategy}>
+                        {tooltipLayout.contentBlocks.filter(k => k !== 'description').map(key => {
                           const block = CONTENT_BLOCK_KEYS.find(b => b.key === key);
                           if (!block) return null;
                           return (
