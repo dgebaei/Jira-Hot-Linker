@@ -2419,22 +2419,20 @@ async function mainAsyncLocal() {
     const chipsByRow = {1: [], 2: [], 3: []};
     for (const {fieldId, row} of customFields) {
       const rawValue = fields[fieldId];
-      if (rawValue === undefined || rawValue === null || rawValue === '') {
-        continue;
-      }
+      const isEmpty = rawValue === undefined || rawValue === null || rawValue === '';
       const fieldName = String(names[fieldId] || fieldId);
       const supportedDefinition = await getCustomFieldEditorDefinition(fieldId, issueData).catch(() => null);
       if (supportedDefinition) {
-        chipsByRow[row].push(buildEditableFieldChip(fieldId, buildCustomFieldChipData(
-          fieldId,
-          fieldName,
-          rawValue,
-          supportedDefinition.fieldMeta,
-          supportedDefinition.supportDescriptor
-        ), state, {
+        const baseChip = isEmpty
+          ? buildFilterChip(`${fieldName}: --`, '')
+          : buildCustomFieldChipData(fieldId, fieldName, rawValue, supportedDefinition.fieldMeta, supportedDefinition.supportDescriptor);
+        chipsByRow[row].push(buildEditableFieldChip(fieldId, baseChip, state, {
           canEdit: true,
           editTitle: `Edit ${fieldName}`
         }));
+        continue;
+      }
+      if (isEmpty) {
         continue;
       }
       const entries = Array.isArray(rawValue) ? rawValue : [rawValue];
