@@ -1,8 +1,8 @@
 export function buildTooltipLayoutFromDisplayFields(displayFields) {
-  const row1Defaults = ['status', 'priority', 'epicParent', 'issueType'];
-  const row2Defaults = ['sprint', 'affects', 'fixVersions'];
+  const row1Defaults = ['issueType', 'status', 'priority'];
+  const row2Defaults = ['epicParent', 'sprint', 'affects', 'fixVersions'];
   const row3Defaults = ['environment', 'labels'];
-  const contentDefaults = ['description', 'attachments', 'comments', 'pullRequests', 'timeTracking'];
+  const contentDefaults = ['description', 'timeTracking', 'pullRequests', 'comments'];
   const peopleDefaults = ['reporter', 'assignee'];
 
   const row1 = row1Defaults.filter(f => displayFields[f]);
@@ -15,15 +15,13 @@ export function buildTooltipLayoutFromDisplayFields(displayFields) {
 }
 
 export default {
-  domains: [
-    'https://github.com/'
-  ],
+  domains: [],
   instanceUrl: '',
   themeMode: 'system',
   v15upgrade: false,
   customFields: [],
-  hoverDepth: 'shallow',
-  hoverModifierKey: 'none',
+  hoverDepth: 'exact',
+  hoverModifierKey: 'any',
   displayFields: {
     issueType: true,
     status: true,
@@ -34,7 +32,7 @@ export default {
     environment: true,
     labels: true,
     epicParent: true,
-    attachments: true,
+    attachments: false,
     comments: true,
     description: true,
     reporter: true,
@@ -43,10 +41,10 @@ export default {
     timeTracking: true
   },
   tooltipLayout: {
-    row1: ['status', 'priority', 'epicParent', 'issueType'],
-    row2: ['sprint', 'affects', 'fixVersions'],
+    row1: ['issueType', 'status', 'priority'],
+    row2: ['epicParent', 'sprint', 'affects', 'fixVersions'],
     row3: ['environment', 'labels'],
-    contentBlocks: ['description', 'attachments', 'comments', 'pullRequests', 'timeTracking'],
+    contentBlocks: ['description', 'timeTracking', 'pullRequests', 'comments'],
     people: ['reporter', 'assignee']
   }
 };
