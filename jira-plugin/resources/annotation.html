@@ -491,6 +491,12 @@
                     {{#hasReactionOptions}}
                     <div class="_JX_comment_reactions">
                         <div class="_JX_comment_reaction_bar">
+                            {{#reactionPills}}
+                            <button class="_JX_comment_reaction_pill{{#reacted}} is-reacted{{/reacted}}{{#pending}} is-pending{{/pending}}" type="button" data-comment-id="{{commentId}}" data-emoji-id="{{emojiId}}" title="{{title}}" aria-label="{{title}}" {{disabledAttr}}>
+                                <span class="_JX_comment_reaction_emoji" aria-hidden="true">{{emoji}}</span>
+                                <span class="_JX_comment_reaction_count">{{count}}</span>
+                            </button>
+                            {{/reactionPills}}
                             <details class="_JX_comment_reaction_dropdown">
                                 <summary class="_JX_comment_reaction_more" aria-label="Add reaction" title="Add reaction">
                                     <svg class="_JX_comment_reaction_more_icon" width="16" height="16" viewBox="0 0 24 24" focusable="false" aria-hidden="true">
@@ -500,7 +506,7 @@
                                 </summary>
                                 <div class="_JX_comment_reaction_menu">
                                     {{#menuReactionOptions}}
-                                    <button class="_JX_comment_reaction_button{{#isSelected}} is-selected{{/isSelected}}{{#isPending}} is-pending{{/isPending}}" type="button" data-comment-id="{{commentId}}" data-emoji-id="{{emojiId}}" title="{{title}}" aria-label="{{title}}" {{disabledAttr}}>
+                                    <button class="_JX_comment_reaction_button{{#isReacted}} is-reacted{{/isReacted}}{{#isPending}} is-pending{{/isPending}}" type="button" data-comment-id="{{commentId}}" data-emoji-id="{{emojiId}}" title="{{title}}" aria-label="{{title}}" {{disabledAttr}}>
                                         <span class="_JX_comment_reaction_emoji" aria-hidden="true">{{emoji}}</span>
                                     </button>
                                     {{/menuReactionOptions}}
