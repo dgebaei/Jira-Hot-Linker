@@ -198,7 +198,7 @@ function SortableField({ id, label, onRemove }) {
   };
 
   return (
-    <div ref={setNodeRef} style={style} className='fieldPill' {...attributes} {...listeners}>
+    <div ref={setNodeRef} style={style} className='fieldPill' data-testid={`options-tooltip-row-item-${id}`} tabIndex={0} {...attributes} {...listeners}>
       <span className='fieldPillLabel'>{label}</span>
       {onRemove && (
         <button
@@ -336,6 +336,8 @@ function DroppableZone({ id, title, fields, onRemove, isOver }) {
   return (
     <div
       ref={setNodeRef}
+      data-testid={`options-tooltip-row-${id}`}
+      data-layout-order={fields.map(field => field.key).join(',')}
       className={`tooltipPreviewRow ${isOver ? 'tooltipPreviewRowOver' : ''}`}
     >
       <span className='tooltipPreviewRowLabel'>{title}</span>
@@ -375,7 +377,7 @@ function SortableContentBlock({ id, label, onRemove }) {
   };
 
   return (
-    <div ref={setNodeRef} style={style} className='contentBlockItem' {...attributes} {...listeners}>
+    <div ref={setNodeRef} style={style} className='contentBlockItem' data-testid={`options-content-block-item-${id}`} tabIndex={0} {...attributes} {...listeners}>
       <span className='contentBlockDragHandle'>⋮⋮</span>
       <span>{label}</span>
       <button
@@ -400,6 +402,8 @@ function DraggableContentBlock({ id, label }) {
     <div
       ref={setNodeRef}
       style={style}
+      data-testid={`options-content-block-library-item-${id}`}
+      tabIndex={0}
       className={`contentBlockItem ${isDragging ? 'contentBlockItemDragging' : ''}`}
       {...listeners}
       {...attributes}
@@ -410,11 +414,11 @@ function DraggableContentBlock({ id, label }) {
   );
 }
 
-function DroppableContentBlocks({ id, isOver, children }) {
+function DroppableContentBlocks({ id, isOver, children, order }) {
   const { setNodeRef } = useDroppable({ id });
 
   return (
-    <div ref={setNodeRef} className={`tooltipPreviewContentList ${isOver ? 'tooltipPreviewContentListOver' : ''}`}>
+    <div ref={setNodeRef} data-testid='options-content-blocks-dropzone' data-content-order={order.join(',')} className={`tooltipPreviewContentList ${isOver ? 'tooltipPreviewContentListOver' : ''}`}>
       {children}
     </div>
   );
@@ -701,7 +705,7 @@ function TooltipLayoutEditor({ tooltipLayout, setTooltipLayout, customFields, se
               <div className='tooltipPreview'>
                 <div className='tooltipPreviewContentBlocks'>
                   <span className='tooltipPreviewContentLabel'>Content Blocks</span>
-                  <DroppableContentBlocks id={CONTENT_BLOCKS_DROPPABLE} isOver={overId === CONTENT_BLOCKS_DROPPABLE}>
+                  <DroppableContentBlocks id={CONTENT_BLOCKS_DROPPABLE} isOver={overId === CONTENT_BLOCKS_DROPPABLE} order={tooltipLayout.contentBlocks}>
                     <div className='contentBlockItem contentBlockItemRequired'>
                       <span>Description</span>
                       <span className='contentBlockAlways'>Always shown</span>
@@ -733,7 +737,7 @@ function TooltipLayoutEditor({ tooltipLayout, setTooltipLayout, customFields, se
 
           <DragOverlay>
             {activeId ? (
-              <div className='fieldPill fieldPillDragging'>
+              <div className='fieldPill fieldPillDragging' data-testid='options-drag-overlay'>
                 <span className='fieldPillLabel'>
                   {allFields[activeId] || (CONTENT_BLOCK_KEYS.find(b => b.key === activeId)?.label) || activeId}
                 </span>
@@ -844,6 +848,35 @@ function ConfigPage(props) {
   const handleThemeChange = (mode) => {
     setThemeMode(normalizeThemeMode(mode));
   };
+
+  const moveContentBlock = useCallback((blockKey, toIndex) => {
+    setTooltipLayout(prev => {
+      const currentBlocks = Array.isArray(prev.contentBlocks) ? [...prev.contentBlocks] : [];
+      const currentIndex = currentBlocks.indexOf(blockKey);
+      if (currentIndex === -1) {
+        return prev;
+      }
+
+      currentBlocks.splice(currentIndex, 1);
+      const nextIndex = Math.max(0, Math.min(Number(toIndex) || 0, currentBlocks.length));
+      currentBlocks.splice(nextIndex, 0, blockKey);
+      return {
+        ...prev,
+        contentBlocks: currentBlocks,
+      };
+    });
+  }, []);
+
+  useEffect(() => {
+    window.__JHL_TEST_API__ = {
+      moveContentBlock,
+      getTooltipLayout: () => tooltipLayout,
+    };
+
+    return () => {
+      delete window.__JHL_TEST_API__;
+    };
+  }, [moveContentBlock, tooltipLayout]);
 
   const exportSettings = () => {
     const config = {

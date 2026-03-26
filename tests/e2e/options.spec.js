@@ -1,6 +1,6 @@
 const {test, expect, configureExtension} = require('./helpers/extension-fixtures');
 const {getFirstCustomFieldId} = require('./helpers/live-jira-api');
-const {customFieldLibraryItem, openAdvancedSettings, optionsPageModel} = require('./helpers/options-page');
+const {contentBlockItem, customFieldLibraryItem, openAdvancedSettings, optionsPageModel} = require('./helpers/options-page');
 const {buildExtensionConfig, requireJiraTestTarget} = require('./helpers/test-targets');
 
 function baseConfig(servers, target, overrides = {}) {
@@ -106,4 +106,29 @@ test('persists hover behavior settings through the options page', async ({option
   const stored = await optionsPage.evaluate(async () => chrome.storage.sync.get(['hoverDepth', 'hoverModifierKey']));
   expect(stored.hoverDepth).toBe('deep');
   expect(stored.hoverModifierKey).toBe('shift');
+});
+
+test('persists reordered content blocks through the options page', async ({optionsPage, servers}) => {
+  const target = requireJiraTestTarget(test, servers, {requireAuth: false});
+  const form = optionsPageModel(optionsPage);
+
+  await configureExtension(optionsPage, baseConfig(servers, target));
+  await optionsPage.reload();
+  await openAdvancedSettings(optionsPage);
+
+  await expect(contentBlockItem(optionsPage, 'pullRequests')).toBeVisible();
+  await optionsPage.evaluate(() => {
+    window.__JHL_TEST_API__.moveContentBlock('pullRequests', 1);
+  });
+
+  await expect(form.contentBlocksDropzone).toHaveAttribute('data-content-order', /^description,pullRequests,/);
+  await form.saveButton.click();
+  await expect(form.saveNotice).toContainText('Options saved successfully.');
+
+  await optionsPage.reload();
+  await openAdvancedSettings(optionsPage);
+  await expect(form.contentBlocksDropzone).toHaveAttribute('data-content-order', /^description,pullRequests,/);
+
+  const stored = await optionsPage.evaluate(async () => chrome.storage.sync.get(['tooltipLayout']));
+  expect(stored.tooltipLayout.contentBlocks.slice(0, 2)).toEqual(['description', 'pullRequests']);
 });

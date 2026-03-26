@@ -12,6 +12,7 @@ function optionsPageModel(page) {
     fieldLibraryValidation: page.getByTestId('options-field-library-validation'),
     fieldLibrarySaveButton: page.getByTestId('options-field-library-save'),
     fieldLibraryCancelButton: page.getByTestId('options-field-library-cancel'),
+    contentBlocksDropzone: page.getByTestId('options-content-blocks-dropzone'),
     saveButton: page.getByTestId('options-save'),
     discardButton: page.getByTestId('options-discard'),
     saveNotice: page.getByTestId('options-save-notice'),
@@ -20,6 +21,10 @@ function optionsPageModel(page) {
 
 function customFieldLibraryItem(page, fieldId) {
   return page.getByTestId(`options-field-library-item-custom_${fieldId}`);
+}
+
+function contentBlockItem(page, blockKey) {
+  return page.getByTestId(`options-content-block-item-${blockKey}`);
 }
 
 async function openAdvancedSettings(page) {
@@ -31,6 +36,7 @@ async function openAdvancedSettings(page) {
 }
 
 module.exports = {
+  contentBlockItem,
   customFieldLibraryItem,
   optionsPageModel,
   openAdvancedSettings,
