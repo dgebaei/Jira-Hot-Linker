@@ -1523,6 +1523,11 @@ button:disabled {
     position: relative;
     flex-shrink: 0;
 
+    &:focus {
+      box-shadow: none;
+      outline: none;
+    }
+
     &:checked {
       background: #0052cc;
       border-color: #0052cc;
