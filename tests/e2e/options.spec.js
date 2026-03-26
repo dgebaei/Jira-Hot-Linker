@@ -60,6 +60,31 @@ test('validates custom field ids and resolves their names from Jira metadata', a
   await expect(customFieldLibraryItem(optionsPage, customFieldId)).toContainText(target.mode === 'mock' ? 'Customer Impact' : customFieldId);
 });
 
+test('persists custom fields added through the options page', async ({optionsPage, servers}) => {
+  const target = requireJiraTestTarget(test, servers, {requireAuth: false});
+  const form = optionsPageModel(optionsPage);
+  const customFieldId = target.mode === 'mock' ? 'customfield_12345' : await getFirstCustomFieldId(target);
+  test.skip(!customFieldId, 'No Jira custom field is available for persistence coverage.');
+
+  await configureExtension(optionsPage, baseConfig(servers, target));
+  await optionsPage.reload();
+  await openAdvancedSettings(optionsPage);
+
+  await form.fieldLibraryAddButton.click();
+  await form.fieldLibraryInput.fill(customFieldId);
+  await expect(form.fieldLibrarySaveButton).toBeEnabled();
+  await form.fieldLibrarySaveButton.click();
+  await form.saveButton.click();
+  await expect(form.saveNotice).toContainText('Options saved successfully.');
+
+  await optionsPage.reload();
+  await openAdvancedSettings(optionsPage);
+  await expect(customFieldLibraryItem(optionsPage, customFieldId)).toBeVisible();
+
+  const stored = await optionsPage.evaluate(async () => chrome.storage.sync.get(['customFields']));
+  expect(stored.customFields).toEqual(expect.arrayContaining([{fieldId: customFieldId, row: 3}]));
+});
+
 test('persists hover behavior settings through the options page', async ({optionsPage, servers}) => {
   const target = requireJiraTestTarget(test, servers, {requireAuth: false});
   const form = optionsPageModel(optionsPage);
