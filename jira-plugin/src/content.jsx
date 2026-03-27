@@ -3078,6 +3078,25 @@ async function mainAsyncLocal() {
       ...(activeEdit || {})
     };
   }
+
+  function buildTitleView(state, issueData, canEditTitle) {
+    const issueKey = String(issueData?.key || '');
+    const summary = String(issueData?.fields?.summary || '');
+    const issueUrl = `${INSTANCE_URL}browse/${issueKey}`;
+    const activeEdit = buildActiveEditPresentation('summary', state);
+    return {
+      ticketKey: issueKey,
+      ticketTitle: summary,
+      keyPrefix: `[${issueKey}]`,
+      url: issueUrl,
+      urlTitle: `[${issueKey}] ${summary}`,
+      urlHoverTitle: buildLinkHoverTitle('Open issue in Jira', `[${issueKey}] ${summary}`, issueUrl),
+      isEditable: !!canEditTitle,
+      editTitle: activeEdit ? 'Discard title changes' : 'Edit issue title',
+      ...(activeEdit || {})
+    };
+  }
+
   function compareSprintState(left, right) {
     const order = {
       active: 0,
@@ -3279,7 +3298,7 @@ async function mainAsyncLocal() {
     const statusName = issueData.fields.status?.name;
     const priorityName = issueData.fields.priority?.name;
     const projectKey = key.split('-')[0];
-    const [issueTypeCapability, priorityCapability, assigneeCapability, transitionOptions, sprintCapability, affectsCapability, fixVersionsCapability, labelsCapability, environmentCapability, labelSuggestionSupport, timeTrackingCapability, customFieldChips] = await Promise.all([
+    const [issueTypeCapability, priorityCapability, assigneeCapability, transitionOptions, sprintCapability, affectsCapability, fixVersionsCapability, labelsCapability, environmentCapability, labelSuggestionSupport, summaryCapability, timeTrackingCapability, customFieldChips] = await Promise.all([
       displayFields.issueType ? getEditableFieldCapability(issueData, 'issuetype') : Promise.resolve({editable: false, allowedValues: []}),
       displayFields.priority ? getEditableFieldCapability(issueData, 'priority') : Promise.resolve({editable: false}),
       displayFields.assignee ? getEditableFieldCapability(issueData, 'assignee') : Promise.resolve({editable: false}),
@@ -3290,6 +3309,7 @@ async function mainAsyncLocal() {
       displayFields.labels ? getEditableFieldCapability(issueData, 'labels') : Promise.resolve({editable: false}),
       displayFields.environment ? getEditableFieldCapability(issueData, 'environment') : Promise.resolve({editable: false, operations: []}),
       displayFields.labels ? hasLabelSuggestionSupport() : Promise.resolve(false),
+      getEditableFieldCapability(issueData, 'summary').catch(() => ({editable: false, operations: []})),
       getEditableFieldCapability(issueData, 'timetracking').catch(() => ({editable: false})),
       buildCustomFieldChips(issueData, customFields, state)
     ]);
@@ -3299,6 +3319,7 @@ async function mainAsyncLocal() {
     const assigneeEditable = !!assigneeCapability?.editable;
     const labelsEditable = !!labelsCapability?.editable && !!labelSuggestionSupport;
     const environmentEditable = !!environmentCapability?.editable && (environmentCapability.operations || []).includes('set');
+    const summaryEditable = !!summaryCapability?.editable && (summaryCapability.operations || []).includes('set');
 
     const layoutRow1 = tooltipLayout?.row1 || ['issueType', 'status', 'priority'];
     const layoutRow2 = tooltipLayout?.row2 || ['epicParent', 'sprint', 'affects', 'fixVersions'];
@@ -3456,13 +3477,14 @@ async function mainAsyncLocal() {
     const assigneeView = displayFields.assignee
       ? buildAssigneeAvatarView(state, issueData, assigneeEditable)
       : null;
+    const titleView = buildTitleView(state, issueData, summaryEditable);
     const timeTrackingSection = showTimeTracking ? buildTimeTrackingSectionPresentation(issueData, state.timeTrackingEditState, timeTrackingCapability) : null;
     const displayData = {
-      urlTitle: `[${key}] ${issueData.fields.summary}`,
-      ticketKey: key,
-      ticketTitle: issueData.fields.summary,
-      url: issueUrl,
-      urlHoverTitle: buildLinkHoverTitle('Open issue in Jira', `[${key}] ${issueData.fields.summary}`, issueUrl),
+      urlTitle: titleView.urlTitle,
+      ticketKey: titleView.ticketKey,
+      ticketTitle: titleView.ticketTitle,
+      url: titleView.url,
+      urlHoverTitle: titleView.urlHoverTitle,
       ...copyTicketMeta({
         key,
         summary: issueData.fields.summary,
@@ -3497,6 +3519,7 @@ async function mainAsyncLocal() {
       reporterView,
       assignee: displayFields.assignee ? issueData.fields.assignee : null,
       assigneeView,
+      titleView,
       commentUrl: issueUrl,
       hasFieldSummary: row1Chips.length > 0 || row2Chips.length > 0 || row3Chips.length > 0,
       activityIndicators: [],
@@ -4489,7 +4512,7 @@ async function mainAsyncLocal() {
     const fieldKey = e.currentTarget.getAttribute('data-field-key') || '';
     const editState = popupState?.editState;
     if (e.key === 'Enter') {
-      if (editState?.fieldKey === fieldKey && editState.selectionMode === 'text' && !(e.ctrlKey || e.metaKey)) {
+      if (editState?.fieldKey === fieldKey && editState.selectionMode === 'text' && editState.editorType === 'textarea' && !(e.ctrlKey || e.metaKey)) {
         return;
       }
       e.preventDefault();
@@ -4521,7 +4544,7 @@ async function mainAsyncLocal() {
       cancelFieldEdit();
       return;
     }
-    if ($(e.target).closest('._JX_field_chip_editable_group').length === 0 && $(e.target).closest('._JX_edit_popover').length === 0) {
+    if ($(e.target).closest('._JX_field_chip_editable_group').length === 0 && $(e.target).closest('._JX_edit_popover').length === 0 && $(e.target).closest('._JX_title_summary_slot').length === 0) {
       cancelFieldEdit();
     }
   });

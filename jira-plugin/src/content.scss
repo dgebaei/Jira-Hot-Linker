@@ -72,6 +72,72 @@ body ._JX {
       position: relative;
     }
 
+    &_summary_slot {
+      align-items: center;
+      display: flex;
+      flex: 1 1 auto;
+      gap: 6px;
+      min-width: 0;
+      position: relative;
+    }
+
+    &_summary_slot.is-editing {
+      align-items: flex-start;
+      z-index: 30;
+    }
+
+    &_edit_row {
+      align-items: flex-start;
+      display: flex;
+      flex: 1 1 auto;
+      gap: 8px;
+      min-width: 0;
+    }
+
+    &_edit_prefix {
+      color: #44546f;
+      flex: 0 0 auto;
+      font-size: 14px;
+      font-weight: 600;
+      line-height: 32px;
+      white-space: nowrap;
+    }
+
+    &_edit_form {
+      display: flex;
+      flex: 1 1 auto;
+      flex-direction: column;
+      gap: 6px;
+      min-width: 0;
+    }
+
+    &_edit_input_shell {
+      align-items: center;
+      gap: 8px;
+    }
+
+    &_edit_input {
+      font-size: 13px;
+      min-height: 32px;
+    }
+
+    &_edit_actions {
+      display: inline-flex;
+      flex: 0 0 auto;
+      gap: 6px;
+    }
+
+    &_edit_action {
+      min-width: 28px;
+      padding: 0;
+      width: 28px;
+    }
+
+    &_summary_slot ._JX_title_edit_button {
+      flex: 0 0 auto;
+      margin-top: 4px;
+    }
+
     &_assignee_slot.is-editing {
       z-index: 30;
     }
@@ -1403,6 +1469,8 @@ body ._JX {
 
   &_field_chip_editable_group:hover ._JX_field_chip_edit,
   &_field_chip_editable_group.is-editing ._JX_field_chip_edit,
+  &_title_summary_slot:hover ._JX_field_chip_edit,
+  &_title_summary_slot.is-editing ._JX_field_chip_edit,
   &_title_assignee_slot:hover ._JX_field_chip_edit,
   &_title_assignee_slot.is-editing ._JX_field_chip_edit,
   &_field_chip_edit:focus-visible {
