@@ -5680,6 +5680,21 @@ async function mainAsyncLocal() {
     return true;
   }
 
+  function resolveKeyAtClientPoint(clientX, clientY) {
+    if (!Number.isFinite(clientX) || !Number.isFinite(clientY)) {
+      return '';
+    }
+    const element = document.elementFromPoint(clientX, clientY);
+    if (!element) {
+      return '';
+    }
+    let keys = detectJiraKeysAtPoint(element);
+    if (!size(keys)) {
+      keys = detectLayeredJiraKeysFromPoint(clientX, clientY);
+    }
+    return size(keys) ? keys[0].replace(' ', '-') : '';
+  }
+
   function fetchAndShowPopup(key, pointerX, pointerY) {
     (async function (cancelToken) {
       const issueData = await getIssueMetaData(key);
@@ -5764,7 +5779,12 @@ async function mainAsyncLocal() {
         return;
       }
       if (isModifierSatisfied(e)) {
-        triggerPopupForKey(pendingHover.key, pendingHover.pointerX, pendingHover.pointerY, true);
+        const currentKey = resolveKeyAtClientPoint(pendingHover.clientX, pendingHover.clientY);
+        if (currentKey && currentKey === pendingHover.key) {
+          triggerPopupForKey(pendingHover.key, pendingHover.pointerX, pendingHover.pointerY, true);
+        } else {
+          pendingHover = null;
+        }
       }
     });
   }
@@ -5807,7 +5827,7 @@ async function mainAsyncLocal() {
         const key = keys[0].replace(' ', '-');
 
         if (hoverModifierKey !== 'none' && !isModifierSatisfied(e)) {
-          pendingHover = {key, pointerX: e.pageX, pointerY: e.pageY};
+          pendingHover = {key, pointerX: e.pageX, pointerY: e.pageY, clientX: e.clientX, clientY: e.clientY};
           return;
         }
         pendingHover = null;

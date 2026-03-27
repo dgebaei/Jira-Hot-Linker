@@ -93,6 +93,21 @@ test('does not open the popup from a stale pending hover while typing', async ({
   await page.close();
 });
 
+test('does not open the popup when the pointer has moved away before pressing the modifier', async ({extensionApp, optionsPage, servers}) => {
+  const target = requireJiraTestTarget(test, servers, {requireAuth: targetModeRequiresAuth()});
+  await configureExtension(optionsPage, baseConfig(servers, target, {hoverModifierKey: 'shift'}));
+  const {page} = await openAllowedPage(extensionApp, servers, target, '/modifier-input');
+
+  await hoverIssueKey(page, '#sidebar-key');
+  await expect(page.locator('._JX_container')).toBeEmpty();
+
+  await page.locator('#subject-input').hover();
+  await page.keyboard.press('Shift');
+  await expect(page.locator('._JX_container')).toBeEmpty();
+
+  await page.close();
+});
+
 test('supports pinning and closing the popup', async ({extensionApp, optionsPage, servers}) => {
   const target = requireJiraTestTarget(test, servers, {requireAuth: targetModeRequiresAuth()});
   await configureExtension(optionsPage, baseConfig(servers, target));
