@@ -316,6 +316,7 @@ body ._JX {
     flex: 0 0 auto;
     gap: 10px;
     padding-left: 10px;
+    position: relative;
     white-space: nowrap;
   }
 
@@ -329,6 +330,140 @@ body ._JX {
   &_activity_item strong {
     font-size: 12px;
     font-weight: 700;
+  }
+
+  button._JX_activity_item {
+    appearance: none;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    color: inherit;
+    cursor: pointer;
+    font: inherit;
+    padding: 2px 6px;
+    transition: background-color 120ms ease, border-color 120ms ease;
+
+    &:hover {
+      background: #eef4fb;
+      border-color: #c7daee;
+    }
+
+    &.is-active {
+      background: #dbeafe;
+      border-color: #76a4d5;
+    }
+  }
+
+  &_history_flyout {
+    background: #fff;
+    border: 1px solid #dde4e6;
+    border-radius: 6px;
+    box-shadow: 0 8px 24px rgba(9, 30, 66, 0.12), 0 2px 6px rgba(9, 30, 66, 0.06);
+    max-height: 400px;
+    min-width: 340px;
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding: 0;
+    position: absolute;
+    right: 0;
+    top: calc(100% + 6px);
+    width: max-content;
+    max-width: min(480px, 90vw);
+    z-index: 10;
+  }
+
+  &_history_header {
+    background: #f7f8fa;
+    border-bottom: 1px solid #dde4e6;
+    color: #172b4d;
+    font-size: 12px;
+    font-weight: 700;
+    padding: 8px 12px;
+    position: sticky;
+    top: 0;
+    z-index: 1;
+  }
+
+  &_history_loading,
+  &_history_empty {
+    color: #7a869a;
+    font-size: 12px;
+    padding: 16px 12px;
+    text-align: center;
+  }
+
+  &_history_entries {
+    padding: 0;
+  }
+
+  &_history_entry {
+    border-bottom: 1px solid #eef0f4;
+    padding: 8px 12px;
+
+    &:last-child {
+      border-bottom: none;
+    }
+  }
+
+  &_history_entry_header {
+    color: #52657a;
+    font-size: 11px;
+    line-height: 1.4;
+    margin-bottom: 4px;
+
+    strong {
+      color: #172b4d;
+      font-weight: 600;
+    }
+  }
+
+  &_history_entry_items {
+    padding-left: 8px;
+  }
+
+  &_history_change {
+    color: #344563;
+    font-size: 11px;
+    line-height: 1.5;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+
+  &_history_field {
+    color: #7a869a;
+    font-weight: 600;
+  }
+
+  &_history_change_details {
+    font-size: 11px;
+    line-height: 1.5;
+    margin: 2px 0;
+  }
+
+  &_history_change_summary {
+    color: #344563;
+    cursor: pointer;
+    font-weight: 500;
+    list-style: none;
+    user-select: none;
+
+    &::-webkit-details-marker {
+      display: none;
+    }
+
+    &:hover {
+      color: #0052cc;
+    }
+  }
+
+  &_history_change_full {
+    color: #344563;
+    font-size: 11px;
+    line-height: 1.5;
+    margin-top: 2px;
+    overflow-wrap: anywhere;
+    padding-left: 14px;
+    word-break: break-word;
   }
 
   &_status_row_lower {
