@@ -5655,6 +5655,23 @@ async function mainAsyncLocal() {
 
   let pendingHover = null;
 
+  function isTypingTarget(node) {
+    if (!node || node.nodeType !== Node.ELEMENT_NODE) {
+      return false;
+    }
+    if (node.matches('input, textarea, select')) {
+      return true;
+    }
+    if (node.closest('input, textarea, select, [role="textbox"]')) {
+      return true;
+    }
+    if (node.isContentEditable) {
+      return true;
+    }
+    const editableAncestor = node.closest('[contenteditable=""], [contenteditable="true"], [contenteditable="plaintext-only"]');
+    return !!editableAncestor;
+  }
+
   function isModifierSatisfied(e) {
     if (hoverModifierKey === 'alt') return e.altKey;
     if (hoverModifierKey === 'ctrl') return e.ctrlKey;
@@ -5736,8 +5753,14 @@ async function mainAsyncLocal() {
   }
 
   if (hoverModifierKey !== 'none') {
+    document.addEventListener('focusin', function () {
+      if (isTypingTarget(document.activeElement)) {
+        pendingHover = null;
+      }
+    });
+
     document.addEventListener('keydown', function (e) {
-      if (!pendingHover || containerPinned) {
+      if (!pendingHover || containerPinned || isTypingTarget(document.activeElement)) {
         return;
       }
       if (isModifierSatisfied(e)) {

@@ -71,6 +71,18 @@ function defaultRouteContent(origin) {
         </div>
       </div>
     `),
+    '/modifier-input': createHtml('Modifier Input Fixture', `
+      <h1>Modifier Input Fixture</h1>
+      <div style="display: grid; grid-template-columns: 220px 1fr; gap: 32px; align-items: start; min-height: 360px;">
+        <aside class="card">
+          <p>Sidebar ticket: <span id="sidebar-key" class="marker">JRACLOUD-97846</span></p>
+        </aside>
+        <section class="card">
+          <label for="subject-input" style="display:block; font-weight:700; margin-bottom:8px;">Subject</label>
+          <input id="subject-input" type="text" value="Typing here should not open the popup" style="width: 100%; padding: 10px 12px; border: 1px solid #99a; border-radius: 8px;" />
+        </section>
+      </div>
+    `),
   };
 }
 
