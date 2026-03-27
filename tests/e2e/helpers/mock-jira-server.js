@@ -252,6 +252,10 @@ function buildEditmeta(state) {
   }
   return {
     fields: {
+      summary: {
+        name: 'Summary',
+        operations: ['set'],
+      },
       assignee: {
         name: 'Assignee',
         operations: ['set'],
@@ -538,6 +542,14 @@ async function createMockJiraServer() {
     if (pathname === `/rest/api/2/issue/${state.issue.key}` && req.method === 'PUT') {
       const body = await parseJsonBody(req);
       const fields = body?.fields || {};
+      if (Object.prototype.hasOwnProperty.call(fields, 'summary')) {
+        const nextSummary = String(fields.summary || '').trim();
+        if (!nextSummary) {
+          json(res, 400, {errors: {summary: 'Summary is required'}});
+          return;
+        }
+        state.issue.summary = nextSummary;
+      }
       if (fields.priority?.id) {
         state.issue.priority = {
           id: String(fields.priority.id),

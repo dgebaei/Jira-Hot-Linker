@@ -884,6 +884,39 @@ export function createPopupEditing(deps) {
       };
     }
 
+    if (fieldKey === 'summary') {
+      const capability = await getEditableFieldCapability(issueData, 'summary');
+      const operations = capability.operations || [];
+      if (!capability.editable || !operations.includes('set')) {
+        return null;
+      }
+      const currentSummary = String(issueData?.fields?.summary || '');
+      return {
+        fieldKey,
+        editorType: 'text',
+        label: 'Issue title',
+        selectionMode: 'text',
+        currentText: currentSummary,
+        currentSelections: [],
+        initialInputValue: currentSummary,
+        inputPlaceholder: 'Enter a new issue title',
+        showActionButtons: true,
+        loadOptions: async () => [],
+        save: (selectedOptions, editState) => {
+          const nextSummary = String(editState?.inputValue || '').trim();
+          if (!nextSummary) {
+            throw new Error('Issue title cannot be empty');
+          }
+          return requestJson('PUT', `${INSTANCE_URL}rest/api/2/issue/${issueData.key}`, {
+            fields: {
+              summary: nextSummary,
+            },
+          });
+        },
+        successMessage: () => 'Issue title updated',
+      };
+    }
+
     if (fieldKey === 'environment') {
       const capability = await getEditableFieldCapability(issueData, 'environment');
       const operations = capability.operations || [];

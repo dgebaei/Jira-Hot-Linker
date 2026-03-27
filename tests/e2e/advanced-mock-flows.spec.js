@@ -80,6 +80,52 @@ test('shows assignee and parent search results inside their editors', async ({ex
   await page.close();
 });
 
+test('edits the popup title inline and applies the change immediately', async ({extensionApp, optionsPage, servers}) => {
+  const target = requireJiraTestTarget(test, servers, {requireAuth: process.env.MOCK === 'false'});
+  if (target.mode === 'mock') {
+    await servers.jira.setScenario('editable');
+  }
+  await configureExtension(optionsPage, baseConfig(servers, target));
+
+  const {page} = await openPopup(extensionApp, servers, target);
+  const popup = page.locator('._JX_container');
+  const titleEditButton = page.locator('._JX_title_edit_button');
+
+  if (target.mode === 'live') {
+    if (await titleEditButton.count()) {
+      await titleEditButton.click();
+      await expect(page.locator('._JX_edit_input[data-field-key="summary"]')).toBeVisible();
+      await page.keyboard.press('Escape');
+    }
+    await page.close();
+    return;
+  }
+
+  const originalTitle = 'Pressing END removes non-command text starting with "/" in multi line text fields';
+  const updatedTitle = 'Pressing End preserves slash-prefixed text in multiline editor fields';
+
+  await expect(popup).toContainText(originalTitle);
+  await expect(titleEditButton).toHaveCount(1);
+
+  await titleEditButton.click();
+  const summaryInput = page.locator('._JX_edit_input[data-field-key="summary"]');
+  await expect(summaryInput).toBeVisible();
+  await summaryInput.fill(`${updatedTitle} draft`);
+  await page.locator('._JX_edit_discard[data-field-key="summary"]').click();
+  await expect(popup).toContainText(originalTitle);
+
+  await titleEditButton.click();
+  await expect(summaryInput).toBeVisible();
+  await summaryInput.fill(updatedTitle);
+  await summaryInput.press('Enter');
+
+  await expect(popup).toContainText(updatedTitle);
+  await expect(popup).not.toContainText(originalTitle);
+  await expect(page.locator('#_JX_title_link')).toHaveAttribute('data-title', updatedTitle);
+
+  await page.close();
+});
+
 test('updates sprint and version fields through edit popovers', async ({extensionApp, optionsPage, servers}) => {
   const target = requireJiraTestTarget(test, servers, {requireAuth: process.env.MOCK === 'false'});
   if (target.mode === 'mock') {

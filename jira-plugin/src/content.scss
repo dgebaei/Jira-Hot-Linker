@@ -72,6 +72,78 @@ body ._JX {
       position: relative;
     }
 
+    &_summary_slot {
+      align-items: center;
+      display: flex;
+      flex: 1 1 auto;
+      gap: 3px;
+      min-width: 0;
+      position: relative;
+    }
+
+    &_summary_slot.is-editing {
+      align-items: center;
+      z-index: 30;
+    }
+
+    &_edit_row {
+      align-items: center;
+      display: flex;
+      flex: 1 1 auto;
+      min-width: 0;
+    }
+
+    &_edit_form {
+      display: flex;
+      flex: 1 1 auto;
+      flex-direction: column;
+      gap: 6px;
+      min-width: 0;
+    }
+
+    &_edit_input_shell {
+      align-items: center;
+      gap: 6px;
+      margin-right: 10px;
+    }
+
+    &_edit_input {
+      font-size: 13px;
+      line-height: 14px;
+      min-height: 24px;
+      padding: 2px 6px;
+    }
+
+    &_edit_actions {
+      display: inline-flex;
+      flex: 0 0 auto;
+      gap: 6px;
+    }
+
+    &_edit_action {
+      min-width: 0;
+      padding: 7px 10px;
+      width: auto;
+    }
+
+    &_edit_action._JX_edit_save:hover {
+      color: #fff;
+    }
+
+    &_summary_slot ._JX_title_edit_button {
+      flex: 0 0 auto;
+      height: 30px;
+      margin-left: 0;
+      margin-top: 0;
+      min-width: 30px;
+      width: 30px;
+    }
+
+    &_summary_slot ._JX_title_edit_button svg {
+      height: 16px;
+      width: 16px;
+    }
+
     &_assignee_slot.is-editing {
       z-index: 30;
     }
@@ -1403,6 +1475,8 @@ body ._JX {
 
   &_field_chip_editable_group:hover ._JX_field_chip_edit,
   &_field_chip_editable_group.is-editing ._JX_field_chip_edit,
+  &_title_summary_slot:hover ._JX_field_chip_edit,
+  &_title_summary_slot.is-editing ._JX_field_chip_edit,
   &_title_assignee_slot:hover ._JX_field_chip_edit,
   &_title_assignee_slot.is-editing ._JX_field_chip_edit,
   &_field_chip_edit:focus-visible {
@@ -1450,7 +1524,7 @@ body ._JX {
   }
 
   &_edit_input_shell {
-    align-items: stretch;
+    align-items: center;
     display: flex;
     gap: 6px;
     min-width: 0;

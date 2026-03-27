@@ -69,7 +69,42 @@
             </div>
             {{/assigneeView}}
         </div>
-        <a class="_JX_copyable_link" id="_JX_title_link" data-ticket="{{ticketKey}}" data-title="{{ticketTitle}}" href="{{url}}" target="_blank" rel="noopener noreferrer" title="{{urlHoverTitle}}">{{urlTitle}}</a>
+        {{#titleView}}
+        <div class="_JX_title_summary_slot{{#isEditable}} is-editable{{/isEditable}}{{#isEditing}} is-editing{{/isEditing}}">
+            {{^isEditing}}
+            <a class="_JX_copyable_link" id="_JX_title_link" data-ticket="{{ticketKey}}" data-title="{{ticketTitle}}" href="{{url}}" target="_blank" rel="noopener noreferrer" title="{{urlHoverTitle}}">{{urlTitle}}</a>
+            {{/isEditing}}
+            {{#isEditing}}
+            <div class="_JX_title_edit_row">
+                <div class="_JX_title_edit_form">
+                    <div class="_JX_edit_input_shell _JX_title_edit_input_shell">
+                        {{#useTextarea}}<textarea class="_JX_edit_input _JX_edit_textarea" data-testid="jira-popup-edit-input-summary" data-field-key="summary" placeholder="{{inputPlaceholder}}" {{#inputDisabled}}disabled{{/inputDisabled}}>{{inputValue}}</textarea>{{/useTextarea}}
+                        {{^useTextarea}}<input class="_JX_edit_input _JX_title_edit_input" data-testid="jira-popup-edit-input-summary" data-field-key="summary" value="{{inputValue}}" placeholder="{{inputPlaceholder}}" autocomplete="off" {{#inputDisabled}}disabled{{/inputDisabled}}>{{/useTextarea}}
+                        {{#showActionButtons}}
+                        <div class="_JX_title_edit_actions">
+                            <button class="_JX_control_button _JX_title_edit_action _JX_edit_discard" data-testid="jira-popup-edit-discard-summary" type="button" data-field-key="summary" title="Discard title changes" aria-label="Discard title changes" {{#discardDisabled}}disabled{{/discardDisabled}}>
+                                <svg width="14" height="14" viewBox="0 0 24 24" focusable="false" role="presentation"><path fill="currentColor" d="M18.3 5.71 12 12l6.3 6.29-1.41 1.41L10.59 13.41 4.29 19.7 2.88 18.29 9.17 12 2.88 5.71 4.29 4.3l6.3 6.29 6.29-6.3z"></path></svg>
+                            </button>
+                            <button class="_JX_control_button _JX_title_edit_action _JX_edit_save" data-testid="jira-popup-edit-save-summary" type="button" data-field-key="summary" title="Save title changes" aria-label="Save title changes" {{#saveDisabled}}disabled{{/saveDisabled}}>
+                                <svg width="14" height="14" viewBox="0 0 24 24" focusable="false" role="presentation"><path fill="currentColor" d="M9 16.17 4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"></path></svg>
+                            </button>
+                        </div>
+                        {{/showActionButtons}}
+                    </div>
+                    {{#loadingText}}<div class="_JX_edit_hint">{{loadingText}}</div>{{/loadingText}}
+                    {{#editError}}<div class="_JX_edit_error">{{editError}}</div>{{/editError}}
+                </div>
+            </div>
+            {{/isEditing}}
+            {{#isEditable}}
+            {{^isEditing}}
+            <button class="_JX_field_chip_edit _JX_title_edit_button" data-testid="jira-popup-edit-button-summary" type="button" data-field-key="summary" title="{{editTitle}}" aria-label="{{editTitle}}">
+                <svg width="16" height="16" viewBox="0 0 24 24" focusable="false" role="presentation"><path fill="currentColor" d="M3 17.25V21h3.75l11-11.03-3.75-3.75L3 17.25zm17.71-10.04a.996.996 0 0 0 0-1.41L18.2 3.29a.996.996 0 1 0-1.41 1.41l2.51 2.51a.996.996 0 0 0 1.41 0z"></path></svg>
+            </button>
+            {{/isEditing}}
+            {{/isEditable}}
+        </div>
+        {{/titleView}}
         <div class="_JX_title_controls">
             <button class="_JX_control_button _JX_title_copy _JX_copy_link" type="button" title="Copy issue link" aria-label="Copy issue link" data-url="{{copyUrl}}" data-ticket="{{copyTicket}}" data-title="{{copyTitle}}">
                 <svg width="16" height="16" viewBox="0 0 24 24" focusable="false" role="presentation"><g fill="currentColor"><path d="M10 19h8V8h-8v11zM8 7.992C8 6.892 8.902 6 10.009 6h7.982C19.101 6 20 6.893 20 7.992v11.016c0 1.1-.902 1.992-2.009 1.992H10.01A2.001 2.001 0 0 1 8 19.008V7.992z"></path><path d="M5 16V4.992C5 3.892 5.902 3 7.009 3H15v13H5zm2 0h8V5H7v11z"></path></g></svg>
