@@ -1612,7 +1612,7 @@ async function mainAsyncLocal() {
   }
 
   async function fetchUserPickerResults(query) {
-    const encodedQuery = encodeURIComponent(String(query || '').trim());
+    const encodedQuery = encodeURIComponent(query);
     const urls = [
       `${INSTANCE_URL}rest/api/2/user/search?username=${encodedQuery}&maxResults=20`,
       `${INSTANCE_URL}rest/api/2/user/search?query=${encodedQuery}&maxResults=20`,
