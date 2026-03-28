@@ -725,9 +725,12 @@ async function mainAsyncLocal() {
       const commentPermalink = buildCommentPermalink(issueKey, commentId);
       const commentLinkTitleText = `[${issueKey}] ${issueData?.fields?.summary || ''}`.trim();
       const reactionUi = buildCommentReactionUi(commentId, reactionState);
+      const authorView = buildUserView(comment.author);
       return {
         id: commentId,
-        author: comment.author?.displayName || 'Unknown',
+        author: authorView.displayName || 'Unknown',
+        authorAvatarUrl: authorView.avatarUrl,
+        authorInitials: authorView.initials,
         authorIdentity: {
           accountId: comment.author?.accountId || '',
           key: comment.author?.key || '',
@@ -1039,10 +1042,15 @@ async function mainAsyncLocal() {
     const commentPermalink = buildCommentPermalink(issueKey, commentId);
     const commentLinkTitleText = `[${issueKey}] ${issueSummary}`.trim();
     const reactionUi = buildCommentReactionUi(commentId);
+    const authorUser = savedComment?.author || currentUser;
+    const authorView = buildUserView(authorUser);
+    const authorAvatarHtml = authorView.avatarUrl
+      ? `<img class="_JX_comment_author_avatar" src="${escapeHtml(authorView.avatarUrl)}" alt="">`
+      : `<span class="_JX_comment_author_avatar _JX_comment_author_avatar_placeholder">${escapeHtml(authorView.initials)}</span>`;
     const commentHtml = `
       <div class="_JX_comment" data-comment-id="${escapeHtml(commentId)}">
         <div class="_JX_comment_meta">
-          <span class="_JX_comment_meta_main"><span class="_JX_comment_author">${escapeHtml(savedComment?.author?.displayName || currentUser.displayName || 'You')}</span> | <a class="_JX_comment_time" href="${escapeHtml(commentPermalink)}" target="_blank" rel="noopener noreferrer" title="${escapeHtml(buildLinkHoverTitle('Open comment in Jira', commentLinkTitleText, commentPermalink))}">Just now</a><button class="_JX_comment_meta_icon_button _JX_copy_link" type="button" title="${escapeHtml(buildLinkHoverTitle('Copy comment link', commentLinkTitleText, commentPermalink))}" aria-label="${escapeHtml(buildLinkHoverTitle('Copy comment link', commentLinkTitleText, commentPermalink))}" data-url="${escapeHtml(commentPermalink)}" data-ticket="${escapeHtml(issueKey)}" data-title="${escapeHtml(commentLinkTitleText)}"><svg width="14" height="14" viewBox="0 0 24 24" focusable="false" role="presentation"><g fill="currentColor"><path d="M10 19h8V8h-8v11zM8 7.992C8 6.892 8.902 6 10.009 6h7.982C19.101 6 20 6.893 20 7.992v11.016c0 1.1-.902 1.992-2.009 1.992H10.01A2.001 2.001 0 0 1 8 19.008V7.992z"></path><path d="M5 16V4.992C5 3.892 5.902 3 7.009 3H15v13H5zm2 0h8V5H7v11z"></path></g></svg></button></span>
+          <span class="_JX_comment_meta_main">${authorAvatarHtml}<span class="_JX_comment_author">${escapeHtml(authorView.displayName || 'You')}</span> | <a class="_JX_comment_time" href="${escapeHtml(commentPermalink)}" target="_blank" rel="noopener noreferrer" title="${escapeHtml(buildLinkHoverTitle('Open comment in Jira', commentLinkTitleText, commentPermalink))}">Just now</a><button class="_JX_comment_meta_icon_button _JX_copy_link" type="button" title="${escapeHtml(buildLinkHoverTitle('Copy comment link', commentLinkTitleText, commentPermalink))}" aria-label="${escapeHtml(buildLinkHoverTitle('Copy comment link', commentLinkTitleText, commentPermalink))}" data-url="${escapeHtml(commentPermalink)}" data-ticket="${escapeHtml(issueKey)}" data-title="${escapeHtml(commentLinkTitleText)}"><svg width="14" height="14" viewBox="0 0 24 24" focusable="false" role="presentation"><g fill="currentColor"><path d="M10 19h8V8h-8v11zM8 7.992C8 6.892 8.902 6 10.009 6h7.982C19.101 6 20 6.893 20 7.992v11.016c0 1.1-.902 1.992-2.009 1.992H10.01A2.001 2.001 0 0 1 8 19.008V7.992z"></path><path d="M5 16V4.992C5 3.892 5.902 3 7.009 3H15v13H5zm2 0h8V5H7v11z"></path></g></svg></button></span>
           <span class="_JX_comment_meta_actions">
             <button class="_JX_comment_meta_button _JX_comment_edit_button" type="button" data-comment-id="${escapeHtml(commentId)}">Edit</button>
             <button class="_JX_comment_meta_button _JX_comment_delete_button" type="button" data-comment-id="${escapeHtml(commentId)}">Delete</button>
