@@ -1,6 +1,6 @@
 const fs = require('fs/promises');
 const {test, expect, configureExtension} = require('./helpers/extension-fixtures');
-const {getFirstCustomFieldId} = require('./helpers/live-jira-api');
+const {getFirstCustomFieldId, getFirstSupportedCustomField} = require('./helpers/live-jira-api');
 const {contentBlockItem, customFieldLibraryItem, openAdvancedSettings, optionsPageModel} = require('./helpers/options-page');
 const {buildExtensionConfig, requireJiraTestTarget} = require('./helpers/test-targets');
 
@@ -51,14 +51,20 @@ test('validates custom field ids and resolves their names from Jira metadata', a
   await expect(form.fieldLibraryValidation).toContainText('Not found in Jira');
   await expect(form.fieldLibrarySaveButton).toBeDisabled();
 
-  const customFieldId = target.mode === 'mock' ? 'customfield_12345' : await getFirstCustomFieldId(target);
+  const liveCustomField = target.mode === 'mock' ? null : await getFirstSupportedCustomField(target);
+  const customFieldId = target.mode === 'mock' ? 'customfield_12345' : liveCustomField?.id;
   test.skip(!customFieldId, 'No Jira custom field is available for metadata resolution.');
   await form.fieldLibraryInput.fill(customFieldId);
-  await expect(form.fieldLibraryValidation).toContainText(target.mode === 'mock' ? 'Customer Impact' : /\S+/);
+  await expect(form.fieldLibraryValidation).toContainText(target.mode === 'mock' ? 'Customer Impact' : (liveCustomField?.name || /\S+/));
   await expect(form.fieldLibrarySaveButton).toBeEnabled();
 
   await form.fieldLibrarySaveButton.click();
-  await expect(customFieldLibraryItem(optionsPage, customFieldId)).toContainText(target.mode === 'mock' ? 'Customer Impact' : customFieldId);
+  if (target.mode === 'mock') {
+    await expect(customFieldLibraryItem(optionsPage, customFieldId)).toContainText('Customer Impact');
+  } else {
+    await expect(customFieldLibraryItem(optionsPage, customFieldId)).toBeVisible();
+    await expect(customFieldLibraryItem(optionsPage, customFieldId)).toContainText(liveCustomField?.name || customFieldId);
+  }
 });
 
 test('persists custom fields added through the options page', async ({optionsPage, servers}) => {
