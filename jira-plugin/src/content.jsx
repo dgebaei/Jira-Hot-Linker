@@ -1544,22 +1544,23 @@ async function mainAsyncLocal() {
   function normalizeAssignableUsers(users) {
     const uniqueById = new Map();
     (Array.isArray(users) ? users : []).forEach(user => {
-      const option = buildEditOption(
-        user?.accountId || user?.name || user?.key,
-        user?.displayName || user?.name || user?.key || '',
-        {
-          avatarUrl: user?.avatarUrls?.['48x48'] || '',
-          metaText: user?.emailAddress || user?.name || user?.key || '',
-          searchText: `${user?.displayName || ''} ${user?.name || ''} ${user?.key || ''} ${user?.emailAddress || ''}`,
-          rawValue: {
-            accountId: user?.accountId || '',
-            name: user?.name || '',
-            key: user?.key || ''
-          }
+      const view = buildUserView(user);
+      const id = view.accountId || view.name || view.key;
+      if (!id || uniqueById.has(id)) {
+        return;
+      }
+      const option = buildEditOption(id, view.displayName || id, {
+        avatarUrl: view.rawAvatarUrl,
+        metaText: view.emailAddress || view.name || view.key || '',
+        searchText: `${view.displayName} ${view.name} ${view.key} ${view.emailAddress}`,
+        rawValue: {
+          accountId: view.accountId,
+          name: view.name,
+          key: view.key
         }
-      );
-      if (option.id && option.label && !uniqueById.has(option.id)) {
-        uniqueById.set(option.id, option);
+      });
+      if (option.id && option.label) {
+        uniqueById.set(id, option);
       }
     });
     return [...uniqueById.values()];
@@ -1615,25 +1616,25 @@ async function mainAsyncLocal() {
   }
 
   function buildWatcherUserView(user, currentUser = null) {
-    const displayName = user?.displayName || user?.name || user?.username || user?.emailAddress || 'Unknown user';
-    const avatarUrl = user?.avatarUrls?.['48x48'] || '';
+    const view = buildUserView(user);
+    const displayName = view.displayName || 'Unknown user';
     const identityCandidates = getJiraUserIdentityCandidates(user);
     const id = identityCandidates[0] || '';
     return {
       id,
-      accountId: user?.accountId || '',
-      name: user?.name || user?.username || '',
-      key: user?.key || '',
+      accountId: view.accountId,
+      name: view.name,
+      key: view.key,
       displayName,
-      avatarUrl,
-      initials: getUserInitials(displayName, '--'),
-      metaText: user?.emailAddress || user?.name || user?.username || user?.key || '',
+      avatarUrl: view.rawAvatarUrl,
+      initials: view.initials,
+      metaText: view.emailAddress || view.name || view.key || '',
       titleText: `Watcher: ${displayName}`,
       isCurrentUser: areSameJiraUser(user, currentUser),
       rawValue: {
-        accountId: user?.accountId || '',
-        name: user?.name || user?.username || '',
-        key: user?.key || '',
+        accountId: view.accountId,
+        name: view.name,
+        key: view.key,
       }
     };
   }
@@ -3294,6 +3295,22 @@ async function mainAsyncLocal() {
 
   // ── Avatars & User Display ─────────────────────────────────
 
+  function buildUserView(user) {
+    const displayName = user?.displayName || user?.name || user?.username || user?.emailAddress || '';
+    const rawAvatarUrl = user?.avatarUrls?.['48x48'] || '';
+    const useInitials = isLikelyDefaultAvatar(user, rawAvatarUrl);
+    return {
+      displayName,
+      avatarUrl: useInitials ? '' : rawAvatarUrl,
+      rawAvatarUrl,
+      initials: getUserInitials(displayName, '--'),
+      accountId: user?.accountId || '',
+      name: user?.name || user?.username || '',
+      key: user?.key || '',
+      emailAddress: user?.emailAddress || '',
+    };
+  }
+
   function getUserInitials(displayName, fallbackInitials = '--') {
     const tokens = String(displayName || '')
       .trim()
@@ -3325,14 +3342,12 @@ async function mainAsyncLocal() {
   }
 
   function buildUserAvatarView(user, titlePrefix, fallbackInitials = '--') {
-    const displayName = user?.displayName || '';
-    const avatarUrl = user?.avatarUrls?.['48x48'] || '';
-    const useInitials = isLikelyDefaultAvatar(user, avatarUrl);
+    const view = buildUserView(user);
     return {
-      avatarUrl: useInitials ? '' : avatarUrl,
-      initials: getUserInitials(displayName, fallbackInitials),
-      displayName,
-      titleText: `${titlePrefix}: ${displayName || 'Unknown'}`
+      avatarUrl: view.avatarUrl,
+      initials: view.displayName ? view.initials : fallbackInitials,
+      displayName: view.displayName,
+      titleText: `${titlePrefix}: ${view.displayName || 'Unknown'}`
     };
   }
 
