@@ -512,6 +512,29 @@ async function mainAsyncLocal() {
     maybeNormalizeIcon(issueData.fields.status);
     maybeNormalizeIcon(issueData.fields.priority);
 
+    // Normalize comment author avatars
+    (issueData.fields.comment?.comments || []).forEach(comment => {
+      maybeNormalizeAvatar(comment.author);
+    });
+
+    // Normalize custom field user avatars
+    Object.keys(issueData.fields || {}).forEach(fieldKey => {
+      if (!fieldKey.startsWith('customfield_')) {
+        return;
+      }
+      const fieldValue = issueData.fields[fieldKey];
+      if (fieldValue && typeof fieldValue === 'object' && fieldValue.avatarUrls) {
+        maybeNormalizeAvatar(fieldValue);
+      }
+      if (Array.isArray(fieldValue)) {
+        fieldValue.forEach(entry => {
+          if (entry && typeof entry === 'object' && entry.avatarUrls) {
+            maybeNormalizeAvatar(entry);
+          }
+        });
+      }
+    });
+
     (issueData.fields.attachment || []).forEach(attachment => {
       attachment.content = toAbsoluteJiraUrl(attachment.content);
       attachment.thumbnail = toAbsoluteJiraUrl(attachment.thumbnail) || attachment.content;
@@ -1731,8 +1754,18 @@ async function mainAsyncLocal() {
         get(`${INSTANCE_URL}rest/api/2/issue/${issueKey}/watchers`),
         getCurrentUserInfo().catch(() => null)
       ]);
-      detectSharedAvatarUrls(response?.watchers || []);
-      const normalizedWatchers = normalizeWatcherUsers(response?.watchers || [], currentUser);
+      const rawWatchers = response?.watchers || [];
+      detectSharedAvatarUrls(rawWatchers);
+      await Promise.all(rawWatchers.map(watcher => {
+        const avatarUrl = watcher?.avatarUrls?.['48x48'];
+        if (!avatarUrl) {
+          return Promise.resolve();
+        }
+        return getDisplayImageUrl(avatarUrl).then(src => {
+          watcher.avatarUrls['48x48'] = src;
+        }).catch(() => {});
+      }));
+      const normalizedWatchers = normalizeWatcherUsers(rawWatchers, currentUser);
       const responseWatchCount = Number(response?.watchCount);
       return {
         isWatching: typeof response?.isWatching === 'boolean'
