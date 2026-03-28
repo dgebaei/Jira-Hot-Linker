@@ -311,6 +311,8 @@ async function mainAsyncLocal() {
   const labelSuggestionCache = new Map();
   const labelLocalOptionsCache = new Map();
   const tempoAccountSearchCache = new Map();
+  const userPickerSearchCache = new Map();
+  const userPickerLocalOptionsCache = new Map();
   let labelSuggestionSupportPromise = null;
   let editSearchRequestCounter = 0;
   let labelSearchTimeoutId = null;
@@ -1609,6 +1611,38 @@ async function mainAsyncLocal() {
     });
   }
 
+  async function fetchUserPickerResults(query) {
+    const encodedQuery = encodeURIComponent(String(query || '').trim());
+    const urls = [
+      `${INSTANCE_URL}rest/api/2/user/search?username=${encodedQuery}&maxResults=20`,
+      `${INSTANCE_URL}rest/api/2/user/search?query=${encodedQuery}&maxResults=20`,
+      `${INSTANCE_URL}rest/api/2/user/picker?query=${encodedQuery}&maxResults=20`
+    ];
+    let lastError;
+    for (const url of urls) {
+      try {
+        const response = await get(url);
+        const users = Array.isArray(response)
+          ? response
+          : response?.users || response?.items || [];
+        if (Array.isArray(users)) {
+          return normalizeAssignableUsers(users);
+        }
+      } catch (error) {
+        lastError = error;
+      }
+    }
+    if (lastError) {
+      throw lastError;
+    }
+    return [];
+  }
+
+  async function searchUserPicker(query) {
+    const normalizedQuery = String(query || '').trim().toLowerCase();
+    return getCachedValue(userPickerSearchCache, normalizedQuery, () => fetchUserPickerResults(normalizedQuery));
+  }
+
   function getJiraUserIdentityCandidates(user) {
     return [user?.accountId, user?.name, user?.username, user?.key]
       .map(value => String(value || '').trim())
@@ -2549,8 +2583,10 @@ async function mainAsyncLocal() {
       inputPlaceholder: isUserField ? 'Search users' : undefined,
       loadOptions: async () => isUserField ? mergeEditOptions([clearUserOption], currentSelections) : allOptions,
       searchOptions: isUserField ? (async query => {
-        const searchResults = await searchAssignableUsers(query, issueData);
-        return mergeEditOptions([clearUserOption], mergeEditOptions(currentSelections, searchResults));
+        const searchResults = await searchUserPicker(query);
+        const merged = mergeEditOptions(searchResults, userPickerLocalOptionsCache.get(fieldId) || []);
+        userPickerLocalOptionsCache.set(fieldId, merged);
+        return mergeEditOptions([clearUserOption], mergeEditOptions(currentSelections, merged));
       }) : undefined,
       save: selectedOptions => {
         const fieldValue = isMultiValue
@@ -4040,6 +4076,8 @@ async function mainAsyncLocal() {
     assigneeLocalOptionsCache.delete(popupState.key);
     labelLocalOptionsCache.delete(popupState.key);
     tempoAccountSearchCache.clear();
+    userPickerSearchCache.clear();
+    userPickerLocalOptionsCache.clear();
     watcherSearchCache.clear();
     issueSearchCache.clear();
     [...assigneeSearchCache.keys()].forEach(cacheKey => {
