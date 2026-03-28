@@ -104,7 +104,7 @@ async function getFirstCustomFieldId(config = getLiveJiraConfig()) {
 
 async function getFirstSupportedCustomField(config = getLiveJiraConfig()) {
   // Keep this list aligned with the explicitly approved live-test custom fields.
-  const supportedIds = ['customfield_10105', 'customfield_10106'];
+  const supportedIds = ['customfield_10105', 'customfield_10106', 'customfield_10033'];
   const fields = await getLiveFields(config);
   const list = Array.isArray(fields) ? fields : [];
   const preferredMatch = supportedIds
