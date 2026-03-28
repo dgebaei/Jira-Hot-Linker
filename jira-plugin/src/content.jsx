@@ -1594,6 +1594,7 @@ async function mainAsyncLocal() {
       try {
         const response = await get(url);
         if (Array.isArray(response)) {
+          detectSharedAvatarUrls(response);
           return response;
         }
       } catch (error) {
@@ -1634,6 +1635,7 @@ async function mainAsyncLocal() {
           ? response
           : response?.users || response?.items || [];
         if (Array.isArray(users)) {
+          detectSharedAvatarUrls(users);
           return normalizeAssignableUsers(users);
         }
       } catch (error) {
@@ -1729,6 +1731,7 @@ async function mainAsyncLocal() {
         get(`${INSTANCE_URL}rest/api/2/issue/${issueKey}/watchers`),
         getCurrentUserInfo().catch(() => null)
       ]);
+      detectSharedAvatarUrls(response?.watchers || []);
       const normalizedWatchers = normalizeWatcherUsers(response?.watchers || [], currentUser);
       const responseWatchCount = Number(response?.watchCount);
       return {
@@ -3346,6 +3349,26 @@ async function mainAsyncLocal() {
 
   // ── Avatars & User Display ─────────────────────────────────
 
+  const sharedAvatarUrls = new Set();
+
+  function detectSharedAvatarUrls(users) {
+    if (!Array.isArray(users) || users.length < 2) {
+      return;
+    }
+    const urlCounts = new Map();
+    for (const user of users) {
+      const url = user?.avatarUrls?.['48x48'] || '';
+      if (url) {
+        urlCounts.set(url, (urlCounts.get(url) || 0) + 1);
+      }
+    }
+    for (const [url, count] of urlCounts) {
+      if (count >= 2) {
+        sharedAvatarUrls.add(url);
+      }
+    }
+  }
+
   function buildUserView(user) {
     const displayName = user?.displayName || user?.name || user?.username || user?.emailAddress || '';
     const rawAvatarUrl = user?.avatarUrls?.['48x48'] || '';
@@ -3385,11 +3408,22 @@ async function mainAsyncLocal() {
     }
     const JIRA_DEFAULT_AVATAR_DATA_URI = 'data:image/svg+xml;base64,PHN2ZyBpZD0iV2Fyc3R3YV8xIiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI+CiAgPHN0eWxlPgogICAgLnN0MHtmaWxsOiNjMWM3ZDB9CiAgPC9zdHlsZT4KICA8cGF0aCBjbGFzcz0ic3QwIiBkPSJNMTIgMjRDNS40IDI0IDAgMTguNiAwIDEyUzUuNCAwIDEyIDBzMTIgNS40IDEyIDEyLTUuNCAxMi0xMiAxMnoiLz4KICA8cGF0aCBkPSJNMTkuNSAxMmMwLS45LS42LTEuNy0xLjUtMS45LS4yLTMuMS0yLjgtNS42LTYtNS42UzYuMiA3IDYgMTAuMWMtLjkuMi0xLjUgMS0xLjUgMS45IDAgMSAuNyAxLjggMS43IDIgLjYgMi44IDMgNS41IDUuOCA1LjVzNS4yLTIuNyA1LjgtNS41YzEtLjIgMS43LTEgMS43LTJ6IiBmaWxsPSIjZjRmNWY3Ii8+CiAgPHBhdGggY2xhc3M9InN0MCIgZD0iTTEyIDE2LjljLTEgMC0yLS43LTIuMy0xLjYtLjEtLjMgMC0uNS4zLS42LjMtLjEuNSAwIC42LjMuMi42LjggMSAxLjQgMSAuNiAwIDEuMi0uNCAxLjQtMSAuMS0uMy40LS40LjYtLjMuMy4xLjQuNC4zLjYtLjMuOS0xLjMgMS42LTIuMyAxLjZ6Ii8+Cjwvc3ZnPg==';
     const normalizedUrl = String(avatarUrl || '').toLowerCase();
-    return avatarUrl === JIRA_DEFAULT_AVATAR_DATA_URI ||
+    if (avatarUrl === JIRA_DEFAULT_AVATAR_DATA_URI ||
       normalizedUrl.includes('defaultavatar') ||
       normalizedUrl.includes('/avatar.png') ||
       normalizedUrl.includes('avatar/default') ||
-      normalizedUrl.includes('initials=');
+      normalizedUrl.includes('initials=')) {
+      return true;
+    }
+    // Jira Server system default: /secure/useravatar?avatarId=NNN (no ownerId)
+    if (/\buseravatar\b/.test(normalizedUrl) && !normalizedUrl.includes('ownerid=')) {
+      return true;
+    }
+    // URL seen by multiple distinct users is a shared default
+    if (avatarUrl && sharedAvatarUrls.has(avatarUrl)) {
+      return true;
+    }
+    return false;
   }
 
   function buildUserAvatarView(user, titlePrefix, fallbackInitials = '--') {
