@@ -311,6 +311,8 @@ async function mainAsyncLocal() {
   const labelSuggestionCache = new Map();
   const labelLocalOptionsCache = new Map();
   const tempoAccountSearchCache = new Map();
+  const userPickerSearchCache = new Map();
+  const userPickerLocalOptionsCache = new Map();
   let labelSuggestionSupportPromise = null;
   let editSearchRequestCounter = 0;
   let labelSearchTimeoutId = null;
@@ -509,6 +511,29 @@ async function mainAsyncLocal() {
     maybeNormalizeIcon(issueData.fields.issuetype);
     maybeNormalizeIcon(issueData.fields.status);
     maybeNormalizeIcon(issueData.fields.priority);
+
+    // Normalize comment author avatars
+    (issueData.fields.comment?.comments || []).forEach(comment => {
+      maybeNormalizeAvatar(comment.author);
+    });
+
+    // Normalize custom field user avatars
+    Object.keys(issueData.fields || {}).forEach(fieldKey => {
+      if (!fieldKey.startsWith('customfield_')) {
+        return;
+      }
+      const fieldValue = issueData.fields[fieldKey];
+      if (fieldValue && typeof fieldValue === 'object' && fieldValue.avatarUrls) {
+        maybeNormalizeAvatar(fieldValue);
+      }
+      if (Array.isArray(fieldValue)) {
+        fieldValue.forEach(entry => {
+          if (entry && typeof entry === 'object' && entry.avatarUrls) {
+            maybeNormalizeAvatar(entry);
+          }
+        });
+      }
+    });
 
     (issueData.fields.attachment || []).forEach(attachment => {
       attachment.content = toAbsoluteJiraUrl(attachment.content);
@@ -723,9 +748,12 @@ async function mainAsyncLocal() {
       const commentPermalink = buildCommentPermalink(issueKey, commentId);
       const commentLinkTitleText = `[${issueKey}] ${issueData?.fields?.summary || ''}`.trim();
       const reactionUi = buildCommentReactionUi(commentId, reactionState);
+      const authorView = buildUserView(comment.author);
       return {
         id: commentId,
-        author: comment.author?.displayName || 'Unknown',
+        author: authorView.displayName || 'Unknown',
+        authorAvatarUrl: authorView.avatarUrl,
+        authorInitials: authorView.initials,
         authorIdentity: {
           accountId: comment.author?.accountId || '',
           key: comment.author?.key || '',
@@ -1037,10 +1065,15 @@ async function mainAsyncLocal() {
     const commentPermalink = buildCommentPermalink(issueKey, commentId);
     const commentLinkTitleText = `[${issueKey}] ${issueSummary}`.trim();
     const reactionUi = buildCommentReactionUi(commentId);
+    const authorUser = savedComment?.author || currentUser;
+    const authorView = buildUserView(authorUser);
+    const authorAvatarHtml = authorView.avatarUrl
+      ? `<img class="_JX_comment_author_avatar" src="${escapeHtml(authorView.avatarUrl)}" alt="">`
+      : `<span class="_JX_comment_author_avatar _JX_comment_author_avatar_placeholder">${escapeHtml(authorView.initials)}</span>`;
     const commentHtml = `
       <div class="_JX_comment" data-comment-id="${escapeHtml(commentId)}">
         <div class="_JX_comment_meta">
-          <span class="_JX_comment_meta_main"><span class="_JX_comment_author">${escapeHtml(savedComment?.author?.displayName || currentUser.displayName || 'You')}</span> | <a class="_JX_comment_time" href="${escapeHtml(commentPermalink)}" target="_blank" rel="noopener noreferrer" title="${escapeHtml(buildLinkHoverTitle('Open comment in Jira', commentLinkTitleText, commentPermalink))}">Just now</a><button class="_JX_comment_meta_icon_button _JX_copy_link" type="button" title="${escapeHtml(buildLinkHoverTitle('Copy comment link', commentLinkTitleText, commentPermalink))}" aria-label="${escapeHtml(buildLinkHoverTitle('Copy comment link', commentLinkTitleText, commentPermalink))}" data-url="${escapeHtml(commentPermalink)}" data-ticket="${escapeHtml(issueKey)}" data-title="${escapeHtml(commentLinkTitleText)}"><svg width="14" height="14" viewBox="0 0 24 24" focusable="false" role="presentation"><g fill="currentColor"><path d="M10 19h8V8h-8v11zM8 7.992C8 6.892 8.902 6 10.009 6h7.982C19.101 6 20 6.893 20 7.992v11.016c0 1.1-.902 1.992-2.009 1.992H10.01A2.001 2.001 0 0 1 8 19.008V7.992z"></path><path d="M5 16V4.992C5 3.892 5.902 3 7.009 3H15v13H5zm2 0h8V5H7v11z"></path></g></svg></button></span>
+          <span class="_JX_comment_meta_main">${authorAvatarHtml}<span class="_JX_comment_author">${escapeHtml(authorView.displayName || 'You')}</span> | <a class="_JX_comment_time" href="${escapeHtml(commentPermalink)}" target="_blank" rel="noopener noreferrer" title="${escapeHtml(buildLinkHoverTitle('Open comment in Jira', commentLinkTitleText, commentPermalink))}">Just now</a><button class="_JX_comment_meta_icon_button _JX_copy_link" type="button" title="${escapeHtml(buildLinkHoverTitle('Copy comment link', commentLinkTitleText, commentPermalink))}" aria-label="${escapeHtml(buildLinkHoverTitle('Copy comment link', commentLinkTitleText, commentPermalink))}" data-url="${escapeHtml(commentPermalink)}" data-ticket="${escapeHtml(issueKey)}" data-title="${escapeHtml(commentLinkTitleText)}"><svg width="14" height="14" viewBox="0 0 24 24" focusable="false" role="presentation"><g fill="currentColor"><path d="M10 19h8V8h-8v11zM8 7.992C8 6.892 8.902 6 10.009 6h7.982C19.101 6 20 6.893 20 7.992v11.016c0 1.1-.902 1.992-2.009 1.992H10.01A2.001 2.001 0 0 1 8 19.008V7.992z"></path><path d="M5 16V4.992C5 3.892 5.902 3 7.009 3H15v13H5zm2 0h8V5H7v11z"></path></g></svg></button></span>
           <span class="_JX_comment_meta_actions">
             <button class="_JX_comment_meta_button _JX_comment_edit_button" type="button" data-comment-id="${escapeHtml(commentId)}">Edit</button>
             <button class="_JX_comment_meta_button _JX_comment_delete_button" type="button" data-comment-id="${escapeHtml(commentId)}">Delete</button>
@@ -1544,25 +1577,48 @@ async function mainAsyncLocal() {
   function normalizeAssignableUsers(users) {
     const uniqueById = new Map();
     (Array.isArray(users) ? users : []).forEach(user => {
-      const option = buildEditOption(
-        user?.accountId || user?.name || user?.key,
-        user?.displayName || user?.name || user?.key || '',
-        {
-          avatarUrl: user?.avatarUrls?.['48x48'] || '',
-          metaText: user?.emailAddress || user?.name || user?.key || '',
-          searchText: `${user?.displayName || ''} ${user?.name || ''} ${user?.key || ''} ${user?.emailAddress || ''}`,
-          rawValue: {
-            accountId: user?.accountId || '',
-            name: user?.name || '',
-            key: user?.key || ''
-          }
+      const view = buildUserView(user);
+      const id = view.accountId || view.name || view.key;
+      if (!id || uniqueById.has(id)) {
+        return;
+      }
+      const option = buildEditOption(id, view.displayName || id, {
+        avatarUrl: view.avatarUrl,
+        initials: view.initials,
+        metaText: view.emailAddress || view.name || view.key || '',
+        searchText: `${view.displayName} ${view.name} ${view.key} ${view.emailAddress}`,
+        rawValue: {
+          accountId: view.accountId,
+          name: view.name,
+          key: view.key
         }
-      );
-      if (option.id && option.label && !uniqueById.has(option.id)) {
-        uniqueById.set(option.id, option);
+      });
+      if (option.id && option.label) {
+        uniqueById.set(id, option);
       }
     });
     return [...uniqueById.values()];
+  }
+
+  async function proxyUserAvatars(users) {
+    const beforeUrls = new Map();
+    (users || []).forEach(user => {
+      const url = user?.avatarUrls?.['48x48'];
+      if (url) beforeUrls.set(user, url);
+    });
+    await Promise.all((users || []).map(user => {
+      const url = user?.avatarUrls?.['48x48'];
+      if (!url) return Promise.resolve();
+      return getDisplayImageUrl(url).then(src => { user.avatarUrls['48x48'] = src; }).catch(() => {});
+    }));
+    // Propagate shared-avatar status from raw URLs to their proxied data URIs
+    for (const [user, rawUrl] of beforeUrls) {
+      const proxiedUrl = user?.avatarUrls?.['48x48'];
+      if (proxiedUrl && proxiedUrl !== rawUrl && sharedAvatarUrls.has(rawUrl)) {
+        sharedAvatarUrls.add(proxiedUrl);
+      }
+    }
+    return users;
   }
 
   async function fetchAssignableUsers(query, issueData) {
@@ -1583,7 +1639,8 @@ async function mainAsyncLocal() {
       try {
         const response = await get(url);
         if (Array.isArray(response)) {
-          return response;
+          detectSharedAvatarUrls(response);
+          return proxyUserAvatars(response);
         }
       } catch (error) {
         lastError = error;
@@ -1608,6 +1665,40 @@ async function mainAsyncLocal() {
     });
   }
 
+  async function fetchUserPickerResults(query) {
+    const encodedQuery = encodeURIComponent(query);
+    const urls = [
+      `${INSTANCE_URL}rest/api/2/user/search?username=${encodedQuery}&maxResults=20`,
+      `${INSTANCE_URL}rest/api/2/user/search?query=${encodedQuery}&maxResults=20`,
+      `${INSTANCE_URL}rest/api/2/user/picker?query=${encodedQuery}&maxResults=20`
+    ];
+    let lastError;
+    for (const url of urls) {
+      try {
+        const response = await get(url);
+        const users = Array.isArray(response)
+          ? response
+          : response?.users || response?.items || [];
+        if (Array.isArray(users)) {
+          detectSharedAvatarUrls(users);
+          await proxyUserAvatars(users);
+          return normalizeAssignableUsers(users);
+        }
+      } catch (error) {
+        lastError = error;
+      }
+    }
+    if (lastError) {
+      throw lastError;
+    }
+    return [];
+  }
+
+  async function searchUserPicker(query) {
+    const normalizedQuery = String(query || '').trim().toLowerCase();
+    return getCachedValue(userPickerSearchCache, normalizedQuery, () => fetchUserPickerResults(normalizedQuery));
+  }
+
   function getJiraUserIdentityCandidates(user) {
     return [user?.accountId, user?.name, user?.username, user?.key]
       .map(value => String(value || '').trim())
@@ -1615,25 +1706,25 @@ async function mainAsyncLocal() {
   }
 
   function buildWatcherUserView(user, currentUser = null) {
-    const displayName = user?.displayName || user?.name || user?.username || user?.emailAddress || 'Unknown user';
-    const avatarUrl = user?.avatarUrls?.['48x48'] || '';
+    const view = buildUserView(user);
+    const displayName = view.displayName || 'Unknown user';
     const identityCandidates = getJiraUserIdentityCandidates(user);
     const id = identityCandidates[0] || '';
     return {
       id,
-      accountId: user?.accountId || '',
-      name: user?.name || user?.username || '',
-      key: user?.key || '',
+      accountId: view.accountId,
+      name: view.name,
+      key: view.key,
       displayName,
-      avatarUrl,
-      initials: getUserInitials(displayName, '--'),
-      metaText: user?.emailAddress || user?.name || user?.username || user?.key || '',
+      avatarUrl: view.avatarUrl,
+      initials: view.initials,
+      metaText: view.emailAddress || view.name || view.key || '',
       titleText: `Watcher: ${displayName}`,
       isCurrentUser: areSameJiraUser(user, currentUser),
       rawValue: {
-        accountId: user?.accountId || '',
-        name: user?.name || user?.username || '',
-        key: user?.key || '',
+        accountId: view.accountId,
+        name: view.name,
+        key: view.key,
       }
     };
   }
@@ -1686,7 +1777,10 @@ async function mainAsyncLocal() {
         get(`${INSTANCE_URL}rest/api/2/issue/${issueKey}/watchers`),
         getCurrentUserInfo().catch(() => null)
       ]);
-      const normalizedWatchers = normalizeWatcherUsers(response?.watchers || [], currentUser);
+      const rawWatchers = response?.watchers || [];
+      detectSharedAvatarUrls(rawWatchers);
+      await proxyUserAvatars(rawWatchers);
+      const normalizedWatchers = normalizeWatcherUsers(rawWatchers, currentUser);
       const responseWatchCount = Number(response?.watchCount);
       return {
         isWatching: typeof response?.isWatching === 'boolean'
@@ -2202,6 +2296,9 @@ async function mainAsyncLocal() {
     if (typeof entry === 'string' || typeof entry === 'number' || typeof entry === 'boolean') {
       return String(entry);
     }
+    if (entry.accountId || entry.avatarUrls || entry.emailAddress) {
+      return String(entry.displayName || entry.name || entry.value || entry.key || entry.id || '');
+    }
     return String(entry.name || entry.value || entry.displayName || entry.key || entry.id || '');
   }
 
@@ -2210,14 +2307,26 @@ async function mainAsyncLocal() {
     if (!label) {
       return null;
     }
+    if (entry && typeof entry === 'object' && (entry.accountId || entry.avatarUrls || entry.emailAddress)) {
+      const view = buildUserView(entry);
+      const id = view.accountId || view.name || view.key;
+      if (!id) {
+        return null;
+      }
+      return buildEditOption(id, label, {
+        avatarUrl: view.avatarUrl,
+        initials: view.initials,
+        metaText: view.emailAddress || view.name || view.key || '',
+        rawValue: entry
+      });
+    }
     const optionId = String(entry?.id || entry?.value || entry?.name || entry?.key || label).trim();
     if (!optionId) {
       return null;
     }
-    const metaText = entry?.description || entry?.emailAddress || entry?.child?.value || '';
+    const metaText = entry?.description || entry?.child?.value || '';
     return buildEditOption(optionId, label, {
       iconUrl: entry?.iconUrl || '',
-      avatarUrl: entry?.avatarUrls?.['48x48'] || '',
       metaText,
       rawValue: entry
     });
@@ -2239,6 +2348,9 @@ async function mainAsyncLocal() {
     if (isTempoAccountField(fieldMeta)) {
       const accountId = value?.id || value;
       return String(accountId || '').trim();
+    }
+    if (supportDescriptor?.valueKind === 'user') {
+      return String(value?.accountId || value?.key || value?.name || value?.displayName || '').trim();
     }
     if (supportDescriptor?.valueKind === 'primitive') {
       return encodeJqlValue(String(value));
@@ -2548,8 +2660,14 @@ async function mainAsyncLocal() {
       inputPlaceholder: isUserField ? 'Search users' : undefined,
       loadOptions: async () => isUserField ? mergeEditOptions([clearUserOption], currentSelections) : allOptions,
       searchOptions: isUserField ? (async query => {
-        const searchResults = await searchAssignableUsers(query, issueData);
-        return mergeEditOptions([clearUserOption], mergeEditOptions(currentSelections, searchResults));
+        const [pickerResults, assignableResults] = await Promise.all([
+          searchUserPicker(query),
+          searchAssignableUsers(query, issueData).catch(() => [])
+        ]);
+        const baseline = userPickerLocalOptionsCache.get(fieldId) || currentSelections;
+        const merged = mergeEditOptions(pickerResults, mergeEditOptions(assignableResults, baseline));
+        userPickerLocalOptionsCache.set(fieldId, merged);
+        return mergeEditOptions([clearUserOption], merged);
       }) : undefined,
       save: selectedOptions => {
         const fieldValue = isMultiValue
@@ -2620,13 +2738,10 @@ async function mainAsyncLocal() {
         ? rawValue.some(value => value !== undefined && value !== null && value !== '')
         : !(rawValue === undefined || rawValue === null || rawValue === '');
       if (supportedDefinition) {
-        chipsByRow[row].push(buildEditableFieldChip(fieldId, buildCustomFieldChipData(
-          fieldId,
-          fieldName,
-          rawValue,
-          supportedDefinition.fieldMeta,
-          supportedDefinition.supportDescriptor
-        ), state, {
+        const baseChip = hasDisplayValue
+          ? buildCustomFieldChipData(fieldId, fieldName, rawValue, supportedDefinition.fieldMeta, supportedDefinition.supportDescriptor)
+          : buildFilterChip(`${fieldName}: --`, '');
+        chipsByRow[row].push(buildEditableFieldChip(fieldId, baseChip, state, {
           canEdit: true,
           editTitle: `Edit ${fieldName}`
         }));
@@ -3294,6 +3409,41 @@ async function mainAsyncLocal() {
 
   // ── Avatars & User Display ─────────────────────────────────
 
+  const sharedAvatarUrls = new Set();
+
+  function detectSharedAvatarUrls(users) {
+    if (!Array.isArray(users) || users.length < 2) {
+      return;
+    }
+    const urlCounts = new Map();
+    for (const user of users) {
+      const url = user?.avatarUrls?.['48x48'] || '';
+      if (url) {
+        urlCounts.set(url, (urlCounts.get(url) || 0) + 1);
+      }
+    }
+    for (const [url, count] of urlCounts) {
+      if (count >= 2) {
+        sharedAvatarUrls.add(url);
+      }
+    }
+  }
+
+  function buildUserView(user) {
+    const displayName = user?.displayName || user?.name || user?.username || user?.emailAddress || '';
+    const rawAvatarUrl = user?.avatarUrls?.['48x48'] || '';
+    const useInitials = isLikelyDefaultAvatar(user, rawAvatarUrl);
+    return {
+      displayName,
+      avatarUrl: useInitials ? '' : rawAvatarUrl,
+      initials: getUserInitials(displayName, '--'),
+      accountId: user?.accountId || '',
+      name: user?.name || user?.username || '',
+      key: user?.key || '',
+      emailAddress: user?.emailAddress || '',
+    };
+  }
+
   function getUserInitials(displayName, fallbackInitials = '--') {
     const tokens = String(displayName || '')
       .trim()
@@ -3317,22 +3467,31 @@ async function mainAsyncLocal() {
     }
     const JIRA_DEFAULT_AVATAR_DATA_URI = 'data:image/svg+xml;base64,PHN2ZyBpZD0iV2Fyc3R3YV8xIiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI+CiAgPHN0eWxlPgogICAgLnN0MHtmaWxsOiNjMWM3ZDB9CiAgPC9zdHlsZT4KICA8cGF0aCBjbGFzcz0ic3QwIiBkPSJNMTIgMjRDNS40IDI0IDAgMTguNiAwIDEyUzUuNCAwIDEyIDBzMTIgNS40IDEyIDEyLTUuNCAxMi0xMiAxMnoiLz4KICA8cGF0aCBkPSJNMTkuNSAxMmMwLS45LS42LTEuNy0xLjUtMS45LS4yLTMuMS0yLjgtNS42LTYtNS42UzYuMiA3IDYgMTAuMWMtLjkuMi0xLjUgMS0xLjUgMS45IDAgMSAuNyAxLjggMS43IDIgLjYgMi44IDMgNS41IDUuOCA1LjVzNS4yLTIuNyA1LjgtNS41YzEtLjIgMS43LTEgMS43LTJ6IiBmaWxsPSIjZjRmNWY3Ii8+CiAgPHBhdGggY2xhc3M9InN0MCIgZD0iTTEyIDE2LjljLTEgMC0yLS43LTIuMy0xLjYtLjEtLjMgMC0uNS4zLS42LjMtLjEuNSAwIC42LjMuMi42LjggMSAxLjQgMSAuNiAwIDEuMi0uNCAxLjQtMSAuMS0uMy40LS40LjYtLjMuMy4xLjQuNC4zLjYtLjMuOS0xLjMgMS42LTIuMyAxLjZ6Ii8+Cjwvc3ZnPg==';
     const normalizedUrl = String(avatarUrl || '').toLowerCase();
-    return avatarUrl === JIRA_DEFAULT_AVATAR_DATA_URI ||
+    if (avatarUrl === JIRA_DEFAULT_AVATAR_DATA_URI ||
       normalizedUrl.includes('defaultavatar') ||
       normalizedUrl.includes('/avatar.png') ||
       normalizedUrl.includes('avatar/default') ||
-      normalizedUrl.includes('initials=');
+      normalizedUrl.includes('initials=')) {
+      return true;
+    }
+    // Jira Server system default: /secure/useravatar?avatarId=NNN (no ownerId)
+    if (/\buseravatar\b/.test(normalizedUrl) && !normalizedUrl.includes('ownerid=')) {
+      return true;
+    }
+    // URL seen by multiple distinct users is a shared default
+    if (avatarUrl && sharedAvatarUrls.has(avatarUrl)) {
+      return true;
+    }
+    return false;
   }
 
   function buildUserAvatarView(user, titlePrefix, fallbackInitials = '--') {
-    const displayName = user?.displayName || '';
-    const avatarUrl = user?.avatarUrls?.['48x48'] || '';
-    const useInitials = isLikelyDefaultAvatar(user, avatarUrl);
+    const view = buildUserView(user);
     return {
-      avatarUrl: useInitials ? '' : avatarUrl,
-      initials: getUserInitials(displayName, fallbackInitials),
-      displayName,
-      titleText: `${titlePrefix}: ${displayName || 'Unknown'}`
+      avatarUrl: view.avatarUrl,
+      initials: view.displayName ? view.initials : fallbackInitials,
+      displayName: view.displayName,
+      titleText: `${titlePrefix}: ${view.displayName || 'Unknown'}`
     };
   }
 
@@ -3913,7 +4072,7 @@ async function mainAsyncLocal() {
   }
 
   // ── Popup Rendering & State ────────────────────────────────
-  const container = $('<div class="_JX_container">');
+  const container = $('<div class="_JX_container" data-testid="jira-popup-root">');
   const previewOverlay = $(`
     <div class="_JX_preview_overlay">
       <img class="_JX_preview_image" />
@@ -4025,6 +4184,9 @@ async function mainAsyncLocal() {
     assigneeLocalOptionsCache.delete(popupState.key);
     labelLocalOptionsCache.delete(popupState.key);
     tempoAccountSearchCache.clear();
+    userPickerSearchCache.clear();
+    userPickerLocalOptionsCache.clear();
+    sharedAvatarUrls.clear();
     watcherSearchCache.clear();
     issueSearchCache.clear();
     [...assigneeSearchCache.keys()].forEach(cacheKey => {

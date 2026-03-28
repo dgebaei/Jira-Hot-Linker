@@ -76,7 +76,18 @@ async function launchExtensionContext() {
 async function getExtensionId(context) {
   let [serviceWorker] = context.serviceWorkers();
   if (!serviceWorker) {
-    serviceWorker = await context.waitForEvent('serviceworker', {timeout: 30000});
+    try {
+      serviceWorker = await context.waitForEvent('serviceworker', {timeout: 30000});
+    } catch (_firstTimeout) {
+      // Chrome can be slow to start the extension worker; open a blank page to nudge it
+      const nudgePage = await context.newPage();
+      await nudgePage.goto('about:blank').catch(() => {});
+      await nudgePage.close().catch(() => {});
+      [serviceWorker] = context.serviceWorkers();
+      if (!serviceWorker) {
+        serviceWorker = await context.waitForEvent('serviceworker', {timeout: 15000});
+      }
+    }
   }
   return serviceWorker.url().split('/')[2];
 }
