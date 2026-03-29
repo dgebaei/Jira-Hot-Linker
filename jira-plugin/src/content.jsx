@@ -5913,7 +5913,7 @@ async function mainAsyncLocal() {
   }
   new draggable({
     handle: '._JX_title, ._JX_status',
-    cancel: 'a, button, input, textarea, img, ._JX_description, ._JX_comments, ._JX_comment_body, ._JX_description_text, ._JX_related_pr'
+    cancel: 'a, button, input, textarea, img, ._JX_description, ._JX_comments, ._JX_comment_body, ._JX_description_text, ._JX_related_pr, ._JX_history_flyout, ._JX_watchers_panel'
   }, container);
   
   // ── Clipboard & Copy ──────────────────────────────────────
@@ -5997,20 +5997,31 @@ async function mainAsyncLocal() {
     passiveCancel(200);
   });
 
+  function pinContainer(options = {}) {
+    const {showNotice = true} = options;
+    if (containerPinned || !container.html()) {
+      clearTimeout(hideTimeOut);
+      return false;
+    }
+    const scrollingElement = document.scrollingElement || document.documentElement;
+    if (showNotice) {
+      snackBar('Ticket Pinned! Hit esc to close !');
+    }
+    container.addClass('container-pinned');
+    const position = container.position();
+    container.css({
+      left: position.left - scrollingElement.scrollLeft,
+      top: position.top - scrollingElement.scrollTop,
+    });
+    containerPinned = true;
+    clearTimeout(hideTimeOut);
+    return true;
+  }
+
   $(document.body).on('click', '._JX_pin_button', function (e) {
     e.preventDefault();
     e.stopPropagation();
-    if (!containerPinned) {
-      snackBar('Ticket Pinned! Hit esc to close !');
-      container.addClass('container-pinned');
-      const position = container.position();
-      container.css({
-        left: position.left - document.scrollingElement.scrollLeft,
-        top: position.top - document.scrollingElement.scrollTop,
-      });
-      containerPinned = true;
-      clearTimeout(hideTimeOut);
-    }
+    pinContainer();
   });
 
   $(document.body).on('click', '._JX_actions_toggle', function (e) {
@@ -6435,13 +6446,17 @@ async function mainAsyncLocal() {
     if (!imageUrl) {
       return;
     }
+    clearTimeout(hideTimeOut);
+    pinContainer({showNotice: false});
     const displaySrc = await getDisplayImageUrl(imageUrl);
     previewOverlay.find('img').attr('src', displaySrc || imageUrl);
     previewOverlay.addClass('is-open');
   }
 
   previewOverlay.on('click', function (e) {
+    e.stopPropagation();
     if (e.target === previewOverlay[0]) {
+      e.preventDefault();
       closePreviewOverlay();
     }
   });
@@ -6474,6 +6489,7 @@ async function mainAsyncLocal() {
   function hideContainer() {
     lastHoveredKey = '';
     clearWatchersFeedbackTimer();
+    closePreviewOverlay();
     popupState = null;
     discardCommentComposerDraft().catch(() => {});
     activeCommentContext = null;
@@ -6492,16 +6508,16 @@ async function mainAsyncLocal() {
     // TODO: escape not captured in google docs
     const ESCAPE_KEY_CODE = 27;
     if (e.keyCode === ESCAPE_KEY_CODE) {
+      if (previewOverlay.hasClass('is-open')) {
+        closePreviewOverlay();
+        return;
+      }
       if (popupState?.historyOpen) {
         popupState = {
           ...popupState,
           historyOpen: false
         };
         renderIssuePopup(popupState).catch(() => {});
-        return;
-      }
-      if (previewOverlay.hasClass('is-open')) {
-        closePreviewOverlay();
         return;
       }
       hideContainer();
@@ -6525,17 +6541,7 @@ async function mainAsyncLocal() {
   let containerPinned = false;
   let lastHoveredKey = '';
   container.on('dragstop', () => {
-    if (!containerPinned) {
-      snackBar('Ticket Pinned! Hit esc to close !');
-      container.addClass('container-pinned');
-      const position = container.position();
-      container.css({
-        left: position.left - document.scrollingElement.scrollLeft,
-        top: position.top - document.scrollingElement.scrollTop,
-      });
-      containerPinned = true;
-      clearTimeout(hideTimeOut);
-    }
+    pinContainer();
   });
   function extractKeysFromNode(node) {
     let keys = getJiraKeysFromTexts(getNodeSearchTexts(node));
@@ -6894,6 +6900,10 @@ async function mainAsyncLocal() {
       pageX: e.pageX,
       pageY: e.pageY,
     };
+    if (previewOverlay.hasClass('is-open')) {
+      clearTimeout(hideTimeOut);
+      return;
+    }
     const element = document.elementFromPoint(e.clientX, e.clientY);
     const isOverContainer = element === container[0] || $.contains(container[0], element);
     let isInPaddedZone = false;

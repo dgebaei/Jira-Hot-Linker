@@ -333,16 +333,27 @@ test('groups history entries and nests referenced attachments inside expanded co
   await attachmentCommentEvent.locator('summary').click();
   await expect(attachmentCommentEvent.locator('._JX_history_attachment_item')).toHaveCount(2);
   await expect(attachmentCommentEvent.locator('._JX_history_rich_section_body')).toContainText('Prikaz bi trebao biti izjednacen');
+  await expect(flyout).toContainText('10m');
 
   const descriptionEvent = flyout.locator('._JX_history_rich_event_description').first();
   await descriptionEvent.locator('summary').click();
   await expect(descriptionEvent.locator('._JX_history_rich_section_body')).toContainText('Updated rollout checklist for JRACLOUD-97000');
+  await expect(flyout.locator('a._JX_history_issue_link', {hasText: 'JRACLOUD-97000'}).first()).toHaveAttribute('href', /browse\/JRACLOUD-97000$/);
 
   await flyout.locator('button._JX_history_attachment_preview', {hasText: 'standalone-graph.png'}).click();
   await expect(page.locator('._JX_preview_overlay')).toHaveClass(/is-open/);
+  await expect(page.locator('._JX_container')).toHaveClass(/container-pinned/);
 
-  await expect(flyout).toContainText('10m');
-  await expect(flyout.locator('a._JX_history_issue_link', {hasText: 'JRACLOUD-97000'}).first()).toHaveAttribute('href', /browse\/JRACLOUD-97000$/);
+  await page.locator('._JX_preview_overlay').click({position: {x: 8, y: 8}});
+  await expect(page.locator('._JX_preview_overlay')).not.toHaveClass(/is-open/);
+  await expect(page.locator('._JX_history_flyout')).toBeVisible();
+
+  await page.keyboard.press('Escape');
+  await expect(page.locator('._JX_history_flyout')).toHaveCount(0);
+  await expect(page.locator('._JX_title')).toHaveCount(1);
+
+  await page.keyboard.press('Escape');
+  await expect(page.locator('._JX_title')).toHaveCount(0);
 
   await page.close();
 });
