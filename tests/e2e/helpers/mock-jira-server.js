@@ -403,7 +403,7 @@ function buildEditmeta(state) {
   if (state.scenario === 'readonly' || state.scenario === 'anonymous-readonly') {
     return {fields: {}};
   }
-  return {
+  const editmeta = {
     fields: {
       summary: {
         name: 'Summary',
@@ -464,6 +464,12 @@ function buildEditmeta(state) {
       },
     },
   };
+
+  if (state.scenario === 'empty-user-field-missing-editmeta') {
+    delete editmeta.fields.customfield_67890;
+  }
+
+  return editmeta;
 }
 
 function parseJsonBody(req) {
@@ -546,7 +552,7 @@ async function createMockJiraServer() {
       state.labels = [];
       state.issueSearchCatalog = [];
     }
-    if (state.scenario === 'empty-user-field') {
+    if (state.scenario === 'empty-user-field' || state.scenario === 'empty-user-field-missing-editmeta' || state.scenario === 'empty-user-field-empty-picker-defaults') {
       state.issue.customFields.customfield_67890 = null;
     }
     if (state.scenario === 'watcher-self-off') {
@@ -831,6 +837,10 @@ async function createMockJiraServer() {
         return;
       }
       const query = String(url.searchParams.get('query') || '').toLowerCase();
+      if (state.scenario === 'empty-user-field-empty-picker-defaults' && !query) {
+        json(res, 200, {users: []});
+        return;
+      }
       const users = state.assignableUsers.filter(user => !query || user.displayName.toLowerCase().includes(query) || user.name.toLowerCase().includes(query));
       json(res, 200, {users});
       return;
