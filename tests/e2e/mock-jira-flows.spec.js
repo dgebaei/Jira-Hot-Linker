@@ -313,7 +313,7 @@ test('supports quick actions and inline edits against mocked Jira APIs', async (
     await page.locator('._JX_field_chip_edit[data-field-key="labels"]').click();
     const labelInput = page.locator('._JX_edit_input[data-field-key="labels"]');
     await labelInput.fill('release-candidate');
-    await page.locator('._JX_edit_option[data-field-key="labels"][data-option-id="release-candidate"]').click();
+    await labelInput.press('Enter');
     await page.locator('._JX_edit_save[data-field-key="labels"]').click();
     await expect(popup).toContainText('Labels updated');
     await expect(popup).toContainText('release-candidate');
@@ -332,6 +332,28 @@ test('supports quick actions and inline edits against mocked Jira APIs', async (
       await expect(assignToMe).toContainText(/Assign to me/i);
     }
   }
+
+  await page.close();
+});
+
+test('toggles the top filtered multi-select option with Enter in mocked mode @mock-only', async ({extensionApp, optionsPage, servers}) => {
+  const target = requireJiraTestTarget(test, servers, {requireAuth: process.env.MOCK === 'false'});
+  test.skip(target.mode !== 'mock', 'Multi-select keyboard coverage is deterministic in mocked mode only.');
+
+  await servers.jira.setScenario('editable');
+  await configureExtension(optionsPage, baseConfig(servers, target));
+
+  const {page} = await openPopup(extensionApp, servers, target);
+  const popup = popupModel(page);
+
+  await page.locator('._JX_field_chip_edit[data-field-key="labels"]').click();
+  const labelInput = page.locator('._JX_edit_input[data-field-key="labels"]');
+  await labelInput.fill('release-candidate');
+  await labelInput.press('Enter');
+  await page.locator('._JX_edit_save[data-field-key="labels"]').click();
+
+  await expect(popup.root).toContainText('Labels updated');
+  await expect(popup.root).toContainText('release-candidate');
 
   await page.close();
 });

@@ -11,6 +11,7 @@ import {createContentFieldCapabilityHelpers} from 'src/content-field-capability-
 import {createContentHistoryHelpers} from 'src/content-history-helpers';
 import {createContentIssueDataHelpers} from 'src/content-issue-data-helpers';
 import {createContentIssueLinkageHelpers} from 'src/content-issue-linkage-helpers';
+import {createContentPopupStateHelpers} from 'src/content-popup-state-helpers';
 import {MENTION_CONTEXT_WINDOW} from 'src/comment-mention-constants';
 import {createContentCommentHelpers} from 'src/content-comment-helpers';
 import {positionMentionMenuAtCaret} from 'src/mention-menu-positioning';
@@ -335,6 +336,7 @@ async function mainAsyncLocal() {
   const userPickerSearchCache = new Map();
   const userPickerLocalOptionsCache = new Map();
   const jiraUserDisplayNameCache = new Map();
+  const sharedAvatarUrls = new Set();
   const {
     buildHistoryAttachmentLookup,
     buildHistoryAttachmentView,
@@ -445,7 +447,67 @@ async function mainAsyncLocal() {
   let commentComposerHadFocus = false;
   let commentComposerSelectionStart = 0;
   let commentComposerSelectionEnd = 0;
+  const {
+    buildQuickActionError,
+    buildQuickActionViewData,
+    executeQuickAction,
+    getCurrentUserInfo,
+    resolveQuickActions,
+  } = createPopupQuickActions({
+    INSTANCE_URL,
+    formatSprintActionLabel,
+    get,
+    getProjectSprintOptions,
+    getSprintFieldIds,
+    pickSprintFieldId,
+    readSprintsFromIssue,
+    requestJson,
+  });
 
+  const {
+    buildNextWatchersState,
+    buildPopupInteractionReset,
+    handleDraftAttachmentUploaded,
+    invalidatePopupCaches,
+    refreshPopupIssueState,
+    renderUpdatedPopupState,
+  } = createContentPopupStateHelpers({
+    assigneeLocalOptionsCache,
+    assigneeSearchCache,
+    changelogCache,
+    clearActionNoticeTimer,
+    createTimeTrackingEditState,
+    editMetaCache,
+    emptyWatchersState,
+    getIssueChangelog,
+    getIssueMetaData,
+    getIssueWatchers,
+    getPopupState: () => popupState,
+    getPullRequestDataCached,
+    issueCache,
+    issueSearchCache,
+    labelLocalOptionsCache,
+    normalizeHistoryAttachmentName,
+    normalizeIssueAttachmentImage,
+    normalizeIssueImages,
+    normalizePullRequests,
+    pullRequestCache,
+    renderIssuePopup,
+    resolveQuickActions,
+    scheduleActionNoticeClear,
+    setPopupState: nextState => {
+      popupState = nextState;
+    },
+    sharedAvatarUrls,
+    showPullRequests,
+    snackBar,
+    tempoAccountSearchCache,
+    transitionOptionsCache,
+    userPickerLocalOptionsCache,
+    userPickerSearchCache,
+    watcherListCache,
+    watcherSearchCache,
+  });
 
   const {
     buildEditOption,
@@ -457,6 +519,7 @@ async function mainAsyncLocal() {
     normalizeMultiSelectOptionIds,
     resolveSelectedEditOptions,
     submitFieldEdit,
+    toggleMultiSelectOptionFromInput,
   } = createPopupEditing({
     INSTANCE_URL,
     assigneeLocalOptionsCache,
@@ -490,23 +553,6 @@ async function mainAsyncLocal() {
     setPopupState: nextState => {
       popupState = nextState;
     },
-  });
-
-  const {
-    buildQuickActionError,
-    buildQuickActionViewData,
-    executeQuickAction,
-    getCurrentUserInfo,
-    resolveQuickActions,
-  } = createPopupQuickActions({
-    INSTANCE_URL,
-    formatSprintActionLabel,
-    get,
-    getProjectSprintOptions,
-    getSprintFieldIds,
-    pickSprintFieldId,
-    readSprintsFromIssue,
-    requestJson,
   });
 
   const {
@@ -3860,8 +3906,6 @@ async function mainAsyncLocal() {
 
   // ── Avatars & User Display ─────────────────────────────────
 
-  const sharedAvatarUrls = new Set();
-
   function detectSharedAvatarUrls(users) {
     if (!Array.isArray(users) || users.length < 2) {
       return;
@@ -4624,68 +4668,6 @@ async function mainAsyncLocal() {
     renderCommentEditMentionSuggestions();
     constrainEditPopoversToViewport();
   }
-  function invalidatePopupCaches() {
-    if (!popupState?.key) {
-      return;
-    }
-    issueCache.delete(popupState.key);
-    watcherListCache.delete(popupState.key);
-    changelogCache.delete(popupState.key);
-    editMetaCache.delete(popupState.key);
-    transitionOptionsCache.delete(popupState.key);
-    assigneeLocalOptionsCache.delete(popupState.key);
-    labelLocalOptionsCache.delete(popupState.key);
-    tempoAccountSearchCache.clear();
-    userPickerSearchCache.clear();
-    userPickerLocalOptionsCache.clear();
-    sharedAvatarUrls.clear();
-    watcherSearchCache.clear();
-    issueSearchCache.clear();
-    [...assigneeSearchCache.keys()].forEach(cacheKey => {
-      if (String(cacheKey).startsWith(`${popupState.key}__`)) {
-        assigneeSearchCache.delete(cacheKey);
-      }
-    });
-    if (popupState.issueData?.id) {
-      const issueId = String(popupState.issueData.id);
-      [...pullRequestCache.keys()].forEach(cacheKey => {
-        if (String(cacheKey).includes(issueId)) {
-          pullRequestCache.delete(cacheKey);
-        }
-      });
-    }
-  }
-
-  function updatePopupState(nextStateOrUpdater) {
-    popupState = typeof nextStateOrUpdater === 'function'
-      ? nextStateOrUpdater(popupState)
-      : nextStateOrUpdater;
-    return popupState;
-  }
-
-  function buildPopupInteractionReset(overrides = {}) {
-    return {
-      actionLoadingKey: '',
-      actionError: '',
-      lastActionSuccess: '',
-      actionsOpen: false,
-      historyOpen: false,
-      changelogData: null,
-      changelogLoading: false,
-      editState: null,
-      commentSession: null,
-      ...overrides,
-    };
-  }
-
-  function buildNextWatchersState(currentState = emptyWatchersState(), changes = {}) {
-    return {
-      ...emptyWatchersState(),
-      ...currentState,
-      ...changes,
-    };
-  }
-
   async function runWatcherSearch(queryText, requestId) {
     const normalizedQuery = String(queryText || '').trim();
     try {
@@ -4815,136 +4797,6 @@ async function mainAsyncLocal() {
     }).catch(() => {});
   }
 
-  async function renderUpdatedPopupState(nextStateOrUpdater) {
-    const nextState = updatePopupState(nextStateOrUpdater);
-    await renderIssuePopup(nextState);
-    return nextState;
-  }
-
-  async function refreshPopupIssueState(successMessage = '', options = {}) {
-    if (!popupState?.key) {
-      return;
-    }
-    const {showSnackBar = false, nextTimeTrackingEditState, refreshWatchersPanel = false, nextWatchersStateChanges = {}, scheduleWatchersFeedbackReset = false, preserveHistory = false} = options;
-    const popupKey = popupState.key;
-    const shouldRefreshWatchersPanel = !!(refreshWatchersPanel || popupState?.watchersState?.open);
-    const shouldKeepHistoryOpen = !!(preserveHistory && popupState?.historyOpen);
-    invalidatePopupCaches();
-    const [refreshedIssueData, refreshedWatcherData, refreshedChangelog] = await Promise.all([
-      getIssueMetaData(popupKey),
-      shouldRefreshWatchersPanel ? getIssueWatchers(popupKey).catch(() => null) : Promise.resolve(null),
-      shouldKeepHistoryOpen ? getIssueChangelog(popupKey).catch(() => ({histories: []})) : Promise.resolve(null)
-    ]);
-    await normalizeIssueImages(refreshedIssueData);
-
-    let refreshedPullRequests = [];
-    if (showPullRequests) {
-      try {
-        const pullRequestResponse = await getPullRequestDataCached(refreshedIssueData.id);
-        refreshedPullRequests = normalizePullRequests(pullRequestResponse);
-      } catch (ex) {
-        refreshedPullRequests = [];
-      }
-    }
-
-    let quickActions = [];
-    try {
-      quickActions = await resolveQuickActions(refreshedIssueData);
-    } catch (ex) {
-      quickActions = [];
-    }
-
-    if (!popupState || popupState.key !== popupKey) {
-      return;
-    }
-
-    clearActionNoticeTimer();
-
-    await renderUpdatedPopupState(currentState => ({
-      ...currentState,
-      issueData: refreshedIssueData,
-      pullRequests: refreshedPullRequests,
-      quickActions,
-      ...buildPopupInteractionReset({
-        lastActionSuccess: showSnackBar ? '' : successMessage,
-        historyOpen: shouldKeepHistoryOpen,
-        changelogData: shouldKeepHistoryOpen ? (refreshedChangelog || {histories: []}) : null,
-        changelogLoading: false,
-      }),
-      timeTrackingEditState: nextTimeTrackingEditState || createTimeTrackingEditState(refreshedIssueData),
-      watchersState: refreshedWatcherData
-        ? buildNextWatchersState(currentState.watchersState, {
-            loading: false,
-            errorMessage: '',
-            watchers: refreshedWatcherData.watchers,
-            pendingAddIds: [],
-            pendingRemoveIds: [],
-            searchResults: (currentState.watchersState?.searchResults || []).filter(result => {
-              return !refreshedWatcherData.watchers.some(watcher => watcher.id === result.id);
-            }),
-            focusSearch: !!currentState.watchersState?.open,
-            ...nextWatchersStateChanges,
-          })
-        : currentState.watchersState,
-    }));
-    if (scheduleWatchersFeedbackReset) {
-      scheduleWatchersFeedbackClear();
-    }
-    if (!showSnackBar && successMessage) {
-      scheduleActionNoticeClear(successMessage);
-    }
-    if (showSnackBar && successMessage) {
-      snackBar(successMessage);
-    }
-  }
-
-  async function handleDraftAttachmentUploaded(uploadedAttachment) {
-    const popupKey = popupState?.key;
-    const currentIssueData = popupState?.issueData;
-    if (!popupKey || !currentIssueData?.fields || !uploadedAttachment) {
-      return;
-    }
-
-    const normalizedAttachment = await normalizeIssueAttachmentImage({...uploadedAttachment});
-    let refreshedChangelog = null;
-    if (popupState?.historyOpen) {
-      changelogCache.delete(popupKey);
-      refreshedChangelog = await getIssueChangelog(popupKey).catch(() => popupState?.changelogData || {histories: []});
-    }
-
-    if (!popupState || popupState.key !== popupKey) {
-      return;
-    }
-
-    await renderUpdatedPopupState(currentState => {
-      const existingAttachments = Array.isArray(currentState?.issueData?.fields?.attachment)
-        ? currentState.issueData.fields.attachment
-        : [];
-      const normalizedFileName = normalizeHistoryAttachmentName(normalizedAttachment.filename);
-      const nextAttachments = [
-        ...existingAttachments.filter(attachment => {
-          const sameId = normalizedAttachment.id && attachment?.id && String(attachment.id) === String(normalizedAttachment.id);
-          const sameName = normalizedFileName &&
-            normalizeHistoryAttachmentName(attachment?.filename) === normalizedFileName;
-          return !(sameId || sameName);
-        }),
-        normalizedAttachment,
-      ];
-      return {
-        ...currentState,
-        issueData: {
-          ...currentState.issueData,
-          fields: {
-            ...currentState.issueData.fields,
-            attachment: nextAttachments,
-          }
-        },
-        changelogData: refreshedChangelog || currentState.changelogData,
-        changelogLoading: false,
-      };
-    });
-  }
-
   async function addWatcherFromPanel(watcherId) {
     const watcherState = popupState?.watchersState;
     if (!popupState?.issueData?.key || !watcherState) {
@@ -4969,6 +4821,7 @@ async function mainAsyncLocal() {
       await refreshPopupIssueState('', {
         refreshWatchersPanel: true,
         scheduleWatchersFeedbackReset: true,
+        scheduleWatchersFeedbackClear,
         nextWatchersStateChanges: {
           addFeedback: {
             id: watcherId,
@@ -5019,6 +4872,7 @@ async function mainAsyncLocal() {
       await refreshPopupIssueState('', {
         refreshWatchersPanel: true,
         scheduleWatchersFeedbackReset: true,
+        scheduleWatchersFeedbackClear,
         nextWatchersStateChanges: {
           removeFeedback: {
             id: watcherId,
