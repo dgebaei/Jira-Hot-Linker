@@ -496,6 +496,11 @@ test('supports mentions and saving new comments in mocked mode', async ({extensi
   await expect(newestComment).toContainText('Investigated and reproduced locally.');
   if (target.mode === 'mock') {
     await expect(newestComment.locator('._JX_mention')).toContainText('Morgan Agent');
+    const [existingCommentFontSize, newestCommentFontSize] = await Promise.all([
+      page.locator('._JX_comment').first().locator('._JX_comment_body').evaluate(node => window.getComputedStyle(node).fontSize),
+      newestComment.locator('._JX_comment_body').evaluate(node => window.getComputedStyle(node).fontSize),
+    ]);
+    expect(newestCommentFontSize).toBe(existingCommentFontSize);
     await page.locator('._JX_history_toggle').click();
     await expect(page.locator('._JX_history_rich_preview').first()).toContainText('@Morgan Agent');
   }
@@ -507,6 +512,31 @@ test('supports mentions and saving new comments in mocked mode', async ({extensi
       await deleteIssueComment(resolvedTarget.primaryIssueKey, createdComment.id, resolvedTarget);
     }
   }
+  await page.close();
+});
+
+test('silently pins the popup when starting a new comment so pointer exit does not dismiss it @mock-only', async ({extensionApp, optionsPage, servers}) => {
+  const target = requireJiraTestTarget(test, servers, {requireAuth: process.env.MOCK === 'false'});
+  test.skip(target.mode !== 'mock', 'Comment draft pinning is deterministic in mocked mode only.');
+
+  await servers.jira.setScenario('editable');
+  await configureExtension(optionsPage, baseConfig(servers, target));
+
+  const {page} = await openPopup(extensionApp, servers, target);
+  const popup = popupModel(page).root;
+  const commentInput = page.locator('._JX_comment_input');
+
+  await commentInput.click();
+  await commentInput.fill('Draft comment that should stay open');
+
+  await expect(page.locator('._JX_container')).toHaveClass(/container-pinned/);
+  await expect(page.locator('body')).not.toContainText('Ticket Pinned! Hit esc to close !');
+
+  await page.mouse.move(5, 5);
+  await page.waitForTimeout(400);
+
+  await expect(popup).toBeVisible();
+  await expect(commentInput).toHaveValue('Draft comment that should stay open');
   await page.close();
 });
 
@@ -536,6 +566,33 @@ test('supports user tagging while editing comments in mocked mode @mock-only', a
   await expect(page.locator('._JX_comment').last()).toContainText('Alex Reviewer');
   await expect(page.locator('._JX_comment').last().locator('._JX_mention')).toContainText('Alex Reviewer');
 
+  await page.close();
+});
+
+test('silently pins the popup when editing a comment so pointer exit does not dismiss it @mock-only', async ({extensionApp, optionsPage, servers}) => {
+  const target = requireJiraTestTarget(test, servers, {requireAuth: process.env.MOCK === 'false'});
+  test.skip(target.mode !== 'mock', 'Comment edit pinning is deterministic in mocked mode only.');
+
+  await servers.jira.setScenario('editable');
+  await configureExtension(optionsPage, baseConfig(servers, target));
+
+  const {page} = await openPopup(extensionApp, servers, target);
+  const popup = popupModel(page).root;
+  const comment = page.locator('._JX_comment').first();
+
+  await comment.locator('._JX_comment_edit_button').click();
+
+  const editInput = comment.locator('._JX_comment_edit_input');
+  await editInput.fill('Edited comment draft that should stay open');
+
+  await expect(page.locator('._JX_container')).toHaveClass(/container-pinned/);
+  await expect(page.locator('body')).not.toContainText('Ticket Pinned! Hit esc to close !');
+
+  await page.mouse.move(5, 5);
+  await page.waitForTimeout(400);
+
+  await expect(popup).toBeVisible();
+  await expect(editInput).toHaveValue('Edited comment draft that should stay open');
   await page.close();
 });
 
