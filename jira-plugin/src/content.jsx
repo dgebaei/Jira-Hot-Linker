@@ -1756,6 +1756,7 @@ async function mainAsyncLocal() {
     if (!popupState?.issueData || !commentId) {
       return;
     }
+    pinContainer({showNotice: false});
     resetCommentEditMentionState();
     const {draft, mentionMappings} = buildEditableCommentDraft(commentBody);
     setCommentSession({
@@ -7185,6 +7186,11 @@ async function mainAsyncLocal() {
     commentComposerSelectionEnd = typeof this.selectionEnd === 'number' ? this.selectionEnd : commentComposerDraftValue.length;
     syncCommentComposerState();
     syncCommentMentionSuggestions(this);
+  });
+
+  $(document.body).on('focusin', '._JX_comment_input', function () {
+    commentComposerHadFocus = true;
+    pinContainer({showNotice: false});
   });
 
   $(document.body).on('click keyup select', '._JX_comment_input', function () {
