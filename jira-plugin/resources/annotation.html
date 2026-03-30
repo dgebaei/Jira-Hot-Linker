@@ -726,6 +726,7 @@
                 {{#isEditing}}
                 <div class="_JX_comment_editor">
                     <textarea class="_JX_comment_edit_input" data-comment-id="{{id}}" rows="4">{{commentEditDraft}}</textarea>
+                    <div class="_JX_comment_mentions _JX_comment_edit_mentions" data-comment-id="{{id}}" hidden></div>
                     {{#commentActionError}}<div class="_JX_comment_action_error">{{commentActionError}}</div>{{/commentActionError}}
                 </div>
                 {{/isEditing}}

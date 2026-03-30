@@ -1,4 +1,6 @@
 import debounce from 'lodash/debounce';
+import {MENTION_CONTEXT_WINDOW} from 'src/comment-mention-constants';
+import {positionMentionMenuAtCaret} from 'src/mention-menu-positioning';
 
 export function createPopupCommentComposer(deps) {
   const {
@@ -10,6 +12,7 @@ export function createPopupCommentComposer(deps) {
     getActiveCommentContext,
     getCommentComposerErrorMessage,
     getCommentComposerHadFocus,
+    getCommentComposerMentionMappings,
     getCommentComposerSelectionEnd,
     getCommentComposerSelectionStart,
     getCommentComposerDraftValue,
@@ -26,6 +29,7 @@ export function createPopupCommentComposer(deps) {
     requestJson,
     setCommentComposerErrorMessage,
     setCommentComposerHadFocus,
+    setCommentComposerMentionMappings,
     setCommentComposerSelectionEnd,
     setCommentComposerSelectionStart,
     setCommentComposerDraftValue,
@@ -52,6 +56,26 @@ export function createPopupCommentComposer(deps) {
     return '';
   }
 
+  function getCommentMentionDisplayText(candidate) {
+    const displayName = candidate?.displayName || candidate?.name || candidate?.username || candidate?.emailAddress || '';
+    return displayName ? `@${displayName}` : '@mention';
+  }
+
+  function buildCommentMentionMapping(draftText, start, displayText, markup) {
+    const normalizedDraftText = String(draftText || '');
+    const normalizedDisplayText = String(displayText || '');
+    const normalizedStart = Number.isFinite(Number(start)) ? Number(start) : normalizedDraftText.indexOf(normalizedDisplayText);
+    const safeStart = Math.max(0, normalizedStart);
+    const end = safeStart + normalizedDisplayText.length;
+    return {
+      afterContext: normalizedDraftText.slice(end, end + MENTION_CONTEXT_WINDOW),
+      beforeContext: normalizedDraftText.slice(Math.max(0, safeStart - MENTION_CONTEXT_WINDOW), safeStart),
+      displayText: normalizedDisplayText,
+      markup: String(markup || ''),
+      start: safeStart,
+    };
+  }
+
   async function searchCommentMentionCandidates(query) {
     const response = await get(`${INSTANCE_URL}rest/api/2/user/picker?query=${encodeURIComponent(query)}`);
     const rawCandidates = Array.isArray(response)
@@ -72,6 +96,7 @@ export function createPopupCommentComposer(deps) {
           : ((candidate?.emailAddress && candidate.emailAddress !== displayName) ? candidate.emailAddress : '');
         return {
           displayName,
+          displayText: getCommentMentionDisplayText(candidate),
           mentionMarkup,
           secondaryText,
         };
@@ -300,6 +325,7 @@ export function createPopupCommentComposer(deps) {
   async function discardCommentComposerDraft(options = {}) {
     const {deleteUploaded = true} = options;
     resetCommentMentionState();
+    setCommentComposerMentionMappings([]);
     setCommentComposerDraftValue('');
     setCommentComposerHadFocus(false);
     setCommentComposerSelectionStart(0);
@@ -427,10 +453,26 @@ export function createPopupCommentComposer(deps) {
   }
 
   function renderCommentMentionSuggestions() {
-    const {mentions} = getCommentComposerElements();
-    if (!mentions.length) {
+    const {input, mentions} = getCommentComposerElements();
+    const mentionsElement = mentions.get(0);
+    const inputElement = input.get(0);
+    if (!mentions.length || !mentionsElement) {
       return;
     }
+    const positionSuggestions = (html) => {
+      mentions.removeAttr('hidden').html(html);
+      if (inputElement) {
+        positionMentionMenuAtCaret({
+          caretIndex: typeof inputElement.selectionStart === 'number'
+            ? inputElement.selectionStart
+            : getCommentMentionState().range?.start,
+          hostElement: input.closest('._JX_comment_input_wrap').get(0),
+          inputElement,
+          menuElement: mentionsElement,
+        });
+      }
+      keepContainerVisible();
+    };
     const commentMentionState = getCommentMentionState();
     if (!commentMentionState.visible) {
       mentions.attr('hidden', 'hidden').empty();
@@ -438,21 +480,18 @@ export function createPopupCommentComposer(deps) {
       return;
     }
     if (commentMentionState.loading) {
-      mentions.removeAttr('hidden').html('<div class="_JX_comment_mentions_status">Searching people...</div>');
-      keepContainerVisible();
+      positionSuggestions('<div class="_JX_comment_mentions_status">Searching people...</div>');
       return;
     }
     if (commentMentionState.error) {
-      mentions.removeAttr('hidden').html(`<div class="_JX_comment_mentions_status">${escapeHtml(commentMentionState.error)}</div>`);
-      keepContainerVisible();
+      positionSuggestions(`<div class="_JX_comment_mentions_status">${escapeHtml(commentMentionState.error)}</div>`);
       return;
     }
     if (!commentMentionState.suggestions.length) {
-      mentions.removeAttr('hidden').html('<div class="_JX_comment_mentions_status">No people found.</div>');
-      keepContainerVisible();
+      positionSuggestions('<div class="_JX_comment_mentions_status">No people found.</div>');
       return;
     }
-    mentions.removeAttr('hidden').html(commentMentionState.suggestions.map((candidate, index) => {
+    positionSuggestions(commentMentionState.suggestions.map((candidate, index) => {
       const selectedClass = index === commentMentionState.selectedIndex ? ' is-selected' : '';
       const secondary = candidate.secondaryText ? `<span class="_JX_comment_mention_secondary">${escapeHtml(candidate.secondaryText)}</span>` : '';
       return `
@@ -464,7 +503,6 @@ export function createPopupCommentComposer(deps) {
         </button>
       `;
     }).join(''));
-    keepContainerVisible();
   }
 
   function resetCommentMentionState() {
@@ -549,11 +587,16 @@ export function createPopupCommentComposer(deps) {
     if (!inputElement || !candidate || !mentionRange) {
       return;
     }
-    const nextValue = inputElement.value.slice(0, mentionRange.start) + `${candidate.mentionMarkup} ` + inputElement.value.slice(mentionRange.end);
+    const displayText = candidate.displayText || getCommentMentionDisplayText(candidate);
+    const nextValue = inputElement.value.slice(0, mentionRange.start) + `${displayText} ` + inputElement.value.slice(mentionRange.end);
     input.val(nextValue);
     setCommentComposerDraftValue(nextValue);
+    setCommentComposerMentionMappings([
+      ...getCommentComposerMentionMappings(),
+      buildCommentMentionMapping(nextValue, mentionRange.start, displayText, candidate.mentionMarkup),
+    ]);
     inputElement.focus();
-    const caretPosition = mentionRange.start + candidate.mentionMarkup.length + 1;
+    const caretPosition = mentionRange.start + displayText.length + 1;
     inputElement.setSelectionRange(caretPosition, caretPosition);
     resetCommentMentionState();
     syncCommentComposerState();

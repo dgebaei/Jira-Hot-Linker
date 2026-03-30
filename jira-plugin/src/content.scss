@@ -1878,6 +1878,7 @@ body ._JX {
     border: 1px solid #dfe1e6;
     border-radius: 8px;
     padding: 10px;
+    position: relative;
   }
 
   &_comment_edit_input {
@@ -1972,9 +1973,10 @@ body ._JX {
     border: 1px solid #c7d1db;
     border-radius: 8px;
     box-shadow: 0 10px 18px rgba(9, 30, 66, 0.12);
-    margin-top: 6px;
     max-height: 210px;
     overflow-y: auto;
+    position: absolute;
+    z-index: 4;
 
     &[hidden] {
       display: none;

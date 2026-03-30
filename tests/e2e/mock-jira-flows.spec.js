@@ -50,6 +50,20 @@ async function pasteImageIntoComment(page) {
   }, TEST_PNG_BYTES);
 }
 
+async function expectMentionMenuNearTextareaCaret(inputLocator, menuLocator) {
+  const [inputBox, menuBox] = await Promise.all([
+    inputLocator.boundingBox(),
+    menuLocator.boundingBox(),
+  ]);
+
+  if (!inputBox || !menuBox) {
+    throw new Error('Expected both the textarea and mention menu to have bounding boxes.');
+  }
+
+  expect(menuBox.y).toBeGreaterThan(inputBox.y + 8);
+  expect(menuBox.y).toBeLessThan(inputBox.y + inputBox.height - 8);
+}
+
 test('renders Jira metadata, comments, attachments, pull requests, and custom fields', async ({extensionApp, optionsPage, servers}) => {
   const target = requireJiraTestTarget(test, servers, {requireAuth: process.env.MOCK === 'false'});
   if (target.mode === 'mock') {
@@ -458,8 +472,17 @@ test('supports mentions and saving new comments in mocked mode', async ({extensi
   }
   await commentInput.fill(`@${mentionQuery}`);
   await expect(page.locator('._JX_comment_mention_option').first()).toBeVisible();
-  await commentInput.press('ArrowDown');
-  await commentInput.press('Enter');
+  if (target.mode === 'mock') {
+    await expectMentionMenuNearTextareaCaret(commentInput, page.locator('._JX_comment_compose ._JX_comment_mentions'));
+    await page.locator('._JX_comment_compose ._JX_comment_mention_option', {hasText: 'Morgan Agent'}).click();
+  } else {
+    await commentInput.press('ArrowDown');
+    await commentInput.press('Enter');
+  }
+  if (target.mode === 'mock') {
+    await expect(commentInput).toHaveValue('@Morgan Agent ');
+    await expect(commentInput).not.toHaveValue(/\[~/);
+  }
   const commentText = ` Investigated and reproduced locally. [playwright-${Date.now()}]`;
   await commentInput.type(commentText);
 
@@ -471,6 +494,11 @@ test('supports mentions and saving new comments in mocked mode', async ({extensi
 
   const newestComment = page.locator('._JX_comment').last();
   await expect(newestComment).toContainText('Investigated and reproduced locally.');
+  if (target.mode === 'mock') {
+    await expect(newestComment.locator('._JX_mention')).toContainText('Morgan Agent');
+    await page.locator('._JX_history_toggle').click();
+    await expect(page.locator('._JX_history_rich_preview').first()).toContainText('@Morgan Agent');
+  }
 
   if (target.mode === 'live') {
     const nextComments = await getIssueComments(resolvedTarget.primaryIssueKey, resolvedTarget);
@@ -479,6 +507,35 @@ test('supports mentions and saving new comments in mocked mode', async ({extensi
       await deleteIssueComment(resolvedTarget.primaryIssueKey, createdComment.id, resolvedTarget);
     }
   }
+  await page.close();
+});
+
+test('supports user tagging while editing comments in mocked mode @mock-only', async ({extensionApp, optionsPage, servers}) => {
+  const target = requireJiraTestTarget(test, servers, {requireAuth: process.env.MOCK === 'false'});
+  test.skip(target.mode !== 'mock', 'Edit mention coverage is deterministic in mocked mode only.');
+
+  await servers.jira.setScenario('editable');
+  await configureExtension(optionsPage, baseConfig(servers, target));
+
+  const {page} = await openPopup(extensionApp, servers, target);
+  const commentInput = page.locator('._JX_comment_input');
+  await commentInput.fill('editable mention test');
+  await page.locator('._JX_comment_save').click();
+
+  const newestComment = page.locator('._JX_comment').last();
+  await newestComment.locator('._JX_comment_edit_button').click();
+  const editInput = newestComment.locator('._JX_comment_edit_input');
+  await editInput.fill(`${await editInput.inputValue()} @ale`);
+  await expect(page.locator('._JX_comment_edit_mention_option').first()).toBeVisible();
+  await expectMentionMenuNearTextareaCaret(editInput, newestComment.locator('._JX_comment_edit_mentions'));
+  await page.locator('._JX_comment_edit_mention_option', {hasText: 'Alex Reviewer'}).click();
+  await expect(editInput).toHaveValue(/@Alex Reviewer/);
+  await expect(editInput).not.toHaveValue(/\[~/);
+  await newestComment.locator('._JX_comment_edit_save').click();
+
+  await expect(page.locator('._JX_comment').last()).toContainText('Alex Reviewer');
+  await expect(page.locator('._JX_comment').last().locator('._JX_mention')).toContainText('Alex Reviewer');
+
   await page.close();
 });
 
