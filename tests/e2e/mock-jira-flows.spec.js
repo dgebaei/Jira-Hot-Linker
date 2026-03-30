@@ -516,6 +516,21 @@ test('preserves literal text when editing comments that already contain mentions
   await page.close();
 });
 
+test('preserves rendered formatting for comments with attachment markup in mocked mode @mock-only', async ({extensionApp, optionsPage, servers}) => {
+  const target = requireJiraTestTarget(test, servers, {requireAuth: process.env.MOCK === 'false'});
+  test.skip(target.mode !== 'mock', 'Rendered comment formatting coverage is deterministic in mocked mode only.');
+
+  await servers.jira.setScenario('editable');
+  await configureExtension(optionsPage, baseConfig(servers, target));
+
+  const {page} = await openPopup(extensionApp, servers, target);
+  const formattedComment = page.locator('._JX_comment').filter({hasText: 'Prikaz bi trebao biti izjednacen'}).first();
+
+  await expect(formattedComment.locator('strong')).toContainText('nije dobar');
+
+  await page.close();
+});
+
 test('uploads a pasted image into the comment composer in mocked mode @mock-only', async ({extensionApp, optionsPage, servers}) => {
   const target = requireJiraTestTarget(test, servers, {requireAuth: process.env.MOCK === 'false'});
   test.skip(target.mode !== 'mock', 'Pasted-image upload coverage is deterministic in mocked mode only.');

@@ -918,6 +918,65 @@ async function mainAsyncLocal() {
     });
   }
 
+  function replaceAttachmentMarkupTextNodes(rootNode, attachmentLookup = null, imageMaxHeight = 100) {
+    if (!rootNode || !attachmentLookup?.size) {
+      return;
+    }
+    const walker = document.createTreeWalker(rootNode, NodeFilter.SHOW_TEXT, {
+      acceptNode(node) {
+        if (!node?.textContent || !/!\s*([^!\r\n]+?)(?:\|[^!\r\n]*)?!/.test(node.textContent)) {
+          return NodeFilter.FILTER_SKIP;
+        }
+        const parentTag = String(node.parentElement?.tagName || '').toLowerCase();
+        if (parentTag === 'script' || parentTag === 'style' || parentTag === 'textarea') {
+          return NodeFilter.FILTER_SKIP;
+        }
+        return NodeFilter.FILTER_ACCEPT;
+      }
+    });
+
+    const textNodes = [];
+    let currentNode = walker.nextNode();
+    while (currentNode) {
+      textNodes.push(currentNode);
+      currentNode = walker.nextNode();
+    }
+
+    textNodes.forEach(textNode => {
+      const text = String(textNode.textContent || '');
+      const matches = [...text.matchAll(/!\s*([^!\r\n]+?)(?:\|[^!\r\n]*)?!/g)];
+      if (!matches.length) {
+        return;
+      }
+      const fragment = document.createDocumentFragment();
+      let lastIndex = 0;
+      matches.forEach(match => {
+        const matchIndex = Number(match.index || 0);
+        if (matchIndex > lastIndex) {
+          fragment.appendChild(document.createTextNode(text.slice(lastIndex, matchIndex)));
+        }
+        const normalizedName = normalizeHistoryAttachmentName(normalizeCommentImageReference(match[1]));
+        const attachmentView = normalizedName ? attachmentLookup.get(normalizedName) : null;
+        if (attachmentView?.inlineDisplaySrc) {
+          const imageNode = document.createElement('img');
+          imageNode.className = '_JX_previewable';
+          imageNode.setAttribute('src', attachmentView.inlineDisplaySrc);
+          imageNode.setAttribute('alt', attachmentView.filename || normalizeCommentImageReference(match[1]));
+          imageNode.setAttribute('data-jx-preview-src', attachmentView.previewDisplaySrc || attachmentView.inlineDisplaySrc);
+          imageNode.style.maxHeight = `${Number(imageMaxHeight) || 100}px`;
+          fragment.appendChild(imageNode);
+        } else {
+          fragment.appendChild(document.createTextNode(match[0]));
+        }
+        lastIndex = matchIndex + match[0].length;
+      });
+      if (lastIndex < text.length) {
+        fragment.appendChild(document.createTextNode(text.slice(lastIndex)));
+      }
+      textNode.parentNode?.replaceChild(fragment, textNode);
+    });
+  }
+
   function buildAttachmentImagesByName(attachmentLookup = new Map(), imageMaxHeight = 100) {
     const imagesByName = {};
     attachmentLookup.forEach((attachmentView, normalizedName) => {
@@ -966,10 +1025,6 @@ async function mainAsyncLocal() {
         return mentionHtml[Number(index)] || '';
       })
       .replace(/\n/g, '<br/>');
-  }
-
-  function hasAttachmentMarkup(input) {
-    return /!([^!\r\n]+)!/.test(String(input || ''));
   }
 
   function formatRelativeDate(created) {
@@ -1055,6 +1110,8 @@ async function mainAsyncLocal() {
     const {imageMaxHeight, attachmentLookup = null} = options;
     const temp = sanitizeRichHtml(html);
 
+    replaceAttachmentMarkupTextNodes(temp, attachmentLookup, imageMaxHeight);
+
     const imageNodes = Array.from(temp.querySelectorAll('img[src]'));
     await Promise.all(imageNodes.map(async img => {
       const altText = normalizeHistoryAttachmentName(img.getAttribute('alt') || '');
@@ -1121,9 +1178,7 @@ async function mainAsyncLocal() {
 
     return Promise.all(comments.map(async comment => {
       const rendered = renderedById[comment.id];
-      const prefersRawBodyRendering = hasAttachmentMarkup(comment.body || '');
-      const baseHtml = (!prefersRawBodyRendering && rendered)
-        || textToLinkedHtml(comment.body || '', {attachmentImagesByName});
+      const baseHtml = rendered || textToLinkedHtml(comment.body || '', {attachmentImagesByName});
       const bodyHtml = await normalizeRichHtml(baseHtml, {imageMaxHeight: 100, attachmentLookup});
       const commentId = String(comment.id || '');
       const isOwnedByCurrentUser = areSameJiraUser(comment.author, currentUser);
@@ -1543,7 +1598,8 @@ async function mainAsyncLocal() {
   }
 
   async function handleCommentSave() {
-    if (!activeCommentContext?.issueKey) {
+    const commentIssueKey = activeCommentContext?.issueKey || '';
+    if (!commentIssueKey) {
       return;
     }
 
@@ -1568,23 +1624,28 @@ async function mainAsyncLocal() {
     try {
       const uploadedAttachments = getUploadedCommentAttachments();
       const currentUser = await getCurrentUserInfo().catch(() => ({displayName: 'You'}));
-      const savedComment = await requestJson('POST', `${INSTANCE_URL}rest/api/2/issue/${activeCommentContext.issueKey}/comment`, {
+      const savedComment = await requestJson('POST', `${INSTANCE_URL}rest/api/2/issue/${commentIssueKey}/comment`, {
         body: commentText
       });
-      addSavedCommentToPopupState(savedComment, commentText, currentUser);
-      setCachedValue(issueCache, activeCommentContext.issueKey, popupState?.issueData);
-      changelogCache.delete(activeCommentContext.issueKey);
-      await appendCommentToPopup(savedComment, commentText, uploadedAttachments);
-      elements.input.val('');
-      commentComposerDraftValue = '';
-      commentComposerHadFocus = false;
-      commentComposerSelectionStart = 0;
-      commentComposerSelectionEnd = 0;
-      await clearCommentUploads({deleteUploaded: false});
-      elements.root.attr('data-saving', 'false');
-      setCommentComposerError('');
-      syncCommentComposerState();
-      if (popupState?.historyOpen) {
+      const isSameIssueStillVisible = popupState?.issueData?.key === commentIssueKey;
+      changelogCache.delete(commentIssueKey);
+      if (isSameIssueStillVisible) {
+        addSavedCommentToPopupState(savedComment, commentText, currentUser);
+        setCachedValue(issueCache, commentIssueKey, popupState?.issueData);
+        await appendCommentToPopup(savedComment, commentText, uploadedAttachments);
+        elements.input.val('');
+        commentComposerDraftValue = '';
+        commentComposerHadFocus = false;
+        commentComposerSelectionStart = 0;
+        commentComposerSelectionEnd = 0;
+        await clearCommentUploads({deleteUploaded: false});
+        elements.root.attr('data-saving', 'false');
+        setCommentComposerError('');
+        syncCommentComposerState();
+      } else {
+        issueCache.delete(commentIssueKey);
+      }
+      if (isSameIssueStillVisible && popupState?.historyOpen) {
         await refreshPopupIssueState('Comment added', {preserveHistory: true});
       }
     } catch (error) {

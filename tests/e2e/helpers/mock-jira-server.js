@@ -202,7 +202,7 @@ function createState(origin) {
           },
           created: '2026-03-17T10:48:00.000Z',
           body: 'Testirano na internom testnom okruzenju. Sada se report moze generirati, ali prikaz nije dobar.\n!image-2026-03-17-10-47-20-728.png|width=590,height=575!\nPrikaz bi trebao biti izjednacen s ostalim opcijama (npr. Email)\n!image-2026-03-17-10-48-30-600.png|width=1051,height=225!',
-          renderedBody: '<p>Testirano na internom testnom okruzenju. Sada se report moze generirati, ali prikaz nije dobar.</p><p><img src="/assets/history-image-1.png" alt="image-2026-03-17-10-47-20-728.png" /></p><p>Prikaz bi trebao biti izjednacen s ostalim opcijama (npr. Email)</p><p><img src="/assets/history-image-2.png" alt="image-2026-03-17-10-48-30-600.png" /></p>',
+          renderedBody: '<p>Testirano na internom testnom okruzenju. Sada se report moze generirati, ali prikaz <strong>nije dobar</strong>.</p><p><img src="/assets/history-image-1.png" alt="image-2026-03-17-10-47-20-728.png" /></p><p>Prikaz bi trebao biti izjednacen s ostalim opcijama (npr. Email)</p><p><img src="/assets/history-image-2.png" alt="image-2026-03-17-10-48-30-600.png" /></p>',
         },
       ],
       changelog: {
