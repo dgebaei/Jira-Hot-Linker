@@ -1,0 +1,1 @@
+export const MENTION_CONTEXT_WINDOW = 24;

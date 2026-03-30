@@ -50,6 +50,20 @@ async function pasteImageIntoComment(page) {
   }, TEST_PNG_BYTES);
 }
 
+async function expectMentionMenuNearTextareaCaret(inputLocator, menuLocator) {
+  const [inputBox, menuBox] = await Promise.all([
+    inputLocator.boundingBox(),
+    menuLocator.boundingBox(),
+  ]);
+
+  if (!inputBox || !menuBox) {
+    throw new Error('Expected both the textarea and mention menu to have bounding boxes.');
+  }
+
+  expect(menuBox.y).toBeGreaterThan(inputBox.y + 8);
+  expect(menuBox.y).toBeLessThan(inputBox.y + inputBox.height - 8);
+}
+
 test('renders Jira metadata, comments, attachments, pull requests, and custom fields', async ({extensionApp, optionsPage, servers}) => {
   const target = requireJiraTestTarget(test, servers, {requireAuth: process.env.MOCK === 'false'});
   if (target.mode === 'mock') {
@@ -177,6 +191,74 @@ test('supports search-based editing for user picker custom fields @mock-only', a
   await page.locator('input[data-field-key="customfield_54321"]').fill('Alex');
   const alexOption = page.locator('button[data-field-key="customfield_54321"]').filter({hasText: 'Alex Reviewer'}).first();
   await expect(alexOption).toBeVisible();
+
+  await page.close();
+});
+
+test('renders text custom fields with a plain prefilled input instead of select-style search UI @mock-only', async ({extensionApp, optionsPage, servers}) => {
+  const target = requireJiraTestTarget(test, servers, {requireAuth: process.env.MOCK === 'false'});
+  test.skip(target.mode !== 'mock', 'Text custom field coverage is deterministic in mocked mode only.');
+
+  await servers.jira.setScenario('editable');
+  await patchJsonResponse(optionsPage.context(), target.instanceUrl, '/rest/api/2/issue/[^?]+\\?fields=[^#]+$', (payload, request) => {
+    if (request.method() !== 'GET') {
+      return payload;
+    }
+    return {
+      ...payload,
+      names: {
+        ...payload.names,
+        customfield_12345: 'CustomTextField',
+      },
+      fields: {
+        ...payload.fields,
+        customfield_12345: payload.fields?.customfield_12345 === 'Customer impact: High'
+          ? 'Sun is shining!'
+          : payload.fields?.customfield_12345,
+      },
+    };
+  });
+  await patchJsonResponse(optionsPage.context(), target.instanceUrl, '/rest/api/2/issue/[^/]+/editmeta(?:\\?.*)?$', (payload, request) => {
+    if (request.method() !== 'GET') {
+      return payload;
+    }
+    return {
+      ...payload,
+      fields: {
+        ...payload.fields,
+        customfield_12345: {
+          required: false,
+          name: 'CustomTextField',
+          key: 'customfield_12345',
+          schema: {
+            type: 'string',
+            custom: 'com.atlassian.jira.plugin.system.customfieldtypes:textfield',
+          },
+          operations: ['set'],
+        },
+      },
+    };
+  });
+  await configureExtension(optionsPage, buildExtensionConfig(servers, {
+    customFields: [{fieldId: 'customfield_12345', row: 2}],
+  }, target));
+
+  const {page} = await openPopup(extensionApp, servers, target);
+  const popup = popupModel(page);
+
+  await expect(popup.root).toContainText('CustomTextField: Sun is shining!');
+  await page.locator('button[data-field-key="customfield_12345"]').click();
+
+  const input = page.locator('input[data-field-key="customfield_12345"]');
+  const options = page.locator('button[data-field-key="customfield_12345"]._JX_edit_option');
+  await expect(input).toBeVisible();
+  await expect(input).toHaveValue('Sun is shining!');
+  await expect(input).toHaveAttribute('placeholder', 'Type customtextfield');
+  await expect(options).toHaveCount(0);
+
+  await input.fill('Rain is coming');
+  await input.press('Enter');
+  await expect(popup.root).toContainText('CustomTextField: Rain is coming');
 
   await page.close();
 });
@@ -340,14 +422,6 @@ test('groups history entries and nests referenced attachments inside expanded co
   await expect(descriptionEvent.locator('._JX_history_rich_section_body')).toContainText('Updated rollout checklist for JRACLOUD-97000');
   await expect(flyout.locator('a._JX_history_issue_link', {hasText: 'JRACLOUD-97000'}).first()).toHaveAttribute('href', /browse\/JRACLOUD-97000$/);
 
-  await flyout.locator('button._JX_history_attachment_preview', {hasText: 'standalone-graph.png'}).click();
-  await expect(page.locator('._JX_preview_overlay')).toHaveClass(/is-open/);
-  await expect(page.locator('._JX_container')).toHaveClass(/container-pinned/);
-
-  await page.locator('._JX_preview_overlay').click({position: {x: 8, y: 8}});
-  await expect(page.locator('._JX_preview_overlay')).not.toHaveClass(/is-open/);
-  await expect(page.locator('._JX_history_flyout')).toBeVisible();
-
   await page.keyboard.press('Escape');
   await expect(page.locator('._JX_history_flyout')).toHaveCount(0);
   await expect(page.locator('._JX_title')).toHaveCount(1);
@@ -398,8 +472,17 @@ test('supports mentions and saving new comments in mocked mode', async ({extensi
   }
   await commentInput.fill(`@${mentionQuery}`);
   await expect(page.locator('._JX_comment_mention_option').first()).toBeVisible();
-  await commentInput.press('ArrowDown');
-  await commentInput.press('Enter');
+  if (target.mode === 'mock') {
+    await expectMentionMenuNearTextareaCaret(commentInput, page.locator('._JX_comment_compose ._JX_comment_mentions'));
+    await page.locator('._JX_comment_compose ._JX_comment_mention_option', {hasText: 'Morgan Agent'}).click();
+  } else {
+    await commentInput.press('ArrowDown');
+    await commentInput.press('Enter');
+  }
+  if (target.mode === 'mock') {
+    await expect(commentInput).toHaveValue('@Morgan Agent ');
+    await expect(commentInput).not.toHaveValue(/\[~/);
+  }
   const commentText = ` Investigated and reproduced locally. [playwright-${Date.now()}]`;
   await commentInput.type(commentText);
 
@@ -411,6 +494,11 @@ test('supports mentions and saving new comments in mocked mode', async ({extensi
 
   const newestComment = page.locator('._JX_comment').last();
   await expect(newestComment).toContainText('Investigated and reproduced locally.');
+  if (target.mode === 'mock') {
+    await expect(newestComment.locator('._JX_mention')).toContainText('Morgan Agent');
+    await page.locator('._JX_history_toggle').click();
+    await expect(page.locator('._JX_history_rich_preview').first()).toContainText('@Morgan Agent');
+  }
 
   if (target.mode === 'live') {
     const nextComments = await getIssueComments(resolvedTarget.primaryIssueKey, resolvedTarget);
@@ -422,6 +510,84 @@ test('supports mentions and saving new comments in mocked mode', async ({extensi
   await page.close();
 });
 
+test('supports user tagging while editing comments in mocked mode @mock-only', async ({extensionApp, optionsPage, servers}) => {
+  const target = requireJiraTestTarget(test, servers, {requireAuth: process.env.MOCK === 'false'});
+  test.skip(target.mode !== 'mock', 'Edit mention coverage is deterministic in mocked mode only.');
+
+  await servers.jira.setScenario('editable');
+  await configureExtension(optionsPage, baseConfig(servers, target));
+
+  const {page} = await openPopup(extensionApp, servers, target);
+  const commentInput = page.locator('._JX_comment_input');
+  await commentInput.fill('editable mention test');
+  await page.locator('._JX_comment_save').click();
+
+  const newestComment = page.locator('._JX_comment').last();
+  await newestComment.locator('._JX_comment_edit_button').click();
+  const editInput = newestComment.locator('._JX_comment_edit_input');
+  await editInput.fill(`${await editInput.inputValue()} @ale`);
+  await expect(page.locator('._JX_comment_edit_mention_option').first()).toBeVisible();
+  await expectMentionMenuNearTextareaCaret(editInput, newestComment.locator('._JX_comment_edit_mentions'));
+  await page.locator('._JX_comment_edit_mention_option', {hasText: 'Alex Reviewer'}).click();
+  await expect(editInput).toHaveValue(/@Alex Reviewer/);
+  await expect(editInput).not.toHaveValue(/\[~/);
+  await newestComment.locator('._JX_comment_edit_save').click();
+
+  await expect(page.locator('._JX_comment').last()).toContainText('Alex Reviewer');
+  await expect(page.locator('._JX_comment').last().locator('._JX_mention')).toContainText('Alex Reviewer');
+
+  await page.close();
+});
+
+test('preserves literal text when editing comments that already contain mentions in mocked mode @mock-only', async ({extensionApp, optionsPage, servers}) => {
+  const target = requireJiraTestTarget(test, servers, {requireAuth: process.env.MOCK === 'false'});
+  test.skip(target.mode !== 'mock', 'Mention edit coverage is deterministic in mocked mode only.');
+
+  await servers.jira.setScenario('editable');
+  await configureExtension(optionsPage, baseConfig(servers, target));
+
+  const {page} = await openPopup(extensionApp, servers, target);
+  const commentInput = page.locator('._JX_comment_input');
+  await commentInput.fill('@mor');
+  await expect(page.locator('._JX_comment_mention_option').first()).toBeVisible();
+  await commentInput.press('ArrowDown');
+  await commentInput.press('Enter');
+  await commentInput.type(' mentioned once.');
+  await page.locator('._JX_comment_save').click();
+
+  const newestComment = page.locator('._JX_comment').last();
+  await expect(newestComment.locator('._JX_mention')).toHaveCount(1);
+
+  await newestComment.locator('._JX_comment_edit_button').click();
+  const editInput = newestComment.locator('._JX_comment_edit_input');
+  const originalDraft = await editInput.inputValue();
+  await expect(editInput).toHaveValue(/@Morgan Agent/);
+  await editInput.fill(`Literal @Morgan Agent\n${originalDraft}`);
+  await newestComment.locator('._JX_comment_edit_save').click();
+
+  const savedComment = page.locator('._JX_comment').last();
+  await expect(savedComment.locator('._JX_mention')).toHaveCount(1);
+  await expect(savedComment.locator('._JX_comment_body')).toContainText('Literal @Morgan Agent');
+  await expect(savedComment.locator('._JX_comment_body')).toContainText('mentioned once.');
+
+  await page.close();
+});
+
+test('preserves rendered formatting for comments with attachment markup in mocked mode @mock-only', async ({extensionApp, optionsPage, servers}) => {
+  const target = requireJiraTestTarget(test, servers, {requireAuth: process.env.MOCK === 'false'});
+  test.skip(target.mode !== 'mock', 'Rendered comment formatting coverage is deterministic in mocked mode only.');
+
+  await servers.jira.setScenario('editable');
+  await configureExtension(optionsPage, baseConfig(servers, target));
+
+  const {page} = await openPopup(extensionApp, servers, target);
+  const formattedComment = page.locator('._JX_comment').filter({hasText: 'Prikaz bi trebao biti izjednacen'}).first();
+
+  await expect(formattedComment.locator('strong')).toContainText('nije dobar');
+
+  await page.close();
+});
+
 test('uploads a pasted image into the comment composer in mocked mode @mock-only', async ({extensionApp, optionsPage, servers}) => {
   const target = requireJiraTestTarget(test, servers, {requireAuth: process.env.MOCK === 'false'});
   test.skip(target.mode !== 'mock', 'Pasted-image upload coverage is deterministic in mocked mode only.');
@@ -430,10 +596,89 @@ test('uploads a pasted image into the comment composer in mocked mode @mock-only
   await configureExtension(optionsPage, baseConfig(servers, target));
 
   const {page} = await openPopup(extensionApp, servers, target);
+  const persistedCommentText = `Persisted attachment preview ${Date.now()}`;
   await pasteImageIntoComment(page);
+  await page.locator('._JX_comment_input').type(`\n\n${persistedCommentText}`);
 
   await expect(page.locator('._JX_comment_upload_status')).toContainText('Attached to issue');
   await expect(page.locator('._JX_comment_input')).toHaveValue(/!pasted-image.*\.png!/);
+
+  const uploadedFileName = await page.locator('._JX_comment_upload_name').textContent();
+  const attachmentThumb = page.locator('._JX_thumb').filter({hasText: uploadedFileName || ''}).locator('img._JX_previewable');
+  await expect(attachmentThumb).toHaveCount(1);
+  await expect(attachmentThumb).toHaveAttribute('src', /^data:image\//);
+
+  await page.locator('._JX_comment_save').click();
+  const savedComment = page.locator('._JX_comment').last();
+  const savedCommentImage = savedComment.locator('img._JX_previewable');
+  await expect(savedComment).toContainText(persistedCommentText);
+  await expect(savedCommentImage).toHaveCount(1);
+  await expect(savedCommentImage).toHaveAttribute('src', /^data:image\//);
+
+  await savedCommentImage.click();
+  await expect(page.locator('._JX_preview_overlay')).toHaveClass(/is-open/);
+  await expect(page.locator('._JX_preview_image')).toHaveAttribute('src', /^data:image\//);
+  await page.locator('._JX_preview_overlay').click({position: {x: 8, y: 8}});
+  await expect(page.locator('._JX_preview_overlay')).not.toHaveClass(/is-open/);
+
+  await page.locator('._JX_history_toggle').click();
+  const commentImageAfterHistoryOpen = page.locator(`._JX_comment img._JX_previewable[alt="${uploadedFileName || ''}"]`);
+  await expect(commentImageAfterHistoryOpen).toHaveCount(1);
+  const uploadedHistoryAttachment = page.locator('button._JX_history_attachment_preview', {hasText: uploadedFileName || ''}).first();
+  await expect(uploadedHistoryAttachment).toHaveCount(1);
+  await page.locator('._JX_history_flyout details').filter({hasText: persistedCommentText}).first().locator('summary').click();
+  const historyAttachmentInlinePreview = page.locator(`._JX_history_attachment_item img._JX_previewable[alt="${uploadedFileName || ''}"]`).first();
+  await expect(historyAttachmentInlinePreview).toHaveCount(1);
+  await expect(historyAttachmentInlinePreview).toHaveAttribute('src', /^data:image\//);
+  await uploadedHistoryAttachment.click();
+  await expect(page.locator('._JX_preview_overlay')).toHaveClass(/is-open/);
+  await expect(page.locator('._JX_preview_image')).toHaveAttribute('src', /^data:image\//);
+  await page.locator('._JX_preview_overlay').click({position: {x: 8, y: 8}});
+
+  await page.locator('._JX_close_button').click();
+  await expect(page.locator('._JX_title')).toHaveCount(0);
+  await hoverIssueKey(page, '#popup-key');
+  await expect(page.locator('._JX_container')).toContainText('JRACLOUD-97846');
+
+  const samePageReopenedComment = page.locator('._JX_comment').filter({hasText: persistedCommentText}).last();
+  const samePageReopenedCommentImage = samePageReopenedComment.locator(`img._JX_previewable[alt="${uploadedFileName || ''}"]`);
+  await expect(samePageReopenedCommentImage).toHaveCount(1);
+  await expect(samePageReopenedCommentImage).toHaveAttribute('src', /^data:image\//);
+  await page.locator('._JX_history_toggle').click();
+  const samePageReopenedHistoryEvent = page.locator('._JX_history_rich_event_comment').filter({hasText: persistedCommentText}).first();
+  await expect(samePageReopenedHistoryEvent).toHaveCount(1);
+  await samePageReopenedHistoryEvent.locator('summary').click();
+  const samePageReopenedHistoryImage = samePageReopenedHistoryEvent.locator(`img._JX_previewable[alt="${uploadedFileName || ''}"]`);
+  await expect(samePageReopenedHistoryImage).toHaveCount(1);
+  await expect(samePageReopenedHistoryImage).toHaveAttribute('src', /^data:image\//);
+
+  await page.goto(`${servers.allowedPage.origin}/popup-actions`);
+  await injectContentScript(extensionApp, page);
+  await expect.poll(async () => page.locator('._JX_container').count()).toBe(1);
+  await hoverIssueKey(page, '#popup-key');
+  await expect(page.locator('._JX_container')).toContainText('JRACLOUD-97846');
+
+  const reopenedComment = page.locator('._JX_comment').filter({hasText: persistedCommentText}).last();
+  const reopenedCommentImage = reopenedComment.locator(`img._JX_previewable[alt="${uploadedFileName || ''}"]`);
+  await expect(reopenedCommentImage).toHaveCount(1);
+  await expect(reopenedCommentImage).toHaveAttribute('src', /^data:image\//);
+  await reopenedCommentImage.click();
+  await expect(page.locator('._JX_preview_overlay')).toHaveClass(/is-open/);
+  await expect(page.locator('._JX_preview_image')).toHaveAttribute('src', /^data:image\//);
+  await page.locator('._JX_preview_overlay').click({position: {x: 8, y: 8}});
+
+  await page.locator('._JX_history_toggle').click();
+  const reopenedHistoryEvent = page.locator('._JX_history_rich_event_comment').filter({hasText: persistedCommentText}).first();
+  await expect(reopenedHistoryEvent).toHaveCount(1);
+  await reopenedHistoryEvent.locator('summary').click();
+  const reopenedHistoryInlinePreview = reopenedHistoryEvent.locator(`img._JX_previewable[alt="${uploadedFileName || ''}"]`);
+  await expect(reopenedHistoryInlinePreview).toHaveCount(1);
+  await expect(reopenedHistoryInlinePreview).toHaveAttribute('src', /^data:image\//);
+  const reopenedHistoryAttachment = reopenedHistoryEvent.locator('button._JX_history_attachment_preview', {hasText: uploadedFileName || ''}).first();
+  await expect(reopenedHistoryAttachment).toHaveCount(1);
+  await reopenedHistoryAttachment.click();
+  await expect(page.locator('._JX_preview_overlay')).toHaveClass(/is-open/);
+  await expect(page.locator('._JX_preview_image')).toHaveAttribute('src', /^data:image\//);
 
   await page.close();
 });

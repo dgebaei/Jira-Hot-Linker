@@ -91,7 +91,6 @@
                         </div>
                         {{/showActionButtons}}
                     </div>
-                    {{#loadingText}}<div class="_JX_edit_hint">{{loadingText}}</div>{{/loadingText}}
                     {{#editError}}<div class="_JX_edit_error">{{editError}}</div>{{/editError}}
                 </div>
             </div>
@@ -132,7 +131,10 @@
                 <svg width="14" height="14" viewBox="0 0 24 24" focusable="false" role="presentation"><path fill="currentColor" d="M18.3 5.71a1 1 0 0 0-1.41 0L12 10.59 7.11 5.7A1 1 0 0 0 5.7 7.11L10.59 12 5.7 16.89a1 1 0 1 0 1.41 1.41L12 13.41l4.89 4.89a1 1 0 0 0 1.41-1.41L13.41 12l4.89-4.89a1 1 0 0 0 0-1.4z"></path></svg>
             </button>
         </div>
-    </div>
+        </div>
+    {{#hasActionNotice}}
+    <div class="_JX_action_notice {{actionNoticeClass}}">{{actionNoticeText}}</div>
+    {{/hasActionNotice}}
     <div class="_JX_status">
         {{#hasPrimaryStatusRow}}
             <div class="_JX_status_row _JX_status_row_primary">
@@ -255,9 +257,9 @@
                                                     {{#attachments}}
                                                     <div class="_JX_history_attachment_item{{#isImage}} is-image{{/isImage}}">
                                                         {{#isImage}}
-                                                        {{#isPreviewable}}<button class="_JX_history_attachment_thumb _JX_history_attachment_preview" type="button" data-jx-preview-src="{{previewSrc}}" title="{{previewTitle}}"><img class="_JX_previewable" src="{{thumbnail}}" data-jx-preview-src="{{previewSrc}}" alt="{{filename}}"></button>{{/isPreviewable}}
+                                                        {{#isPreviewable}}<button class="_JX_history_attachment_thumb _JX_history_attachment_preview" type="button" data-jx-preview-src="{{previewDisplaySrc}}" title="{{previewTitle}}"><img class="_JX_previewable" src="{{thumbnail}}" data-jx-preview-src="{{previewDisplaySrc}}" alt="{{filename}}"></button>{{/isPreviewable}}
                                                         {{/isImage}}
-                                                        {{#isPreviewable}}<button class="_JX_history_attachment_preview _JX_history_attachment_link" type="button" data-jx-preview-src="{{previewSrc}}" title="{{previewTitle}}">{{filename}}</button>{{/isPreviewable}}
+                                                        {{#isPreviewable}}<button class="_JX_history_attachment_preview _JX_history_attachment_link" type="button" data-jx-preview-src="{{previewDisplaySrc}}" title="{{previewTitle}}">{{filename}}</button>{{/isPreviewable}}
                                                         {{^isPreviewable}}{{#hasUrl}}<a class="_JX_history_attachment_link" href="{{url}}" target="_blank" rel="noopener noreferrer" title="{{linkTitle}}">{{filename}}</a>{{/hasUrl}}{{/isPreviewable}}
                                                         {{^hasUrl}}<span class="_JX_history_attachment_name">{{filename}}</span>{{/hasUrl}}
                                                     </div>
@@ -558,10 +560,6 @@
         </div>
         {{/row3Chips.length}}
         </div>
-    {{#hasActionNotice}}
-    <div class="_JX_action_notice {{actionNoticeClass}}">{{actionNoticeText}}</div>
-    {{/hasActionNotice}}
-
     <div class="_JX_content_blocks">
         {{#timeTrackingSection}}
         <div class="_JX_content_block" data-content-block="timeTracking">
@@ -625,9 +623,9 @@
             <div class="_JX_section_title">Attachments</div>
             <div class="_JX_section_content">
             {{#previewAttachments}}
-            <div data-mime-type="{{mimeType}}" data-url="{{content}}" data-preview-src="{{content}}" class="_JX_thumb">
+            <div data-mime-type="{{mimeType}}" data-url="{{content}}" data-preview-src="{{previewDisplaySrc}}" class="_JX_thumb">
                 <a href="{{content}}" target="_blank" rel="noopener noreferrer" title="{{linkTitle}}">
-                    <img class="_JX_previewable" data-jx-preview-src="{{content}}" title="{{linkTitle}}" src="{{thumbnail}}">
+                    <img class="_JX_previewable" data-jx-preview-src="{{previewDisplaySrc}}" title="{{linkTitle}}" src="{{thumbnail}}">
                     <div class="_JX_thumb_filename">{{filename}}</div>
                     <img class="_JX_file_loader" src="{{loaderGifUrl}}">
                 </a>
@@ -728,6 +726,7 @@
                 {{#isEditing}}
                 <div class="_JX_comment_editor">
                     <textarea class="_JX_comment_edit_input" data-comment-id="{{id}}" rows="4">{{commentEditDraft}}</textarea>
+                    <div class="_JX_comment_mentions _JX_comment_edit_mentions" data-comment-id="{{id}}" hidden></div>
                     {{#commentActionError}}<div class="_JX_comment_action_error">{{commentActionError}}</div>{{/commentActionError}}
                 </div>
                 {{/isEditing}}

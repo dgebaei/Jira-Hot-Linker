@@ -1308,10 +1308,17 @@ body ._JX {
   }
 
   &_action_notice {
+    border-left: 1px solid #dde4e6;
+    border-right: 1px solid #dde4e6;
     border-bottom: 1px solid #dde4e6;
     font-size: 12px;
     font-weight: 700;
     padding: 8px 10px;
+  }
+
+  &_action_notice_info {
+    background: #eef4ff;
+    color: #1d4f91;
   }
 
   &_action_notice_success {
@@ -1871,6 +1878,7 @@ body ._JX {
     border: 1px solid #dfe1e6;
     border-radius: 8px;
     padding: 10px;
+    position: relative;
   }
 
   &_comment_edit_input {
@@ -1918,7 +1926,7 @@ body ._JX {
     border-top: 1px solid #dde4e6;
     bottom: 0;
     box-shadow: none;
-    margin: 10px -10px -10px;
+    margin: 20px -10px -10px;
     padding: 10px;
     position: sticky;
     z-index: 2;
@@ -1965,9 +1973,10 @@ body ._JX {
     border: 1px solid #c7d1db;
     border-radius: 8px;
     box-shadow: 0 10px 18px rgba(9, 30, 66, 0.12);
-    margin-top: 6px;
     max-height: 210px;
     overflow-y: auto;
+    position: absolute;
+    z-index: 4;
 
     &[hidden] {
       display: none;
@@ -2693,7 +2702,10 @@ html[data-jhl-theme='dark'] body ._JX {
     filter: invert(0.9) hue-rotate(180deg);
   }
 
-  &_title_user {
+  &_title_user,
+  &_comment_author_avatar,
+  &_watchers_avatar,
+  &_edit_option_avatar {
     filter: invert(1) hue-rotate(-180deg);
   }
 

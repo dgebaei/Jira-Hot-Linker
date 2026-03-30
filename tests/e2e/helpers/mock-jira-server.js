@@ -26,8 +26,29 @@ function noContent(res) {
   res.end();
 }
 
+function escapeHtml(value) {
+  return String(value || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function buildRenderedCommentBody(body) {
+  return `<p>${escapeHtml(body).replace(/\n/g, '<br/>')}</p>`;
+}
+
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function buildAttachmentContentUrl(origin, attachmentId) {
+  return `${origin}/rest/api/2/attachment/content/${attachmentId}`;
+}
+
+function buildAttachmentThumbnailUrl(origin, attachmentId) {
+  return `${origin}/rest/api/2/attachment/thumbnail/${attachmentId}`;
 }
 
 function issueDescriptionHtml(origin) {
@@ -134,29 +155,29 @@ function createState(origin) {
           id: '900',
           filename: 'evidence.png',
           mimeType: 'image/png',
-          content: `${origin}/assets/evidence.png`,
-          thumbnail: `${origin}/assets/evidence.png`,
+          content: buildAttachmentContentUrl(origin, '900'),
+          thumbnail: buildAttachmentThumbnailUrl(origin, '900'),
         },
         {
           id: '901',
           filename: 'image-2026-03-17-10-47-20-728.png',
           mimeType: 'image/png',
-          content: `${origin}/assets/history-image-1.png`,
-          thumbnail: `${origin}/assets/history-image-1.png`,
+          content: buildAttachmentContentUrl(origin, '901'),
+          thumbnail: buildAttachmentThumbnailUrl(origin, '901'),
         },
         {
           id: '902',
           filename: 'image-2026-03-17-10-48-30-600.png',
           mimeType: 'image/png',
-          content: `${origin}/assets/history-image-2.png`,
-          thumbnail: `${origin}/assets/history-image-2.png`,
+          content: buildAttachmentContentUrl(origin, '902'),
+          thumbnail: buildAttachmentThumbnailUrl(origin, '902'),
         },
         {
           id: '903',
           filename: 'standalone-graph.png',
           mimeType: 'image/png',
-          content: `${origin}/assets/standalone-graph.png`,
-          thumbnail: `${origin}/assets/standalone-graph.png`,
+          content: buildAttachmentContentUrl(origin, '903'),
+          thumbnail: buildAttachmentThumbnailUrl(origin, '903'),
         },
       ],
       comments: [
@@ -181,7 +202,7 @@ function createState(origin) {
           },
           created: '2026-03-17T10:48:00.000Z',
           body: 'Testirano na internom testnom okruzenju. Sada se report moze generirati, ali prikaz nije dobar.\n!image-2026-03-17-10-47-20-728.png|width=590,height=575!\nPrikaz bi trebao biti izjednacen s ostalim opcijama (npr. Email)\n!image-2026-03-17-10-48-30-600.png|width=1051,height=225!',
-          renderedBody: '<p>Testirano na internom testnom okruzenju. Sada se report moze generirati, ali prikaz nije dobar.</p><p><img src="/assets/history-image-1.png" alt="image-2026-03-17-10-47-20-728.png" /></p><p>Prikaz bi trebao biti izjednacen s ostalim opcijama (npr. Email)</p><p><img src="/assets/history-image-2.png" alt="image-2026-03-17-10-48-30-600.png" /></p>',
+          renderedBody: '<p>Testirano na internom testnom okruzenju. Sada se report moze generirati, ali prikaz <strong>nije dobar</strong>.</p><p><img src="/assets/history-image-1.png" alt="image-2026-03-17-10-47-20-728.png" /></p><p>Prikaz bi trebao biti izjednacen s ostalim opcijama (npr. Email)</p><p><img src="/assets/history-image-2.png" alt="image-2026-03-17-10-48-30-600.png" /></p>',
         },
       ],
       changelog: {
@@ -729,10 +750,28 @@ async function createMockJiraServer() {
         author: {displayName: state.currentUser.displayName},
         created: new Date().toISOString(),
         body: body?.body || '',
-        renderedBody: `<p>${String(body?.body || '').replace(/\n/g, '<br/>')}</p>`,
+        renderedBody: buildRenderedCommentBody(body?.body || ''),
       };
       state.issue.comments.push(newComment);
       json(res, 201, {id: newComment.id});
+      return;
+    }
+
+    if (pathname.startsWith(`/rest/api/2/issue/${state.issue.key}/comment/`) && req.method === 'PUT') {
+      if (state.scenario === 'anonymous-readonly' || state.scenario === 'logged-out') {
+        json(res, 401, {errorMessages: ['Login required']});
+        return;
+      }
+      const commentId = pathname.split('/').pop();
+      const comment = state.issue.comments.find(entry => String(entry.id || '') === String(commentId || ''));
+      if (!comment) {
+        json(res, 404, {errorMessages: ['Comment not found']});
+        return;
+      }
+      const body = await parseJsonBody(req);
+      comment.body = String(body?.body || '');
+      comment.renderedBody = buildRenderedCommentBody(comment.body);
+      json(res, 200, {id: comment.id});
       return;
     }
 
@@ -745,15 +784,57 @@ async function createMockJiraServer() {
         json(res, 500, {errorMessages: ['Could not upload pasted image']});
         return;
       }
+      const fileNameHeader = String(req.headers['x-atlassian-token-filename'] || '').trim();
+      const requestBody = await new Promise(resolve => {
+        const chunks = [];
+        req.on('data', chunk => chunks.push(chunk));
+        req.on('end', () => resolve(Buffer.concat(chunks).toString('latin1')));
+      });
+      const multipartFileNameMatch = requestBody.match(/filename="([^"]+)"/i);
+      const uploadedFileName = multipartFileNameMatch?.[1] || fileNameHeader || 'pasted-image.png';
+      const attachmentId = `attachment-${Date.now()}`;
       const attachment = {
-        id: `attachment-${Date.now()}`,
-        filename: 'pasted-image.png',
+        id: attachmentId,
+        filename: uploadedFileName,
         mimeType: 'image/png',
-        content: `${origin}/assets/uploaded-image.png`,
-        thumbnail: `${origin}/assets/uploaded-image.png`,
+        content: buildAttachmentContentUrl(origin, attachmentId),
+        thumbnail: buildAttachmentThumbnailUrl(origin, attachmentId),
       };
       state.uploadedAttachments.push(attachment);
+      state.issue.changelog.histories.unshift({
+        id: `history-upload-${Date.now()}`,
+        created: new Date().toISOString(),
+        author: {
+          displayName: state.currentUser.displayName,
+          accountId: state.currentUser.accountId,
+        },
+        items: [
+          {
+            field: 'Attachment',
+            fieldId: 'attachment',
+            fromString: '',
+            toString: uploadedFileName,
+          },
+        ],
+      });
       json(res, 200, [attachment]);
+      return;
+    }
+
+    if (/^\/rest\/api\/2\/attachment\/(?:content|thumbnail)\/[^/]+$/.test(pathname) && req.method === 'GET') {
+      const attachmentId = pathname.split('/').pop();
+      const attachment = state.issue.attachments.concat(state.uploadedAttachments).find(candidate => {
+        return String(candidate.id || '') === String(attachmentId || '');
+      });
+      if (!attachment) {
+        json(res, 404, {errorMessages: ['Attachment not found']});
+        return;
+      }
+      res.writeHead(200, {
+        'access-control-allow-origin': '*',
+        'content-type': attachment.mimeType || 'image/png',
+      });
+      res.end(PNG_BUFFER);
       return;
     }
 
@@ -818,6 +899,11 @@ async function createMockJiraServer() {
           const userId = fields.customfield_67890?.accountId || fields.customfield_67890?.name || fields.customfield_67890?.key;
           state.issue.customFields.customfield_67890 = state.assignableUsers.find(u => u.accountId === userId || u.name === userId || u.key === userId) || null;
         }
+      }
+      if (Object.prototype.hasOwnProperty.call(fields, 'customfield_12345')) {
+        state.issue.customFields.customfield_12345 = fields.customfield_12345 === null
+          ? null
+          : String(fields.customfield_12345);
       }
       if (fields.timetracking) {
         const tt = fields.timetracking;
@@ -935,7 +1021,7 @@ async function createMockJiraServer() {
 
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   const address = server.address();
-  origin = `http://127.0.0.1:${address.port}/`;
+  origin = `http://127.0.0.1:${address.port}`;
   reset('editable');
 
   return {

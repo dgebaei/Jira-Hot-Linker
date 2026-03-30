@@ -6,6 +6,8 @@ import Mustache from 'mustache';
 import {waitForDocument} from 'src/utils';
 import {sendMessage, storageGet, storageSet} from 'src/chrome';
 import {snackBar} from 'src/snack';
+import {MENTION_CONTEXT_WINDOW} from 'src/comment-mention-constants';
+import {positionMentionMenuAtCaret} from 'src/mention-menu-positioning';
 import {createPopupEditing} from 'src/popup-editing';
 import {createPopupQuickActions} from 'src/popup-quick-actions';
 import {createPopupCommentComposer} from 'src/popup-comment-composer';
@@ -107,7 +109,7 @@ chrome.runtime.onMessage.addListener(function (msg) {
 
 let ui_tips_shown_local = [];
 const CONNECTION_ERROR_PATTERN = /(failed to fetch|networkerror|network request failed|load failed|err_|timed?\s*out)/i;
-const COMMENT_REACTION_OPTIONS = [
+  const COMMENT_REACTION_OPTIONS = [
   {emoji: '👍', emojiId: '1f44d', label: 'thumbs up'},
   {emoji: '👎', emojiId: '1f44e', label: 'thumbs down'},
   {emoji: '🔥', emojiId: '1f525', label: 'fire'},
@@ -155,9 +157,18 @@ async function get(url) {
   return unwrapResponse(await sendMessage({action: 'get', url: url}));
 }
 
-async function getImageDataUrl(url) {
-  return unwrapResponse(await sendMessage({action: 'getImageDataUrl', url}));
-}
+  async function getImageDataUrl(url, mimeType = '') {
+    return unwrapResponse(await sendMessage({action: 'getImageDataUrl', url, mimeType}));
+  }
+
+  async function blobToDataUrl(blob) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onerror = () => reject(reader.error || new Error('Could not read image blob'));
+      reader.onload = () => resolve(String(reader.result || ''));
+      reader.readAsDataURL(blob);
+    });
+  }
 
 async function requestJson(method, url, body, headers) {
   return unwrapResponse(await sendMessage({action: 'requestJson', method, url, body, headers}));
@@ -317,14 +328,19 @@ async function mainAsyncLocal() {
   const tempoAccountSearchCache = new Map();
   const userPickerSearchCache = new Map();
   const userPickerLocalOptionsCache = new Map();
+  const jiraUserDisplayNameCache = new Map();
   let labelSuggestionSupportPromise = null;
   let editSearchRequestCounter = 0;
   let labelSearchTimeoutId = null;
   let watchersFeedbackTimeoutId = null;
+  let actionNoticeTimeoutId = null;
   let popupState = null;
   let activeCommentContext = null;
   let commentMentionState = emptyCommentMentionState();
+  let commentComposerMentionMappings = [];
   let commentMentionRequestId = 0;
+  let commentEditMentionState = {...emptyCommentMentionState(), commentId: ''};
+  let commentEditMentionRequestId = 0;
   let commentUploadState = emptyCommentUploadState();
   let commentUploadSessionId = 0;
   let commentUploadSequence = 0;
@@ -426,6 +442,7 @@ async function mainAsyncLocal() {
     getActiveCommentContext: () => activeCommentContext,
     getCommentComposerErrorMessage: () => commentComposerErrorMessage,
     getCommentComposerHadFocus: () => commentComposerHadFocus,
+    getCommentComposerMentionMappings: () => commentComposerMentionMappings,
     getCommentComposerSelectionEnd: () => commentComposerSelectionEnd,
     getCommentComposerSelectionStart: () => commentComposerSelectionStart,
     getCommentComposerDraftValue: () => commentComposerDraftValue,
@@ -436,11 +453,15 @@ async function mainAsyncLocal() {
     getCommentUploadState: () => commentUploadState,
     getContainer: () => container,
     getDisplayImageUrl,
+    rememberDisplayImageUrl,
+    onAttachmentUploaded: handleDraftAttachmentUploaded,
     keepContainerVisible,
     requestJson,
+    restoreEditableCommentMentions,
     setActiveCommentContext: nextValue => { activeCommentContext = nextValue; },
     setCommentComposerErrorMessage: nextValue => { commentComposerErrorMessage = nextValue; },
     setCommentComposerHadFocus: nextValue => { commentComposerHadFocus = nextValue; },
+    setCommentComposerMentionMappings: nextValue => { commentComposerMentionMappings = nextValue; },
     setCommentComposerSelectionEnd: nextValue => { commentComposerSelectionEnd = nextValue; },
     setCommentComposerSelectionStart: nextValue => { commentComposerSelectionStart = nextValue; },
     setCommentComposerDraftValue: nextValue => { commentComposerDraftValue = nextValue; },
@@ -469,21 +490,159 @@ async function mainAsyncLocal() {
     }
   }
 
-  async function getDisplayImageUrl(url) {
+  function isImageDataUrl(url) {
+    return /^data:image\//i.test(String(url || '').trim());
+  }
+
+  function buildAttachmentProxyUrl(url) {
     const absoluteUrl = toAbsoluteJiraUrl(url);
-    if (!absoluteUrl || !absoluteUrl.startsWith(INSTANCE_URL)) {
+    if (!absoluteUrl || isImageDataUrl(absoluteUrl)) {
       return absoluteUrl;
     }
-    if (imageProxyCache[absoluteUrl]) {
-      return imageProxyCache[absoluteUrl];
-    }
     try {
-      const dataUrl = await getImageDataUrl(absoluteUrl);
-      imageProxyCache[absoluteUrl] = dataUrl;
-      return dataUrl;
+      const parsedUrl = new URL(absoluteUrl);
+      const instanceUrl = new URL(INSTANCE_URL);
+      const isAttachmentApiUrl = parsedUrl.origin === instanceUrl.origin &&
+        /^\/rest\/api\/(?:2|3)\/attachment\/(?:content|thumbnail)\//i.test(parsedUrl.pathname);
+      if (!isAttachmentApiUrl) {
+        return absoluteUrl;
+      }
+      parsedUrl.searchParams.set('redirect', 'false');
+      return parsedUrl.toString();
     } catch (ex) {
       return absoluteUrl;
     }
+  }
+
+  function buildDisplayImageCacheKeys(url) {
+    const absoluteUrl = toAbsoluteJiraUrl(url);
+    if (!absoluteUrl) {
+      return [];
+    }
+    const proxyUrl = buildAttachmentProxyUrl(absoluteUrl);
+    return [...new Set([absoluteUrl, proxyUrl].filter(Boolean))];
+  }
+
+  function getCachedDisplayImageUrl(url) {
+    const cacheKeys = buildDisplayImageCacheKeys(url);
+    for (const cacheKey of cacheKeys) {
+      const cachedUrl = imageProxyCache[cacheKey];
+      if (isImageDataUrl(cachedUrl)) {
+        return cachedUrl;
+      }
+    }
+    return '';
+  }
+
+  function cacheDisplayImageUrl(dataUrl, ...urls) {
+    if (!isImageDataUrl(dataUrl)) {
+      return;
+    }
+    urls.forEach(url => {
+      buildDisplayImageCacheKeys(url).forEach(cacheKey => {
+        imageProxyCache[cacheKey] = dataUrl;
+      });
+    });
+  }
+
+  async function getDisplayImageUrl(url, mimeType = '') {
+    const absoluteUrl = toAbsoluteJiraUrl(url);
+    if (!absoluteUrl) {
+      return absoluteUrl;
+    }
+    if (isImageDataUrl(absoluteUrl)) {
+      return absoluteUrl;
+    }
+    try {
+      const imageUrl = new URL(absoluteUrl);
+      const instanceUrl = new URL(INSTANCE_URL);
+      if (imageUrl.origin !== instanceUrl.origin) {
+        return absoluteUrl;
+      }
+    } catch (ex) {
+      if (!absoluteUrl.startsWith(INSTANCE_URL)) {
+        return absoluteUrl;
+      }
+    }
+    const cachedDataUrl = getCachedDisplayImageUrl(absoluteUrl);
+    if (cachedDataUrl) {
+      return cachedDataUrl;
+    }
+    const fetchUrl = buildAttachmentProxyUrl(absoluteUrl);
+    try {
+      const dataUrl = await getImageDataUrl(fetchUrl, mimeType);
+      cacheDisplayImageUrl(dataUrl, absoluteUrl, fetchUrl);
+      return dataUrl;
+    } catch (ex) {
+      try {
+        const response = await fetch(fetchUrl, {credentials: 'include'});
+        if (response.ok) {
+          const responseBlob = await response.blob();
+          const effectiveMimeType = String(mimeType || responseBlob.type || response.headers.get('Content-Type') || '').trim().toLowerCase();
+          if (effectiveMimeType.startsWith('image/')) {
+            const normalizedBlob = responseBlob.type === effectiveMimeType
+              ? responseBlob
+              : new Blob([await responseBlob.arrayBuffer()], {type: effectiveMimeType});
+            const dataUrl = await blobToDataUrl(normalizedBlob);
+            cacheDisplayImageUrl(dataUrl, absoluteUrl, fetchUrl);
+            return dataUrl;
+          }
+        }
+      } catch (fallbackError) {
+        // Ignore and fall back to the original URL below.
+      }
+      return absoluteUrl;
+    }
+  }
+
+  function rememberDisplayImageUrl(url, dataUrl) {
+    cacheDisplayImageUrl(dataUrl, url);
+  }
+
+  async function resolveAttachmentDisplayImageUrl(mimeType, ...candidateUrls) {
+    for (const candidateUrl of candidateUrls) {
+      if (!candidateUrl) {
+        continue;
+      }
+      try {
+        const displayUrl = await getDisplayImageUrl(candidateUrl, mimeType);
+        if (isImageDataUrl(displayUrl)) {
+          return displayUrl;
+        }
+      } catch (ex) {
+        // Ignore and keep trying the next candidate.
+      }
+    }
+    return '';
+  }
+
+  async function normalizeIssueAttachmentImage(attachment) {
+    if (!attachment || typeof attachment !== 'object') {
+      return attachment;
+    }
+    const rawContentUrl = toAbsoluteJiraUrl(attachment.rawContentUrl || attachment.content);
+    const rawThumbnailUrl = toAbsoluteJiraUrl(attachment.rawThumbnailUrl || attachment.thumbnail);
+    const mimeType = String(attachment.mimeType || '').trim().toLowerCase();
+    const existingInlineDataUrl = isImageDataUrl(attachment.inlineDataUrl)
+      ? String(attachment.inlineDataUrl).trim()
+      : (isImageDataUrl(attachment.displayContent) ? String(attachment.displayContent).trim() : '');
+    const existingPreviewDataUrl = isImageDataUrl(attachment.previewDataUrl)
+      ? String(attachment.previewDataUrl).trim()
+      : '';
+    const inlineDataUrl = existingInlineDataUrl
+      || await resolveAttachmentDisplayImageUrl(mimeType, rawThumbnailUrl, rawContentUrl);
+    const previewDataUrl = existingPreviewDataUrl
+      || await resolveAttachmentDisplayImageUrl(mimeType, rawContentUrl, rawThumbnailUrl)
+      || inlineDataUrl;
+    attachment.rawContentUrl = rawContentUrl;
+    attachment.rawThumbnailUrl = rawThumbnailUrl || rawContentUrl;
+    attachment.content = rawContentUrl;
+    attachment.inlineDataUrl = inlineDataUrl;
+    attachment.previewDataUrl = previewDataUrl;
+    attachment.displayContent = inlineDataUrl;
+    attachment.previewDisplaySrc = previewDataUrl;
+    attachment.thumbnail = inlineDataUrl;
+    return attachment;
   }
 
   async function normalizeIssueImages(issueData) {
@@ -540,15 +699,7 @@ async function mainAsyncLocal() {
     });
 
     (issueData.fields.attachment || []).forEach(attachment => {
-      attachment.content = toAbsoluteJiraUrl(attachment.content);
-      attachment.thumbnail = toAbsoluteJiraUrl(attachment.thumbnail) || attachment.content;
-      if (attachment.thumbnail) {
-        imageLoads.push(
-          getDisplayImageUrl(attachment.thumbnail).then(src => {
-            attachment.thumbnail = src;
-          })
-        );
-      }
+      imageLoads.push(normalizeIssueAttachmentImage(attachment));
     });
 
     await Promise.all(imageLoads);
@@ -566,11 +717,309 @@ async function mainAsyncLocal() {
     return String(issueKey || '').trim().replace(/\s+/g, '-').toUpperCase();
   }
 
+  function cacheKnownJiraUser(user) {
+    if (!user || typeof user !== 'object') {
+      return;
+    }
+    const displayName = String(user.displayName || user.name || user.username || user.key || user.emailAddress || '').trim();
+    if (!displayName) {
+      return;
+    }
+    [user.accountId, user.name, user.username, user.key]
+      .map(value => String(value || '').trim())
+      .filter(Boolean)
+      .forEach(identity => {
+        jiraUserDisplayNameCache.set(identity, displayName);
+      });
+  }
+
+  function cacheKnownJiraUsers(users) {
+    (Array.isArray(users) ? users : []).forEach(cacheKnownJiraUser);
+  }
+
   function getMentionDisplayText(rawValue) {
     const normalized = String(rawValue || '')
-      .trim()
-      .replace(/^accountid:/i, '');
-    return normalized ? `@${normalized}` : '@mention';
+      .trim();
+    const identity = normalized.replace(/^accountid:/i, '');
+    const displayName = jiraUserDisplayNameCache.get(identity) || jiraUserDisplayNameCache.get(normalized);
+    if (displayName) {
+      return `@${displayName}`;
+    }
+    return identity ? `@${identity}` : '@mention';
+  }
+
+  function replaceMentionMarkupWithDisplayText(input) {
+    return String(input || '').replace(/\[~([^[\]\r\n]+?)\]/g, (match, mentionValue) => {
+      return getMentionDisplayText(mentionValue);
+    });
+  }
+
+  function normalizeCommentImageReference(value) {
+    return String(value || '').trim().split('|')[0].trim();
+  }
+
+  function countSharedPrefixLength(left, right) {
+    const leftText = String(left || '');
+    const rightText = String(right || '');
+    const maxLength = Math.min(leftText.length, rightText.length);
+    let index = 0;
+    while (index < maxLength && leftText[index] === rightText[index]) {
+      index += 1;
+    }
+    return index;
+  }
+
+  function countSharedSuffixLength(left, right) {
+    const leftText = String(left || '');
+    const rightText = String(right || '');
+    const maxLength = Math.min(leftText.length, rightText.length);
+    let index = 0;
+    while (
+      index < maxLength &&
+      leftText[leftText.length - 1 - index] === rightText[rightText.length - 1 - index]
+    ) {
+      index += 1;
+    }
+    return index;
+  }
+
+  function buildEditableCommentDraft(rawText) {
+    const sourceText = String(rawText || '');
+    const mentionMappings = [];
+    const mentionPattern = /\[~([^[\]\r\n]+?)\]/g;
+    let draft = '';
+    let lastIndex = 0;
+    let match = mentionPattern.exec(sourceText);
+    while (match) {
+      const matchText = String(match[0] || '');
+      const mentionValue = String(match[1] || '');
+      const matchOffset = Number(match.index || 0);
+      const displayText = getMentionDisplayText(mentionValue);
+      draft += sourceText.slice(lastIndex, matchOffset);
+      const start = draft.length;
+      draft += displayText;
+      mentionMappings.push({
+        displayText,
+        markup: matchText,
+        start,
+      });
+      lastIndex = matchOffset + matchText.length;
+      match = mentionPattern.exec(sourceText);
+    }
+    draft += sourceText.slice(lastIndex);
+    mentionMappings.forEach(mapping => {
+      const start = Number.isFinite(Number(mapping.start)) ? Number(mapping.start) : draft.indexOf(mapping.displayText);
+      const end = start + String(mapping.displayText || '').length;
+      mapping.start = start;
+      mapping.beforeContext = draft.slice(Math.max(0, start - MENTION_CONTEXT_WINDOW), start);
+      mapping.afterContext = draft.slice(end, end + MENTION_CONTEXT_WINDOW);
+    });
+    return {draft, mentionMappings};
+  }
+
+  function buildDraftMentionMapping(draftText, start, displayText, markup) {
+    const normalizedDraftText = String(draftText || '');
+    const normalizedDisplayText = String(displayText || '');
+    const normalizedStart = Number.isFinite(Number(start)) ? Number(start) : normalizedDraftText.indexOf(normalizedDisplayText);
+    const safeStart = Math.max(0, normalizedStart);
+    const end = safeStart + normalizedDisplayText.length;
+    return {
+      afterContext: normalizedDraftText.slice(end, end + MENTION_CONTEXT_WINDOW),
+      beforeContext: normalizedDraftText.slice(Math.max(0, safeStart - MENTION_CONTEXT_WINDOW), safeStart),
+      displayText: normalizedDisplayText,
+      markup: String(markup || ''),
+      start: safeStart,
+    };
+  }
+
+  function restoreEditableCommentMentions(draftText, mentionMappings = []) {
+    const sourceText = String(draftText || '');
+    const replacements = [];
+    let searchFloor = 0;
+    [...(Array.isArray(mentionMappings) ? mentionMappings : [])]
+      .filter(mapping => mapping?.displayText && mapping?.markup)
+      .forEach(mapping => {
+        const displayText = String(mapping.displayText || '');
+        const markup = String(mapping.markup || '');
+        if (!displayText || !markup) {
+          return;
+        }
+        let bestMatch = null;
+        let nextIndex = Math.max(0, searchFloor);
+        while (nextIndex <= sourceText.length) {
+          const matchIndex = sourceText.indexOf(displayText, nextIndex);
+          if (matchIndex === -1) {
+            break;
+          }
+          const beforeContext = String(mapping.beforeContext || '');
+          const afterContext = String(mapping.afterContext || '');
+          const beforeSample = sourceText.slice(Math.max(0, matchIndex - beforeContext.length), matchIndex);
+          const afterStart = matchIndex + displayText.length;
+          const afterSample = sourceText.slice(afterStart, afterStart + afterContext.length);
+          const contextScore = countSharedSuffixLength(beforeSample, beforeContext) + countSharedPrefixLength(afterSample, afterContext);
+          const preferredStart = Number.isFinite(Number(mapping.start)) ? Number(mapping.start) : matchIndex;
+          const candidate = {
+            start: matchIndex,
+            end: afterStart,
+            markup,
+            contextScore,
+            distanceScore: Math.abs(matchIndex - preferredStart),
+          };
+          if (
+            !bestMatch ||
+            candidate.contextScore > bestMatch.contextScore ||
+            (candidate.contextScore === bestMatch.contextScore && candidate.distanceScore < bestMatch.distanceScore)
+          ) {
+            bestMatch = candidate;
+          }
+          nextIndex = matchIndex + displayText.length;
+        }
+        if (!bestMatch) {
+          return;
+        }
+        if (!bestMatch.contextScore && (mapping.beforeContext || mapping.afterContext)) {
+          return;
+        }
+        replacements.push(bestMatch);
+        searchFloor = bestMatch.end;
+      });
+    if (!replacements.length) {
+      return sourceText;
+    }
+    let restored = '';
+    let cursor = 0;
+    replacements.forEach(replacement => {
+      restored += sourceText.slice(cursor, replacement.start);
+      restored += replacement.markup;
+      cursor = replacement.end;
+    });
+    restored += sourceText.slice(cursor);
+    return restored;
+  }
+
+  function replaceMentionTextNodes(rootNode) {
+    if (!rootNode) {
+      return;
+    }
+    const walker = document.createTreeWalker(rootNode, NodeFilter.SHOW_TEXT, {
+      acceptNode(node) {
+        if (!node?.textContent || !/\[~([^[\]\r\n]+?)\]/.test(node.textContent)) {
+          return NodeFilter.FILTER_SKIP;
+        }
+        const parentTag = String(node.parentElement?.tagName || '').toLowerCase();
+        if (parentTag === 'script' || parentTag === 'style' || parentTag === 'textarea') {
+          return NodeFilter.FILTER_SKIP;
+        }
+        return NodeFilter.FILTER_ACCEPT;
+      }
+    });
+
+    const textNodes = [];
+    let currentNode = walker.nextNode();
+    while (currentNode) {
+      textNodes.push(currentNode);
+      currentNode = walker.nextNode();
+    }
+
+    textNodes.forEach(textNode => {
+      const text = String(textNode.textContent || '');
+      const matches = [...text.matchAll(/\[~([^[\]\r\n]+?)\]/g)];
+      if (!matches.length) {
+        return;
+      }
+      const fragment = document.createDocumentFragment();
+      let lastIndex = 0;
+      matches.forEach(match => {
+        const matchIndex = Number(match.index || 0);
+        if (matchIndex > lastIndex) {
+          fragment.appendChild(document.createTextNode(text.slice(lastIndex, matchIndex)));
+        }
+        const mentionNode = document.createElement('span');
+        mentionNode.className = '_JX_mention';
+        mentionNode.textContent = getMentionDisplayText(match[1]);
+        fragment.appendChild(mentionNode);
+        lastIndex = matchIndex + match[0].length;
+      });
+      if (lastIndex < text.length) {
+        fragment.appendChild(document.createTextNode(text.slice(lastIndex)));
+      }
+      textNode.parentNode?.replaceChild(fragment, textNode);
+    });
+  }
+
+  function replaceAttachmentMarkupTextNodes(rootNode, attachmentLookup = null, imageMaxHeight = 100) {
+    if (!rootNode || !attachmentLookup?.size) {
+      return;
+    }
+    const walker = document.createTreeWalker(rootNode, NodeFilter.SHOW_TEXT, {
+      acceptNode(node) {
+        if (!node?.textContent || !/!\s*([^!\r\n]+?)(?:\|[^!\r\n]*)?!/.test(node.textContent)) {
+          return NodeFilter.FILTER_SKIP;
+        }
+        const parentTag = String(node.parentElement?.tagName || '').toLowerCase();
+        if (parentTag === 'script' || parentTag === 'style' || parentTag === 'textarea') {
+          return NodeFilter.FILTER_SKIP;
+        }
+        return NodeFilter.FILTER_ACCEPT;
+      }
+    });
+
+    const textNodes = [];
+    let currentNode = walker.nextNode();
+    while (currentNode) {
+      textNodes.push(currentNode);
+      currentNode = walker.nextNode();
+    }
+
+    textNodes.forEach(textNode => {
+      const text = String(textNode.textContent || '');
+      const matches = [...text.matchAll(/!\s*([^!\r\n]+?)(?:\|[^!\r\n]*)?!/g)];
+      if (!matches.length) {
+        return;
+      }
+      const fragment = document.createDocumentFragment();
+      let lastIndex = 0;
+      matches.forEach(match => {
+        const matchIndex = Number(match.index || 0);
+        if (matchIndex > lastIndex) {
+          fragment.appendChild(document.createTextNode(text.slice(lastIndex, matchIndex)));
+        }
+        const normalizedName = normalizeHistoryAttachmentName(normalizeCommentImageReference(match[1]));
+        const attachmentView = normalizedName ? attachmentLookup.get(normalizedName) : null;
+        if (attachmentView?.inlineDisplaySrc) {
+          const imageNode = document.createElement('img');
+          imageNode.className = '_JX_previewable';
+          imageNode.setAttribute('src', attachmentView.inlineDisplaySrc);
+          imageNode.setAttribute('alt', attachmentView.filename || normalizeCommentImageReference(match[1]));
+          imageNode.setAttribute('data-jx-preview-src', attachmentView.previewDisplaySrc || attachmentView.inlineDisplaySrc);
+          imageNode.style.maxHeight = `${Number(imageMaxHeight) || 100}px`;
+          fragment.appendChild(imageNode);
+        } else {
+          fragment.appendChild(document.createTextNode(match[0]));
+        }
+        lastIndex = matchIndex + match[0].length;
+      });
+      if (lastIndex < text.length) {
+        fragment.appendChild(document.createTextNode(text.slice(lastIndex)));
+      }
+      textNode.parentNode?.replaceChild(fragment, textNode);
+    });
+  }
+
+  function buildAttachmentImagesByName(attachmentLookup = new Map(), imageMaxHeight = 100) {
+    const imagesByName = {};
+    attachmentLookup.forEach((attachmentView, normalizedName) => {
+      const fileName = String(attachmentView?.filename || '').trim();
+      const imageSrc = attachmentView?.inlineDisplaySrc || attachmentView?.thumbnail || '';
+      const previewSrc = attachmentView?.previewDisplaySrc || imageSrc;
+      if (!fileName || !imageSrc) {
+        return;
+      }
+      const markup = `<img class="_JX_previewable" src="${escapeHtml(imageSrc)}" data-jx-preview-src="${escapeHtml(previewSrc)}" alt="${escapeHtml(fileName)}" style="max-height: ${Number(imageMaxHeight) || 100}px;" />`;
+      imagesByName[normalizedName] = markup;
+      imagesByName[fileName] = markup;
+    });
+    return imagesByName;
   }
 
   function textToLinkedHtml(input, options = {}) {
@@ -583,7 +1032,7 @@ async function mainAsyncLocal() {
     });
     const imageHtml = [];
     const inputWithImages = inputWithMentions.replace(/!([^!\r\n]+)!/g, function (match, imageName) {
-      const normalizedName = String(imageName || '').trim();
+      const normalizedName = normalizeCommentImageReference(imageName);
       const imageMarkup = attachmentImagesByName[normalizedName];
       if (!imageMarkup) {
         return match;
@@ -687,19 +1136,27 @@ async function mainAsyncLocal() {
     if (!html) {
       return '';
     }
-    const {imageMaxHeight} = options;
+    const {imageMaxHeight, attachmentLookup = null} = options;
     const temp = sanitizeRichHtml(html);
+
+    replaceAttachmentMarkupTextNodes(temp, attachmentLookup, imageMaxHeight);
 
     const imageNodes = Array.from(temp.querySelectorAll('img[src]'));
     await Promise.all(imageNodes.map(async img => {
-      const src = img.getAttribute('src');
-      const absoluteSrc = toAbsoluteJiraUrl(src);
-      const displaySrc = await getDisplayImageUrl(absoluteSrc);
-      const resolvedSrc = displaySrc || absoluteSrc || src;
-      if (resolvedSrc) {
-        img.setAttribute('src', resolvedSrc);
-        img.setAttribute('data-jx-preview-src', resolvedSrc);
+      const altText = normalizeHistoryAttachmentName(img.getAttribute('alt') || '');
+      const linkedAttachment = altText && attachmentLookup?.get(altText)
+        ? attachmentLookup.get(altText)
+        : null;
+      const linkedInlineSrc = linkedAttachment?.inlineDisplaySrc || linkedAttachment?.thumbnail || '';
+      const linkedPreviewSrc = linkedAttachment?.previewDisplaySrc || linkedInlineSrc;
+      const rawSourceUrl = img.getAttribute('src');
+      const displaySrc = linkedInlineSrc || await getDisplayImageUrl(toAbsoluteJiraUrl(rawSourceUrl));
+      if (displaySrc) {
+        img.setAttribute('src', displaySrc);
+        img.setAttribute('data-jx-preview-src', linkedPreviewSrc || displaySrc);
         img.classList.add('_JX_previewable');
+      } else if (linkedAttachment) {
+        img.remove();
       }
       if (imageMaxHeight) {
         img.style.maxHeight = `${imageMaxHeight}px`;
@@ -722,6 +1179,8 @@ async function mainAsyncLocal() {
       ));
     });
 
+    replaceMentionTextNodes(temp);
+
     return temp.innerHTML;
   }
 
@@ -733,7 +1192,13 @@ async function mainAsyncLocal() {
       return new Date(a.created).getTime() - new Date(b.created).getTime();
     });
     const renderedById = {};
+    const attachmentLookup = buildHistoryAttachmentLookup(issueData?.fields?.attachment || []);
+    const attachmentImagesByName = buildAttachmentImagesByName(attachmentLookup, 100);
     const currentUser = await getCurrentUserInfo().catch(() => null);
+    cacheKnownJiraUser(currentUser);
+    cacheKnownJiraUser(issueData?.fields?.reporter);
+    cacheKnownJiraUser(issueData?.fields?.assignee);
+    cacheKnownJiraUsers(comments.map(comment => comment?.author).filter(Boolean));
     ((issueData.renderedFields?.comment?.comments) || []).forEach(comment => {
       if (comment && comment.id) {
         renderedById[comment.id] = comment.body;
@@ -742,8 +1207,8 @@ async function mainAsyncLocal() {
 
     return Promise.all(comments.map(async comment => {
       const rendered = renderedById[comment.id];
-      const baseHtml = rendered || textToLinkedHtml(comment.body || '');
-      const bodyHtml = await normalizeRichHtml(baseHtml, {imageMaxHeight: 100});
+      const baseHtml = rendered || textToLinkedHtml(comment.body || '', {attachmentImagesByName});
+      const bodyHtml = await normalizeRichHtml(baseHtml, {imageMaxHeight: 100, attachmentLookup});
       const commentId = String(comment.id || '');
       const isOwnedByCurrentUser = areSameJiraUser(comment.author, currentUser);
       const isEditing = commentSession?.commentId === commentId && commentSession.mode === 'edit';
@@ -884,6 +1349,7 @@ async function mainAsyncLocal() {
     const rawCandidates = Array.isArray(response)
       ? response
       : response?.users || response?.items || [];
+    cacheKnownJiraUsers(rawCandidates);
     const seen = new Set();
     return rawCandidates
       .map(candidate => {
@@ -905,6 +1371,28 @@ async function mainAsyncLocal() {
       })
       .filter(Boolean)
       .slice(0, 6);
+  }
+
+  function getActiveTextMentionRange(inputElement) {
+    if (!inputElement) {
+      return null;
+    }
+    const value = inputElement.value || '';
+    const caretStart = typeof inputElement.selectionStart === 'number' ? inputElement.selectionStart : value.length;
+    const caretEnd = typeof inputElement.selectionEnd === 'number' ? inputElement.selectionEnd : caretStart;
+    if (caretStart !== caretEnd) {
+      return null;
+    }
+    const beforeCaret = value.slice(0, caretStart);
+    const mentionMatch = beforeCaret.match(/(^|[\s(])@([^\s@]{1,50})$/);
+    if (!mentionMatch) {
+      return null;
+    }
+    let end = caretEnd;
+    while (end < value.length && !/\s/.test(value.charAt(end))) {
+      end += 1;
+    }
+    return {end, query: mentionMatch[2], start: caretStart - mentionMatch[2].length - 1};
   }
 
 
@@ -1127,14 +1615,49 @@ async function mainAsyncLocal() {
     updateCommentActivityCount(1);
   }
 
+  function addSavedCommentToPopupState(savedComment, commentText, fallbackAuthor = null) {
+    if (!popupState?.issueData?.fields) {
+      return;
+    }
+    const nextComment = {
+      ...savedComment,
+      id: String(savedComment?.id || ''),
+      body: commentText || savedComment?.body || '',
+      author: savedComment?.author || fallbackAuthor || null,
+      created: savedComment?.created || new Date().toISOString(),
+    };
+    const existingComments = Array.isArray(popupState.issueData.fields.comment?.comments)
+      ? popupState.issueData.fields.comment.comments
+      : [];
+    const nextComments = [
+      ...existingComments.filter(comment => String(comment?.id || '') !== nextComment.id),
+      nextComment,
+    ];
+    popupState = {
+      ...popupState,
+      issueData: {
+        ...popupState.issueData,
+        fields: {
+          ...popupState.issueData.fields,
+          comment: {
+            ...(popupState.issueData.fields.comment || {}),
+            comments: nextComments,
+          }
+        }
+      }
+    };
+  }
+
   async function handleCommentSave() {
-    if (!activeCommentContext?.issueKey) {
+    const commentIssueKey = activeCommentContext?.issueKey || '';
+    if (!commentIssueKey) {
       return;
     }
 
     resetCommentMentionState();
     const elements = getCommentComposerElements();
-    const commentText = elements.input.val().trim();
+    const commentDraftText = String(elements.input.val() || '');
+    const commentText = commentDraftText.trim();
     commentComposerDraftValue = commentText;
     if (!commentText) {
       syncCommentComposerState();
@@ -1152,19 +1675,33 @@ async function mainAsyncLocal() {
 
     try {
       const uploadedAttachments = getUploadedCommentAttachments();
-      const savedComment = await requestJson('POST', `${INSTANCE_URL}rest/api/2/issue/${activeCommentContext.issueKey}/comment`, {
-        body: commentText
+      const currentUser = await getCurrentUserInfo().catch(() => ({displayName: 'You'}));
+      const requestBody = restoreEditableCommentMentions(commentText, commentComposerMentionMappings);
+      const savedComment = await requestJson('POST', `${INSTANCE_URL}rest/api/2/issue/${commentIssueKey}/comment`, {
+        body: requestBody
       });
-      await appendCommentToPopup(savedComment, commentText, uploadedAttachments);
-      elements.input.val('');
-      commentComposerDraftValue = '';
-      commentComposerHadFocus = false;
-      commentComposerSelectionStart = 0;
-      commentComposerSelectionEnd = 0;
-      await clearCommentUploads({deleteUploaded: false});
-      elements.root.attr('data-saving', 'false');
-      setCommentComposerError('');
-      syncCommentComposerState();
+      const isSameIssueStillVisible = popupState?.issueData?.key === commentIssueKey;
+      changelogCache.delete(commentIssueKey);
+      if (isSameIssueStillVisible) {
+        addSavedCommentToPopupState(savedComment, requestBody, currentUser);
+        setCachedValue(issueCache, commentIssueKey, popupState?.issueData);
+        await appendCommentToPopup(savedComment, requestBody, uploadedAttachments);
+        elements.input.val('');
+        commentComposerDraftValue = '';
+        commentComposerMentionMappings = [];
+        commentComposerHadFocus = false;
+        commentComposerSelectionStart = 0;
+        commentComposerSelectionEnd = 0;
+        await clearCommentUploads({deleteUploaded: false});
+        elements.root.attr('data-saving', 'false');
+        setCommentComposerError('');
+        syncCommentComposerState();
+      } else {
+        issueCache.delete(commentIssueKey);
+      }
+      if (isSameIssueStillVisible && popupState?.historyOpen) {
+        await refreshPopupIssueState('Comment added', {preserveHistory: true});
+      }
     } catch (error) {
       elements.root.attr('data-saving', 'false');
       setCommentComposerError(error?.message || error?.inner || 'Could not save comment');
@@ -1185,6 +1722,12 @@ async function mainAsyncLocal() {
     return popupState?.commentSession || null;
   }
 
+  function resetCommentEditMentionState() {
+    commentEditMentionRequestId += 1;
+    debouncedLoadCommentEditMentionSuggestions.cancel();
+    commentEditMentionState = {...emptyCommentMentionState(), commentId: ''};
+  }
+
   function setCommentSession(nextSession) {
     if (!popupState) {
       return;
@@ -1199,6 +1742,7 @@ async function mainAsyncLocal() {
     if (!popupState?.commentSession) {
       return;
     }
+    resetCommentEditMentionState();
     setCommentSession(null);
     renderIssuePopup(popupState).catch(() => {});
   }
@@ -1212,15 +1756,168 @@ async function mainAsyncLocal() {
     if (!popupState?.issueData || !commentId) {
       return;
     }
+    resetCommentEditMentionState();
+    const {draft, mentionMappings} = buildEditableCommentDraft(commentBody);
     setCommentSession({
       commentId: String(commentId),
-      draft: String(commentBody || ''),
+      draft,
       error: '',
+      mentionMappings,
       mode: 'edit',
-      selectionEnd: String(commentBody || '').length,
-      selectionStart: String(commentBody || '').length,
+      selectionEnd: draft.length,
+      selectionStart: draft.length,
       saving: false
     });
+    renderIssuePopup(popupState).catch(() => {});
+  }
+
+  async function loadCommentEditMentionSuggestions(commentId, mention) {
+    const requestId = ++commentEditMentionRequestId;
+    try {
+      const suggestions = await searchCommentMentionCandidates(mention.query);
+      if (requestId !== commentEditMentionRequestId) {
+        return;
+      }
+      commentEditMentionState = {
+        commentId: String(commentId || ''),
+        error: '',
+        loading: false,
+        query: mention.query,
+        range: mention,
+        selectedIndex: 0,
+        suggestions,
+        visible: true,
+      };
+    } catch (error) {
+      if (requestId !== commentEditMentionRequestId) {
+        return;
+      }
+      commentEditMentionState = {
+        commentId: String(commentId || ''),
+        error: 'Could not load people.',
+        loading: false,
+        query: mention.query,
+        range: mention,
+        selectedIndex: 0,
+        suggestions: [],
+        visible: true,
+      };
+    }
+    renderIssuePopup(popupState).catch(() => {});
+  }
+
+  const debouncedLoadCommentEditMentionSuggestions = debounce((commentId, mention) => {
+    loadCommentEditMentionSuggestions(commentId, mention).catch(() => {});
+  }, 150);
+
+  function syncCommentEditMentionSuggestions(inputElement, commentId) {
+    const mention = getActiveTextMentionRange(inputElement);
+    if (!mention || !commentId) {
+      if (commentEditMentionState.visible) {
+        resetCommentEditMentionState();
+        renderIssuePopup(popupState).catch(() => {});
+      }
+      return;
+    }
+    commentEditMentionState = {
+      commentId: String(commentId),
+      error: '',
+      loading: true,
+      query: mention.query,
+      range: mention,
+      selectedIndex: 0,
+      suggestions: [],
+      visible: true,
+    };
+    renderIssuePopup(popupState).catch(() => {});
+    debouncedLoadCommentEditMentionSuggestions(commentId, mention);
+  }
+
+  function moveCommentEditMentionSelection(delta) {
+    if (!commentEditMentionState.visible || !commentEditMentionState.suggestions.length) {
+      return;
+    }
+    const suggestionsTotal = commentEditMentionState.suggestions.length;
+    commentEditMentionState = {
+      ...commentEditMentionState,
+      selectedIndex: (commentEditMentionState.selectedIndex + delta + suggestionsTotal) % suggestionsTotal,
+    };
+    renderIssuePopup(popupState).catch(() => {});
+  }
+
+  function renderCommentEditMentionSuggestions() {
+    container.find('._JX_comment_edit_mentions').attr('hidden', 'hidden').empty();
+    if (!commentEditMentionState.visible || !commentEditMentionState.commentId) {
+      return;
+    }
+    const mentions = container.find(`._JX_comment_edit_mentions[data-comment-id="${commentEditMentionState.commentId}"]`);
+    const input = container.find(`._JX_comment_edit_input[data-comment-id="${commentEditMentionState.commentId}"]`);
+    const mentionsElement = mentions.get(0);
+    const inputElement = input.get(0);
+    if (!mentions.length) {
+      return;
+    }
+    const positionSuggestions = (html) => {
+      mentions.removeAttr('hidden').html(html);
+      if (mentionsElement && inputElement) {
+        positionMentionMenuAtCaret({
+          caretIndex: typeof inputElement.selectionStart === 'number'
+            ? inputElement.selectionStart
+            : commentEditMentionState.range?.start,
+          hostElement: input.closest('._JX_comment_editor').get(0),
+          inputElement,
+          menuElement: mentionsElement,
+        });
+      }
+    };
+    if (commentEditMentionState.loading) {
+      positionSuggestions('<div class="_JX_comment_mentions_status">Searching people...</div>');
+      return;
+    }
+    if (commentEditMentionState.error) {
+      positionSuggestions(`<div class="_JX_comment_mentions_status">${escapeHtml(commentEditMentionState.error)}</div>`);
+      return;
+    }
+    if (!commentEditMentionState.suggestions.length) {
+      positionSuggestions('<div class="_JX_comment_mentions_status">No people found.</div>');
+      return;
+    }
+    positionSuggestions(commentEditMentionState.suggestions.map((candidate, index) => {
+      const selectedClass = index === commentEditMentionState.selectedIndex ? ' is-selected' : '';
+      const secondary = candidate.secondaryText ? `<span class="_JX_comment_mention_secondary">${escapeHtml(candidate.secondaryText)}</span>` : '';
+      return `
+        <button class="_JX_comment_mention_option${selectedClass} _JX_comment_edit_mention_option" type="button" data-comment-id="${escapeHtml(commentEditMentionState.commentId)}" data-mention-index="${index}">
+          <span>
+            <span class="_JX_comment_mention_primary">${escapeHtml(candidate.displayName)}</span>
+            ${secondary}
+          </span>
+        </button>
+      `;
+    }).join(''));
+  }
+
+  function applyCommentEditMentionSelection(index) {
+    const activeSession = getActiveCommentSession();
+    const suggestionState = commentEditMentionState;
+    const candidate = suggestionState.suggestions[index];
+    const mentionRange = suggestionState.range;
+    if (!activeSession || activeSession.mode !== 'edit' || !candidate || !mentionRange) {
+      return;
+    }
+    const displayText = `@${candidate.displayName || candidate.name || candidate.username || 'mention'}`;
+    const nextDraft = String(activeSession.draft || '').slice(0, mentionRange.start) + `${displayText} ` + String(activeSession.draft || '').slice(mentionRange.end);
+    setCommentSession({
+      ...activeSession,
+      draft: nextDraft,
+      error: '',
+      mentionMappings: [
+        ...(Array.isArray(activeSession.mentionMappings) ? activeSession.mentionMappings : []),
+        buildDraftMentionMapping(nextDraft, mentionRange.start, displayText, candidate.mentionMarkup),
+      ],
+      selectionStart: mentionRange.start + displayText.length + 1,
+      selectionEnd: mentionRange.start + displayText.length + 1,
+    });
+    resetCommentEditMentionState();
     renderIssuePopup(popupState).catch(() => {});
   }
 
@@ -1228,6 +1925,7 @@ async function mainAsyncLocal() {
     if (!popupState?.issueData || !commentId) {
       return;
     }
+    resetCommentEditMentionState();
     setCommentSession({
       commentId: String(commentId),
       draft: '',
@@ -1258,6 +1956,7 @@ async function mainAsyncLocal() {
     if (!popupState?.key || !activeSession || activeSession.commentId !== String(commentId) || activeSession.mode !== 'edit' || activeSession.saving) {
       return;
     }
+    resetCommentEditMentionState();
     const nextDraft = String(activeSession.draft || '');
     if (!nextDraft.trim()) {
       setCommentSession({...activeSession, error: 'Comment cannot be empty.'});
@@ -1269,10 +1968,11 @@ async function mainAsyncLocal() {
     await renderIssuePopup(popupState);
 
     try {
+      const requestBody = restoreEditableCommentMentions(nextDraft, activeSession.mentionMappings);
       await requestJson('PUT', `${INSTANCE_URL}rest/api/2/issue/${popupState.key}/comment/${commentId}`, {
-        body: nextDraft
+        body: requestBody
       });
-      await refreshPopupIssueState('Comment updated');
+      await refreshPopupIssueState('Comment updated', {preserveHistory: !!popupState?.historyOpen});
     } catch (error) {
       const errorMessage = error?.message || error?.inner || 'Could not update comment';
       const latestSession = getActiveCommentSession();
@@ -1296,7 +1996,7 @@ async function mainAsyncLocal() {
 
     try {
       await requestJson('DELETE', `${INSTANCE_URL}rest/api/2/issue/${popupState.key}/comment/${commentId}`);
-      await refreshPopupIssueState('Comment deleted');
+      await refreshPopupIssueState('Comment deleted', {preserveHistory: !!popupState?.historyOpen});
     } catch (error) {
       const errorMessage = error?.message || error?.inner || 'Could not delete comment';
       const latestSession = getActiveCommentSession();
@@ -1464,6 +2164,16 @@ async function mainAsyncLocal() {
     return value;
   }
 
+  function setCachedValue(cache, key, value) {
+    if (!key) {
+      return;
+    }
+    cache.set(key, {
+      createdAt: Date.now(),
+      value
+    });
+  }
+
   // ── Changelog ────────────────────────────────────────────
 
   async function getIssueChangelog(issueKey) {
@@ -1474,6 +2184,7 @@ async function mainAsyncLocal() {
   }
 
   const HISTORY_GROUP_WINDOW_MS = 5 * 60 * 1000;
+  const HISTORY_ATTACHMENT_MATCH_WINDOW_MS = 24 * 60 * 60 * 1000;
 
   function normalizeHistoryFieldName(fieldName) {
     return String(fieldName || '').trim().toLowerCase();
@@ -1583,32 +2294,35 @@ async function mainAsyncLocal() {
 
   function buildHistoryAttachmentView(attachment, fallbackName = '') {
     const filename = String(attachment?.filename || fallbackName || '').trim();
-    const url = attachment?.content || '';
-    const previewSrc = attachment?.content || '';
-    const thumbnail = attachment?.thumbnail || previewSrc;
+    const url = attachment?.rawContentUrl || attachment?.content || '';
+    const inlineDisplaySrc = attachment?.inlineDataUrl || attachment?.displayContent || '';
+    const previewDisplaySrc = attachment?.previewDataUrl || attachment?.previewDisplaySrc || inlineDisplaySrc;
+    const thumbnail = inlineDisplaySrc;
     const mimeType = String(attachment?.mimeType || '').toLowerCase();
     return {
       filename,
       hasUrl: !!url,
       url,
-      previewSrc,
+      inlineDisplaySrc,
+      previewDisplaySrc,
       thumbnail,
       mimeType,
-      isImage: mimeType.startsWith('image') && !!thumbnail,
-      isPreviewable: mimeType.startsWith('image') && !!previewSrc,
+      isImage: mimeType.startsWith('image') && !!inlineDisplaySrc,
+      isPreviewable: mimeType.startsWith('image') && !!previewDisplaySrc,
       linkTitle: url ? buildLinkHoverTitle('Open attachment', filename || 'Attachment', url) : '',
-      previewTitle: previewSrc ? buildLinkHoverTitle('Preview attachment', filename || 'Attachment', url || previewSrc) : ''
+      previewTitle: previewDisplaySrc ? buildLinkHoverTitle('Preview attachment', filename || 'Attachment', url || previewDisplaySrc) : ''
     };
   }
 
   function buildHistoryAttachmentActionHtml(attachmentView, options = {}) {
     const {className = '_JX_history_attachment_link'} = options;
     const filename = String(attachmentView?.filename || '').trim();
+    const previewSrc = attachmentView?.previewDisplaySrc || attachmentView?.previewSrc || '';
     if (!filename) {
       return '--';
     }
     if (attachmentView?.isPreviewable) {
-      return `<button class="_JX_history_attachment_preview ${escapeHtml(className)}" type="button" data-jx-preview-src="${escapeHtml(attachmentView.previewSrc)}" title="${escapeHtml(attachmentView.previewTitle)}">${escapeHtml(filename)}</button>`;
+      return `<button class="_JX_history_attachment_preview ${escapeHtml(className)}" type="button" data-jx-preview-src="${escapeHtml(previewSrc)}" title="${escapeHtml(attachmentView.previewTitle)}">${escapeHtml(filename)}</button>`;
     }
     if (attachmentView?.hasUrl) {
       return `<a class="${escapeHtml(className)}" href="${escapeHtml(attachmentView.url)}" target="_blank" rel="noopener noreferrer" title="${escapeHtml(attachmentView.linkTitle)}">${escapeHtml(filename)}</a>`;
@@ -1653,7 +2367,7 @@ async function mainAsyncLocal() {
 
   function buildHistoryPreviewText(value, options = {}) {
     const {attachments = [], fallbackText = 'View details'} = options;
-    const text = String(value || '')
+    const text = replaceMentionMarkupWithDisplayText(value || '')
       .split(/\r?\n/)
       .map(line => line.replace(/\s+/g, ' ').trim())
       .find(Boolean);
@@ -1669,14 +2383,15 @@ async function mainAsyncLocal() {
     return fallbackText;
   }
 
-  async function renderHistoryRichTextHtml(value) {
+  async function renderHistoryRichTextHtml(value, attachmentLookup = new Map()) {
     const normalizedValue = String(value || '').trim();
     if (!normalizedValue) {
       return '';
     }
+    const attachmentImagesByName = buildAttachmentImagesByName(attachmentLookup, 120);
     const baseHtml = looksLikeHtmlFragment(normalizedValue)
-      ? await normalizeRichHtml(normalizedValue, {imageMaxHeight: 120})
-      : textToLinkedHtml(normalizedValue || '');
+      ? await normalizeRichHtml(normalizedValue, {imageMaxHeight: 120, attachmentLookup})
+      : textToLinkedHtml(normalizedValue || '', {attachmentImagesByName});
     return linkifyHistoryIssueKeysInHtml(baseHtml);
   }
 
@@ -1818,7 +2533,7 @@ async function mainAsyncLocal() {
     return temp.innerHTML;
   }
 
-  async function buildHistoryRichSections(fieldLabel, fromValue, toValue) {
+  async function buildHistoryRichSections(fieldLabel, fromValue, toValue, attachmentLookup = new Map()) {
     const hasFromValue = !!fromValue;
     const hasToValue = !!toValue;
     const sectionSpecs = [];
@@ -1831,7 +2546,7 @@ async function mainAsyncLocal() {
     return Promise.all(sectionSpecs.map(async section => {
       return {
         ...section,
-        bodyHtml: await renderHistoryRichTextHtml(section.value)
+        bodyHtml: await renderHistoryRichTextHtml(section.value, attachmentLookup)
       };
     }));
   }
@@ -1875,7 +2590,7 @@ async function mainAsyncLocal() {
           attachments,
           fallbackText: richKind === 'comment' ? 'View comment' : 'View description'
         }),
-        sections: await buildHistoryRichSections(field, cleanedFromValue, cleanedToValue),
+        sections: await buildHistoryRichSections(field, cleanedFromValue, cleanedToValue, attachmentLookup),
         hasSections: !!((cleanedFromValue || cleanedToValue)),
         attachments,
         hasAttachments: attachments.length > 0,
@@ -1984,6 +2699,20 @@ async function mainAsyncLocal() {
     return eventText === candidateText || eventText.includes(candidateText) || candidateText.includes(eventText);
   }
 
+  function isHistoryCandidateWithinWindow(candidateCreatedMs, startMs, endMs, windowMs = HISTORY_GROUP_WINDOW_MS) {
+    return !(candidateCreatedMs < startMs - windowMs || candidateCreatedMs > endMs + windowMs);
+  }
+
+  function getGroupAttachmentNames(group) {
+    return new Set((group?.events || [])
+      .filter(event => event.isAttachmentEvent && event.attachmentName)
+      .map(event => event.attachmentName));
+  }
+
+  function countGroupCandidateAttachmentMatches(group, candidate) {
+    return countHistoryAttachmentMatches(candidate?.referencedAttachmentNames || new Set(), getGroupAttachmentNames(group));
+  }
+
   function groupRepresentsCommentCandidate(group, candidate) {
     if (!group || !candidate) {
       return false;
@@ -1991,7 +2720,11 @@ async function mainAsyncLocal() {
     if (!areSameJiraUser(candidate.author, group.author) && String(candidate.author?.displayName || '') !== String(group.authorName || '')) {
       return false;
     }
-    if (candidate.createdMs < group.earliestCreatedMs - HISTORY_GROUP_WINDOW_MS || candidate.createdMs > group.latestCreatedMs + HISTORY_GROUP_WINDOW_MS) {
+    const attachmentMatches = countGroupCandidateAttachmentMatches(group, candidate);
+    const isWithinStandardWindow = isHistoryCandidateWithinWindow(candidate.createdMs, group.earliestCreatedMs, group.latestCreatedMs);
+    const isWithinAttachmentWindow = attachmentMatches > 0 &&
+      isHistoryCandidateWithinWindow(candidate.createdMs, group.earliestCreatedMs, group.latestCreatedMs, HISTORY_ATTACHMENT_MATCH_WINDOW_MS);
+    if (!isWithinStandardWindow && !isWithinAttachmentWindow) {
       return false;
     }
     const commentEvents = group.events.filter(event => event.isRichTextEvent && event.richKind === 'comment');
@@ -2021,7 +2754,7 @@ async function mainAsyncLocal() {
         attachments,
         fallbackText: 'View comment'
       }),
-      sections: await buildHistoryRichSections('Comment', '', previewSourceText),
+      sections: await buildHistoryRichSections('Comment', '', previewSourceText, attachmentLookup),
       hasSections: !!previewSourceText,
       attachments,
       hasAttachments: attachments.length > 0,
@@ -2048,9 +2781,7 @@ async function mainAsyncLocal() {
     if (hasCommentEvent) {
       return;
     }
-    const groupAttachmentNames = new Set(group.events
-      .filter(event => event.isAttachmentEvent && event.attachmentName)
-      .map(event => event.attachmentName));
+    const groupAttachmentNames = getGroupAttachmentNames(group);
     if (!groupAttachmentNames.size) {
       return;
     }
@@ -2062,16 +2793,25 @@ async function mainAsyncLocal() {
         if (!areSameJiraUser(candidate.author, group.author) && String(candidate.author?.displayName || '') !== String(group.authorName || '')) {
           return false;
         }
-        if (candidate.createdMs < group.earliestCreatedMs - HISTORY_GROUP_WINDOW_MS || candidate.createdMs > group.latestCreatedMs + HISTORY_GROUP_WINDOW_MS) {
+        const attachmentMatches = countHistoryAttachmentMatches(candidate.referencedAttachmentNames, groupAttachmentNames);
+        if (!attachmentMatches) {
           return false;
         }
-        return countHistoryAttachmentMatches(candidate.referencedAttachmentNames, groupAttachmentNames) > 0;
+        if (!isHistoryCandidateWithinWindow(candidate.createdMs, group.earliestCreatedMs, group.latestCreatedMs, HISTORY_ATTACHMENT_MATCH_WINDOW_MS)) {
+          return false;
+        }
+        return true;
       })
       .sort((left, right) => {
         const rightMatches = countHistoryAttachmentMatches(right.referencedAttachmentNames, groupAttachmentNames);
         const leftMatches = countHistoryAttachmentMatches(left.referencedAttachmentNames, groupAttachmentNames);
         if (rightMatches !== leftMatches) {
           return rightMatches - leftMatches;
+        }
+        const leftWithinTightWindow = isHistoryCandidateWithinWindow(left.createdMs, group.earliestCreatedMs, group.latestCreatedMs);
+        const rightWithinTightWindow = isHistoryCandidateWithinWindow(right.createdMs, group.earliestCreatedMs, group.latestCreatedMs);
+        if (leftWithinTightWindow !== rightWithinTightWindow) {
+          return Number(rightWithinTightWindow) - Number(leftWithinTightWindow);
         }
         return Math.abs(left.createdMs - group.latestCreatedMs) - Math.abs(right.createdMs - group.latestCreatedMs);
       })[0];
@@ -2236,14 +2976,28 @@ async function mainAsyncLocal() {
       resolvedFieldKey = pickSprintFieldId(issueData, sprintFieldIds);
     }
     const editMetaField = editMeta.fields?.[resolvedFieldKey];
-    const schemaCustom = String(editMetaField?.schema?.custom || '').toLowerCase();
-    const schemaType = String(editMetaField?.schema?.type || '').toLowerCase();
-    const displayName = String(names[resolvedFieldKey] || editMetaField?.name || '').toLowerCase();
+    if (!editMetaField) {
+      return {
+        editable: false,
+        fieldKey: resolvedFieldKey,
+        operations: [],
+        allowedValues: []
+      };
+    }
+    const catalogField = (await getAllFields(INSTANCE_URL)).find(field => field?.id === resolvedFieldKey) || null;
+    const mergedFieldMeta = {
+      ...(catalogField || {}),
+      ...editMetaField,
+      schema: editMetaField?.schema || catalogField?.schema || {}
+    };
+    const schemaCustom = String(mergedFieldMeta?.schema?.custom || '').toLowerCase();
+    const schemaType = String(mergedFieldMeta?.schema?.type || '').toLowerCase();
+    const displayName = String(names[resolvedFieldKey] || mergedFieldMeta?.name || '').toLowerCase();
     const looksLikeSprint = fieldKey === 'sprint' ||
       schemaCustom.includes('gh-sprint') ||
       schemaType === 'sprint' ||
       displayName.includes('sprint');
-    if (!editMetaField || (fieldKey === 'sprint' && !looksLikeSprint)) {
+    if (fieldKey === 'sprint' && !looksLikeSprint) {
       return {
         editable: false,
         fieldKey: resolvedFieldKey,
@@ -2254,7 +3008,7 @@ async function mainAsyncLocal() {
     return {
       editable: true,
       fieldKey: resolvedFieldKey,
-      fieldMeta: editMetaField,
+      fieldMeta: mergedFieldMeta,
       operations: Array.isArray(editMetaField.operations) ? editMetaField.operations : [],
       allowedValues: Array.isArray(editMetaField.allowedValues) ? editMetaField.allowedValues : []
     };
@@ -2293,6 +3047,7 @@ async function mainAsyncLocal() {
 
   function normalizeAssignableUsers(users) {
     const uniqueById = new Map();
+    cacheKnownJiraUsers(users);
     (Array.isArray(users) ? users : []).forEach(user => {
       const view = buildUserView(user);
       const id = view.accountId || view.name || view.key;
@@ -2471,6 +3226,8 @@ async function mainAsyncLocal() {
   }
 
   function normalizeWatcherUsers(users, currentUser = null) {
+    cacheKnownJiraUsers(users);
+    cacheKnownJiraUser(currentUser);
     const uniqueById = new Map();
     (Array.isArray(users) ? users : []).forEach(user => {
       const watcher = buildWatcherUserView(user, currentUser);
@@ -2633,6 +3390,30 @@ async function mainAsyncLocal() {
           addFeedback: null,
           removeFeedback: null,
         })
+      })).catch(() => {});
+    }, 5000);
+  }
+
+  function clearActionNoticeTimer() {
+    if (actionNoticeTimeoutId) {
+      clearTimeout(actionNoticeTimeoutId);
+      actionNoticeTimeoutId = null;
+    }
+  }
+
+  function scheduleActionNoticeClear(noticeText) {
+    clearActionNoticeTimer();
+    if (!noticeText) {
+      return;
+    }
+    actionNoticeTimeoutId = setTimeout(() => {
+      actionNoticeTimeoutId = null;
+      if (!popupState?.lastActionSuccess || popupState.lastActionSuccess !== noticeText) {
+        return;
+      }
+      renderUpdatedPopupState(currentState => ({
+        ...currentState,
+        lastActionSuccess: ''
       })).catch(() => {});
     }, 5000);
   }
@@ -3323,6 +4104,11 @@ async function mainAsyncLocal() {
     return null;
   }
 
+  function getPrimitiveCustomFieldEditorType(fieldMeta) {
+    const schemaCustom = String(fieldMeta?.schema?.custom || '').toLowerCase();
+    return schemaCustom.includes('textarea') ? 'textarea' : 'text';
+  }
+
   function isSupportedCustomFieldAllowedValue(entry, supportDescriptor) {
     if (!supportDescriptor) {
       return false;
@@ -3511,7 +4297,47 @@ async function mainAsyncLocal() {
     }
 
     const isUserField = supportDescriptor.valueKind === 'user';
+    const isPrimitiveField = supportDescriptor.valueKind === 'primitive';
     const clearUserOption = isUserField ? buildClearUserOption(`Clear ${fieldName}`) : null;
+
+    if (isPrimitiveField && !isMultiValue) {
+      const currentInputValue = currentValue === undefined || currentValue === null
+        ? ''
+        : String(currentValue);
+      const editorType = getPrimitiveCustomFieldEditorType(fieldMeta);
+      return {
+        fieldKey: fieldId,
+        editorType,
+        label: fieldName,
+        fieldMeta,
+        supportDescriptor,
+        selectionMode: 'text',
+        currentText: buildCustomFieldValueText(fieldName, currentValue),
+        currentOptionId: null,
+        currentSelections,
+        initialInputValue: currentInputValue,
+        inputPlaceholder: editorType === 'textarea' ? `Enter ${fieldName.toLowerCase()}` : `Type ${fieldName.toLowerCase()}`,
+        showActionButtons: true,
+        loadOptions: async () => [],
+        save: (selectedOptions, editState) => {
+          const nextValue = String(editState?.inputValue || '');
+          const hasValue = nextValue.trim().length > 0;
+          return requestJson('PUT', `${INSTANCE_URL}rest/api/2/issue/${issueData.key}`, {
+            fields: {
+              [fieldId]: hasValue ? nextValue : null
+            }
+          });
+        },
+        successMessage: (selectedOptions, editState) => {
+          const nextValue = String(editState?.inputValue || '').trim();
+          return nextValue ? `${fieldName} updated` : `${fieldName} cleared`;
+        }
+      };
+    }
+
+    if (isPrimitiveField && isMultiValue) {
+      return null;
+    }
 
     return {
       fieldKey: fieldId,
@@ -4019,10 +4845,12 @@ async function mainAsyncLocal() {
         return !!attachment &&
           typeof attachment.mimeType === 'string' &&
           attachment.mimeType.toLowerCase().startsWith('image') &&
-          !!attachment.thumbnail;
+          !!(attachment.inlineDataUrl || attachment.displayContent);
       })
       .map(attachment => ({
         ...attachment,
+        thumbnail: attachment.inlineDataUrl || attachment.displayContent,
+        previewDisplaySrc: attachment.previewDataUrl || attachment.previewDisplaySrc || attachment.inlineDataUrl || attachment.displayContent,
         linkTitle: buildLinkHoverTitle('Open attachment', attachment.filename || 'Attachment', attachment.content)
       }));
   }
@@ -4691,7 +5519,7 @@ async function mainAsyncLocal() {
           });
         case 'priority':
           return buildEditableFieldChip('priority', buildFilterChip(
-            priorityName || 'No priority',
+            `Priority: ${priorityName || '--'}`,
             priorityName ? `${scopeJqlToProject(projectKey, `priority = ${encodeJqlValue(priorityName)}`)}` : '',
             {iconUrl: issueData.fields.priority?.iconUrl || '', linkLabel: priorityName}
           ), state, {
@@ -4808,6 +5636,7 @@ async function mainAsyncLocal() {
       ? buildAssigneeAvatarView(state, issueData, assigneeEditable)
       : null;
     const titleView = buildTitleView(state, issueData, summaryEditable);
+    const titleStatusText = titleView.isEditing && titleView.fieldKey === 'summary' ? titleView.loadingText : '';
     const watches = issueData.fields.watches || {};
     const watcherCount = Number.isFinite(Number(watches.watchCount)) ? Number(watches.watchCount) : 0;
     const watchersPanel = buildWatchersPanelView(state);
@@ -4868,9 +5697,11 @@ async function mainAsyncLocal() {
       hasFieldSummary: row1Chips.length > 0 || row2Chips.length > 0 || row3Chips.length > 0,
       activityIndicators: [],
       loaderGifUrl,
-      actionNoticeText: actionError || lastActionSuccess,
-      actionNoticeClass: actionError ? '_JX_action_notice_error' : '_JX_action_notice_success',
-      hasActionNotice: !!(actionError || lastActionSuccess),
+      actionNoticeText: titleStatusText || actionError || lastActionSuccess,
+      actionNoticeClass: titleStatusText
+        ? '_JX_action_notice_info'
+        : (actionError ? '_JX_action_notice_error' : '_JX_action_notice_success'),
+      hasActionNotice: !!(titleStatusText || actionError || lastActionSuccess),
       ...quickActionData
     };
     if (issueData.fields.comment?.comments?.[0]?.id) {
@@ -5066,6 +5897,7 @@ async function mainAsyncLocal() {
         commentInput.setSelectionRange(selectionStart, selectionEnd);
       }
     }
+    renderCommentEditMentionSuggestions();
     constrainEditPopoversToViewport();
   }
   function invalidatePopupCaches() {
@@ -5269,13 +6101,15 @@ async function mainAsyncLocal() {
     if (!popupState?.key) {
       return;
     }
-    const {showSnackBar = false, nextTimeTrackingEditState, refreshWatchersPanel = false, nextWatchersStateChanges = {}, scheduleWatchersFeedbackReset = false} = options;
+    const {showSnackBar = false, nextTimeTrackingEditState, refreshWatchersPanel = false, nextWatchersStateChanges = {}, scheduleWatchersFeedbackReset = false, preserveHistory = false} = options;
     const popupKey = popupState.key;
     const shouldRefreshWatchersPanel = !!(refreshWatchersPanel || popupState?.watchersState?.open);
+    const shouldKeepHistoryOpen = !!(preserveHistory && popupState?.historyOpen);
     invalidatePopupCaches();
-    const [refreshedIssueData, refreshedWatcherData] = await Promise.all([
+    const [refreshedIssueData, refreshedWatcherData, refreshedChangelog] = await Promise.all([
       getIssueMetaData(popupKey),
-      shouldRefreshWatchersPanel ? getIssueWatchers(popupKey).catch(() => null) : Promise.resolve(null)
+      shouldRefreshWatchersPanel ? getIssueWatchers(popupKey).catch(() => null) : Promise.resolve(null),
+      shouldKeepHistoryOpen ? getIssueChangelog(popupKey).catch(() => ({histories: []})) : Promise.resolve(null)
     ]);
     await normalizeIssueImages(refreshedIssueData);
 
@@ -5300,6 +6134,8 @@ async function mainAsyncLocal() {
       return;
     }
 
+    clearActionNoticeTimer();
+
     await renderUpdatedPopupState(currentState => ({
       ...currentState,
       issueData: refreshedIssueData,
@@ -5307,6 +6143,9 @@ async function mainAsyncLocal() {
       quickActions,
       ...buildPopupInteractionReset({
         lastActionSuccess: showSnackBar ? '' : successMessage,
+        historyOpen: shouldKeepHistoryOpen,
+        changelogData: shouldKeepHistoryOpen ? (refreshedChangelog || {histories: []}) : null,
+        changelogLoading: false,
       }),
       timeTrackingEditState: nextTimeTrackingEditState || createTimeTrackingEditState(refreshedIssueData),
       watchersState: refreshedWatcherData
@@ -5327,9 +6166,59 @@ async function mainAsyncLocal() {
     if (scheduleWatchersFeedbackReset) {
       scheduleWatchersFeedbackClear();
     }
+    if (!showSnackBar && successMessage) {
+      scheduleActionNoticeClear(successMessage);
+    }
     if (showSnackBar && successMessage) {
       snackBar(successMessage);
     }
+  }
+
+  async function handleDraftAttachmentUploaded(uploadedAttachment) {
+    const popupKey = popupState?.key;
+    const currentIssueData = popupState?.issueData;
+    if (!popupKey || !currentIssueData?.fields || !uploadedAttachment) {
+      return;
+    }
+
+    const normalizedAttachment = await normalizeIssueAttachmentImage({...uploadedAttachment});
+    let refreshedChangelog = null;
+    if (popupState?.historyOpen) {
+      changelogCache.delete(popupKey);
+      refreshedChangelog = await getIssueChangelog(popupKey).catch(() => popupState?.changelogData || {histories: []});
+    }
+
+    if (!popupState || popupState.key !== popupKey) {
+      return;
+    }
+
+    await renderUpdatedPopupState(currentState => {
+      const existingAttachments = Array.isArray(currentState?.issueData?.fields?.attachment)
+        ? currentState.issueData.fields.attachment
+        : [];
+      const normalizedFileName = normalizeHistoryAttachmentName(normalizedAttachment.filename);
+      const nextAttachments = [
+        ...existingAttachments.filter(attachment => {
+          const sameId = normalizedAttachment.id && attachment?.id && String(attachment.id) === String(normalizedAttachment.id);
+          const sameName = normalizedFileName &&
+            normalizeHistoryAttachmentName(attachment?.filename) === normalizedFileName;
+          return !(sameId || sameName);
+        }),
+        normalizedAttachment,
+      ];
+      return {
+        ...currentState,
+        issueData: {
+          ...currentState.issueData,
+          fields: {
+            ...currentState.issueData.fields,
+            attachment: nextAttachments,
+          }
+        },
+        changelogData: refreshedChangelog || currentState.changelogData,
+        changelogLoading: false,
+      };
+    });
   }
 
   async function addWatcherFromPanel(watcherId) {
@@ -6303,10 +7192,18 @@ async function mainAsyncLocal() {
     commentComposerSelectionEnd = typeof this.selectionEnd === 'number' ? this.selectionEnd : (this.value || '').length;
   });
 
+  $(document.body).on('scroll', '._JX_comment_input', function () {
+    if (commentMentionState.visible) {
+      renderCommentMentionSuggestions();
+    }
+  });
+
   $(document.body).on('input', '._JX_comment_edit_input', function (e) {
     e.stopPropagation();
+    const commentId = e.currentTarget.getAttribute('data-comment-id') || '';
+    syncCommentEditMentionSuggestions(e.currentTarget, commentId);
     updateCommentEditDraft(
-      e.currentTarget.getAttribute('data-comment-id') || '',
+      commentId,
       e.currentTarget.value,
       e.currentTarget.selectionStart,
       e.currentTarget.selectionEnd
@@ -6364,8 +7261,9 @@ async function mainAsyncLocal() {
     }
   });
 
-  $(document.body).on('click', '._JX_comment_mention_option', function (e) {
+  $(document.body).on('mousedown', '._JX_comment_compose ._JX_comment_mention_option', function (e) {
     e.preventDefault();
+    e.stopPropagation();
     const index = Number(e.currentTarget.getAttribute('data-mention-index'));
     if (Number.isNaN(index)) {
       return;
@@ -6373,11 +7271,32 @@ async function mainAsyncLocal() {
     applyCommentMentionSelection(index);
   });
 
+  $(document.body).on('mousedown', '._JX_comment_edit_mention_option', function (e) {
+    e.preventDefault();
+    e.stopPropagation();
+    const index = Number(e.currentTarget.getAttribute('data-mention-index'));
+    if (Number.isNaN(index)) {
+      return;
+    }
+    applyCommentEditMentionSelection(index);
+  });
+
   $(document.body).on('mousedown', function (e) {
     if ($(e.target).closest('._JX_comment_compose').length) {
       return;
     }
     resetCommentMentionState();
+  });
+
+  $(document.body).on('mousedown', function (e) {
+    if ($(e.target).closest('._JX_comment_editor').length) {
+      return;
+    }
+    if (!commentEditMentionState.visible) {
+      return;
+    }
+    resetCommentEditMentionState();
+    renderIssuePopup(popupState).catch(() => {});
   });
 
   $(document.body).on('click', '._JX_comment_save', function (e) {
@@ -6442,6 +7361,29 @@ async function mainAsyncLocal() {
   $(document.body).on('keydown', '._JX_comment_edit_input', function (e) {
     e.stopPropagation();
     const commentId = e.currentTarget.getAttribute('data-comment-id') || '';
+    if (commentEditMentionState.visible && commentEditMentionState.commentId === commentId) {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        resetCommentEditMentionState();
+        renderIssuePopup(popupState).catch(() => {});
+        return;
+      }
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        moveCommentEditMentionSelection(1);
+        return;
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        moveCommentEditMentionSelection(-1);
+        return;
+      }
+      if (e.key === 'Enter' || e.key === 'Tab') {
+        e.preventDefault();
+        applyCommentEditMentionSelection(commentEditMentionState.selectedIndex);
+        return;
+      }
+    }
     if (e.key === 'Escape') {
       e.preventDefault();
       cancelCommentSession();
@@ -6450,6 +7392,36 @@ async function mainAsyncLocal() {
     if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
       e.preventDefault();
       saveCommentEdit(commentId).catch(() => {});
+    }
+  });
+
+  $(document.body).on('click', '._JX_comment_edit_input', function () {
+    syncCommentEditMentionSuggestions(this, this.getAttribute('data-comment-id') || '');
+  });
+
+  $(document.body).on('keyup', '._JX_comment_edit_input', function (e) {
+    if (['ArrowUp', 'ArrowDown', 'Enter', 'Tab', 'Escape'].indexOf(e.key) !== -1) {
+      return;
+    }
+    syncCommentEditMentionSuggestions(this, this.getAttribute('data-comment-id') || '');
+  });
+
+  $(document.body).on('click keyup select', '._JX_comment_edit_input', function () {
+    const commentId = this.getAttribute('data-comment-id') || '';
+    const activeSession = getActiveCommentSession();
+    if (!activeSession || activeSession.commentId !== commentId || activeSession.mode !== 'edit') {
+      return;
+    }
+    setCommentSession({
+      ...activeSession,
+      selectionStart: typeof this.selectionStart === 'number' ? this.selectionStart : (this.value || '').length,
+      selectionEnd: typeof this.selectionEnd === 'number' ? this.selectionEnd : (this.value || '').length,
+    });
+  });
+
+  $(document.body).on('scroll', '._JX_comment_edit_input', function () {
+    if (commentEditMentionState.visible) {
+      renderCommentEditMentionSuggestions();
     }
   });
 
@@ -6841,6 +7813,29 @@ async function mainAsyncLocal() {
     return size(keys) ? keys[0].replace(' ', '-') : '';
   }
 
+  function resolveModifierKeyAtClientPoint(clientX, clientY) {
+    const strictKey = getStrictKeyAtClientPoint(clientX, clientY);
+    if (strictKey) {
+      return strictKey;
+    }
+    return resolveKeyAtClientPoint(clientX, clientY);
+  }
+
+  function isTypingTargetBlockingModifierTrigger(clientX, clientY) {
+    const activeElement = document.activeElement;
+    if (!isTypingTarget(activeElement)) {
+      return false;
+    }
+    if (!Number.isFinite(clientX) || !Number.isFinite(clientY)) {
+      return true;
+    }
+    const hoveredElement = document.elementFromPoint(clientX, clientY);
+    if (!hoveredElement) {
+      return true;
+    }
+    return hoveredElement === activeElement || activeElement.contains(hoveredElement);
+  }
+
   function fetchAndShowPopup(key, pointerX, pointerY) {
     (async function (cancelToken) {
       const issueData = await getIssueMetaData(key);
@@ -6914,11 +7909,11 @@ async function mainAsyncLocal() {
 
   if (hoverModifierKey !== 'none') {
     document.addEventListener('keydown', function (e) {
-      if (containerPinned || isTypingTarget(document.activeElement)) {
+      if (containerPinned || isTypingTargetBlockingModifierTrigger(currentPointer.clientX, currentPointer.clientY)) {
         return;
       }
       if (isModifierSatisfied(e)) {
-        const currentKey = getStrictKeyAtClientPoint(currentPointer.clientX, currentPointer.clientY);
+        const currentKey = resolveModifierKeyAtClientPoint(currentPointer.clientX, currentPointer.clientY);
         if (currentKey) {
           const pointerX = Number.isFinite(currentPointer.pageX) ? currentPointer.pageX : 0;
           const pointerY = Number.isFinite(currentPointer.pageY) ? currentPointer.pageY : 0;
@@ -6967,8 +7962,8 @@ async function mainAsyncLocal() {
     }
     if (element) {
       if (hoverModifierKey !== 'none') {
-        const strictKey = getStrictKeyAtClientPoint(e.clientX, e.clientY);
-        if (!strictKey) {
+        const resolvedKey = resolveModifierKeyAtClientPoint(e.clientX, e.clientY);
+        if (!resolvedKey) {
           return;
         }
         if (!isModifierSatisfied(e)) {
@@ -6976,7 +7971,7 @@ async function mainAsyncLocal() {
           return;
         }
         clearTimeout(hideTimeOut);
-        triggerPopupForKey(strictKey, e.pageX, e.pageY, true);
+        triggerPopupForKey(resolvedKey, e.pageX, e.pageY, true);
         return;
       }
 
