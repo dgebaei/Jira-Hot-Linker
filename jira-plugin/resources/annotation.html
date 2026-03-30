@@ -91,7 +91,6 @@
                         </div>
                         {{/showActionButtons}}
                     </div>
-                    {{#loadingText}}<div class="_JX_edit_hint">{{loadingText}}</div>{{/loadingText}}
                     {{#editError}}<div class="_JX_edit_error">{{editError}}</div>{{/editError}}
                 </div>
             </div>
@@ -132,7 +131,10 @@
                 <svg width="14" height="14" viewBox="0 0 24 24" focusable="false" role="presentation"><path fill="currentColor" d="M18.3 5.71a1 1 0 0 0-1.41 0L12 10.59 7.11 5.7A1 1 0 0 0 5.7 7.11L10.59 12 5.7 16.89a1 1 0 1 0 1.41 1.41L12 13.41l4.89 4.89a1 1 0 0 0 1.41-1.41L13.41 12l4.89-4.89a1 1 0 0 0 0-1.4z"></path></svg>
             </button>
         </div>
-    </div>
+        </div>
+    {{#hasActionNotice}}
+    <div class="_JX_action_notice {{actionNoticeClass}}">{{actionNoticeText}}</div>
+    {{/hasActionNotice}}
     <div class="_JX_status">
         {{#hasPrimaryStatusRow}}
             <div class="_JX_status_row _JX_status_row_primary">

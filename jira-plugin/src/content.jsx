@@ -317,10 +317,12 @@ async function mainAsyncLocal() {
   const tempoAccountSearchCache = new Map();
   const userPickerSearchCache = new Map();
   const userPickerLocalOptionsCache = new Map();
+  const jiraUserDisplayNameCache = new Map();
   let labelSuggestionSupportPromise = null;
   let editSearchRequestCounter = 0;
   let labelSearchTimeoutId = null;
   let watchersFeedbackTimeoutId = null;
+  let actionNoticeTimeoutId = null;
   let popupState = null;
   let activeCommentContext = null;
   let commentMentionState = emptyCommentMentionState();
@@ -2236,14 +2238,28 @@ async function mainAsyncLocal() {
       resolvedFieldKey = pickSprintFieldId(issueData, sprintFieldIds);
     }
     const editMetaField = editMeta.fields?.[resolvedFieldKey];
-    const schemaCustom = String(editMetaField?.schema?.custom || '').toLowerCase();
-    const schemaType = String(editMetaField?.schema?.type || '').toLowerCase();
-    const displayName = String(names[resolvedFieldKey] || editMetaField?.name || '').toLowerCase();
+    if (!editMetaField) {
+      return {
+        editable: false,
+        fieldKey: resolvedFieldKey,
+        operations: [],
+        allowedValues: []
+      };
+    }
+    const catalogField = (await getAllFields(INSTANCE_URL)).find(field => field?.id === resolvedFieldKey) || null;
+    const mergedFieldMeta = {
+      ...(catalogField || {}),
+      ...editMetaField,
+      schema: editMetaField?.schema || catalogField?.schema || {}
+    };
+    const schemaCustom = String(mergedFieldMeta?.schema?.custom || '').toLowerCase();
+    const schemaType = String(mergedFieldMeta?.schema?.type || '').toLowerCase();
+    const displayName = String(names[resolvedFieldKey] || mergedFieldMeta?.name || '').toLowerCase();
     const looksLikeSprint = fieldKey === 'sprint' ||
       schemaCustom.includes('gh-sprint') ||
       schemaType === 'sprint' ||
       displayName.includes('sprint');
-    if (!editMetaField || (fieldKey === 'sprint' && !looksLikeSprint)) {
+    if (fieldKey === 'sprint' && !looksLikeSprint) {
       return {
         editable: false,
         fieldKey: resolvedFieldKey,
@@ -2254,7 +2270,7 @@ async function mainAsyncLocal() {
     return {
       editable: true,
       fieldKey: resolvedFieldKey,
-      fieldMeta: editMetaField,
+      fieldMeta: mergedFieldMeta,
       operations: Array.isArray(editMetaField.operations) ? editMetaField.operations : [],
       allowedValues: Array.isArray(editMetaField.allowedValues) ? editMetaField.allowedValues : []
     };
@@ -2633,6 +2649,30 @@ async function mainAsyncLocal() {
           addFeedback: null,
           removeFeedback: null,
         })
+      })).catch(() => {});
+    }, 5000);
+  }
+
+  function clearActionNoticeTimer() {
+    if (actionNoticeTimeoutId) {
+      clearTimeout(actionNoticeTimeoutId);
+      actionNoticeTimeoutId = null;
+    }
+  }
+
+  function scheduleActionNoticeClear(noticeText) {
+    clearActionNoticeTimer();
+    if (!noticeText) {
+      return;
+    }
+    actionNoticeTimeoutId = setTimeout(() => {
+      actionNoticeTimeoutId = null;
+      if (!popupState?.lastActionSuccess || popupState.lastActionSuccess !== noticeText) {
+        return;
+      }
+      renderUpdatedPopupState(currentState => ({
+        ...currentState,
+        lastActionSuccess: ''
       })).catch(() => {});
     }, 5000);
   }
@@ -3323,6 +3363,11 @@ async function mainAsyncLocal() {
     return null;
   }
 
+  function getPrimitiveCustomFieldEditorType(fieldMeta) {
+    const schemaCustom = String(fieldMeta?.schema?.custom || '').toLowerCase();
+    return schemaCustom.includes('textarea') ? 'textarea' : 'text';
+  }
+
   function isSupportedCustomFieldAllowedValue(entry, supportDescriptor) {
     if (!supportDescriptor) {
       return false;
@@ -3511,7 +3556,47 @@ async function mainAsyncLocal() {
     }
 
     const isUserField = supportDescriptor.valueKind === 'user';
+    const isPrimitiveField = supportDescriptor.valueKind === 'primitive';
     const clearUserOption = isUserField ? buildClearUserOption(`Clear ${fieldName}`) : null;
+
+    if (isPrimitiveField && !isMultiValue) {
+      const currentInputValue = currentValue === undefined || currentValue === null
+        ? ''
+        : String(currentValue);
+      const editorType = getPrimitiveCustomFieldEditorType(fieldMeta);
+      return {
+        fieldKey: fieldId,
+        editorType,
+        label: fieldName,
+        fieldMeta,
+        supportDescriptor,
+        selectionMode: 'text',
+        currentText: buildCustomFieldValueText(fieldName, currentValue),
+        currentOptionId: null,
+        currentSelections,
+        initialInputValue: currentInputValue,
+        inputPlaceholder: editorType === 'textarea' ? `Enter ${fieldName.toLowerCase()}` : `Type ${fieldName.toLowerCase()}`,
+        showActionButtons: true,
+        loadOptions: async () => [],
+        save: (selectedOptions, editState) => {
+          const nextValue = String(editState?.inputValue || '');
+          const hasValue = nextValue.trim().length > 0;
+          return requestJson('PUT', `${INSTANCE_URL}rest/api/2/issue/${issueData.key}`, {
+            fields: {
+              [fieldId]: hasValue ? nextValue : null
+            }
+          });
+        },
+        successMessage: (selectedOptions, editState) => {
+          const nextValue = String(editState?.inputValue || '').trim();
+          return nextValue ? `${fieldName} updated` : `${fieldName} cleared`;
+        }
+      };
+    }
+
+    if (isPrimitiveField && isMultiValue) {
+      return null;
+    }
 
     return {
       fieldKey: fieldId,
@@ -4691,7 +4776,7 @@ async function mainAsyncLocal() {
           });
         case 'priority':
           return buildEditableFieldChip('priority', buildFilterChip(
-            priorityName || 'No priority',
+            `Priority: ${priorityName || '--'}`,
             priorityName ? `${scopeJqlToProject(projectKey, `priority = ${encodeJqlValue(priorityName)}`)}` : '',
             {iconUrl: issueData.fields.priority?.iconUrl || '', linkLabel: priorityName}
           ), state, {
@@ -4808,6 +4893,7 @@ async function mainAsyncLocal() {
       ? buildAssigneeAvatarView(state, issueData, assigneeEditable)
       : null;
     const titleView = buildTitleView(state, issueData, summaryEditable);
+    const titleStatusText = titleView.isEditing && titleView.fieldKey === 'summary' ? titleView.loadingText : '';
     const watches = issueData.fields.watches || {};
     const watcherCount = Number.isFinite(Number(watches.watchCount)) ? Number(watches.watchCount) : 0;
     const watchersPanel = buildWatchersPanelView(state);
@@ -4868,9 +4954,11 @@ async function mainAsyncLocal() {
       hasFieldSummary: row1Chips.length > 0 || row2Chips.length > 0 || row3Chips.length > 0,
       activityIndicators: [],
       loaderGifUrl,
-      actionNoticeText: actionError || lastActionSuccess,
-      actionNoticeClass: actionError ? '_JX_action_notice_error' : '_JX_action_notice_success',
-      hasActionNotice: !!(actionError || lastActionSuccess),
+      actionNoticeText: titleStatusText || actionError || lastActionSuccess,
+      actionNoticeClass: titleStatusText
+        ? '_JX_action_notice_info'
+        : (actionError ? '_JX_action_notice_error' : '_JX_action_notice_success'),
+      hasActionNotice: !!(titleStatusText || actionError || lastActionSuccess),
       ...quickActionData
     };
     if (issueData.fields.comment?.comments?.[0]?.id) {
@@ -5300,6 +5388,8 @@ async function mainAsyncLocal() {
       return;
     }
 
+    clearActionNoticeTimer();
+
     await renderUpdatedPopupState(currentState => ({
       ...currentState,
       issueData: refreshedIssueData,
@@ -5326,6 +5416,9 @@ async function mainAsyncLocal() {
     }));
     if (scheduleWatchersFeedbackReset) {
       scheduleWatchersFeedbackClear();
+    }
+    if (!showSnackBar && successMessage) {
+      scheduleActionNoticeClear(successMessage);
     }
     if (showSnackBar && successMessage) {
       snackBar(successMessage);
@@ -6841,6 +6934,29 @@ async function mainAsyncLocal() {
     return size(keys) ? keys[0].replace(' ', '-') : '';
   }
 
+  function resolveModifierKeyAtClientPoint(clientX, clientY) {
+    const strictKey = getStrictKeyAtClientPoint(clientX, clientY);
+    if (strictKey) {
+      return strictKey;
+    }
+    return resolveKeyAtClientPoint(clientX, clientY);
+  }
+
+  function isTypingTargetBlockingModifierTrigger(clientX, clientY) {
+    const activeElement = document.activeElement;
+    if (!isTypingTarget(activeElement)) {
+      return false;
+    }
+    if (!Number.isFinite(clientX) || !Number.isFinite(clientY)) {
+      return true;
+    }
+    const hoveredElement = document.elementFromPoint(clientX, clientY);
+    if (!hoveredElement) {
+      return true;
+    }
+    return hoveredElement === activeElement || activeElement.contains(hoveredElement);
+  }
+
   function fetchAndShowPopup(key, pointerX, pointerY) {
     (async function (cancelToken) {
       const issueData = await getIssueMetaData(key);
@@ -6914,11 +7030,11 @@ async function mainAsyncLocal() {
 
   if (hoverModifierKey !== 'none') {
     document.addEventListener('keydown', function (e) {
-      if (containerPinned || isTypingTarget(document.activeElement)) {
+      if (containerPinned || isTypingTargetBlockingModifierTrigger(currentPointer.clientX, currentPointer.clientY)) {
         return;
       }
       if (isModifierSatisfied(e)) {
-        const currentKey = getStrictKeyAtClientPoint(currentPointer.clientX, currentPointer.clientY);
+        const currentKey = resolveModifierKeyAtClientPoint(currentPointer.clientX, currentPointer.clientY);
         if (currentKey) {
           const pointerX = Number.isFinite(currentPointer.pageX) ? currentPointer.pageX : 0;
           const pointerY = Number.isFinite(currentPointer.pageY) ? currentPointer.pageY : 0;
@@ -6967,8 +7083,8 @@ async function mainAsyncLocal() {
     }
     if (element) {
       if (hoverModifierKey !== 'none') {
-        const strictKey = getStrictKeyAtClientPoint(e.clientX, e.clientY);
-        if (!strictKey) {
+        const resolvedKey = resolveModifierKeyAtClientPoint(e.clientX, e.clientY);
+        if (!resolvedKey) {
           return;
         }
         if (!isModifierSatisfied(e)) {

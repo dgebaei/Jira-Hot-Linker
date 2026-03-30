@@ -181,6 +181,74 @@ test('supports search-based editing for user picker custom fields @mock-only', a
   await page.close();
 });
 
+test('renders text custom fields with a plain prefilled input instead of select-style search UI @mock-only', async ({extensionApp, optionsPage, servers}) => {
+  const target = requireJiraTestTarget(test, servers, {requireAuth: process.env.MOCK === 'false'});
+  test.skip(target.mode !== 'mock', 'Text custom field coverage is deterministic in mocked mode only.');
+
+  await servers.jira.setScenario('editable');
+  await patchJsonResponse(optionsPage.context(), target.instanceUrl, '/rest/api/2/issue/[^?]+\\?fields=[^#]+$', (payload, request) => {
+    if (request.method() !== 'GET') {
+      return payload;
+    }
+    return {
+      ...payload,
+      names: {
+        ...payload.names,
+        customfield_12345: 'CustomTextField',
+      },
+      fields: {
+        ...payload.fields,
+        customfield_12345: payload.fields?.customfield_12345 === 'Customer impact: High'
+          ? 'Sun is shining!'
+          : payload.fields?.customfield_12345,
+      },
+    };
+  });
+  await patchJsonResponse(optionsPage.context(), target.instanceUrl, '/rest/api/2/issue/[^/]+/editmeta(?:\\?.*)?$', (payload, request) => {
+    if (request.method() !== 'GET') {
+      return payload;
+    }
+    return {
+      ...payload,
+      fields: {
+        ...payload.fields,
+        customfield_12345: {
+          required: false,
+          name: 'CustomTextField',
+          key: 'customfield_12345',
+          schema: {
+            type: 'string',
+            custom: 'com.atlassian.jira.plugin.system.customfieldtypes:textfield',
+          },
+          operations: ['set'],
+        },
+      },
+    };
+  });
+  await configureExtension(optionsPage, buildExtensionConfig(servers, {
+    customFields: [{fieldId: 'customfield_12345', row: 2}],
+  }, target));
+
+  const {page} = await openPopup(extensionApp, servers, target);
+  const popup = popupModel(page);
+
+  await expect(popup.root).toContainText('CustomTextField: Sun is shining!');
+  await page.locator('button[data-field-key="customfield_12345"]').click();
+
+  const input = page.locator('input[data-field-key="customfield_12345"]');
+  const options = page.locator('button[data-field-key="customfield_12345"]._JX_edit_option');
+  await expect(input).toBeVisible();
+  await expect(input).toHaveValue('Sun is shining!');
+  await expect(input).toHaveAttribute('placeholder', 'Type customtextfield');
+  await expect(options).toHaveCount(0);
+
+  await input.fill('Rain is coming');
+  await input.press('Enter');
+  await expect(popup.root).toContainText('CustomTextField: Rain is coming');
+
+  await page.close();
+});
+
 test('copies the Jira issue link and previews attachment images', async ({extensionApp, optionsPage, servers}) => {
   const target = requireJiraTestTarget(test, servers, {requireAuth: process.env.MOCK === 'false'});
   if (target.mode === 'mock') {

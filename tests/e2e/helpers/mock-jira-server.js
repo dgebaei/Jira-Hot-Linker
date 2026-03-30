@@ -819,6 +819,11 @@ async function createMockJiraServer() {
           state.issue.customFields.customfield_67890 = state.assignableUsers.find(u => u.accountId === userId || u.name === userId || u.key === userId) || null;
         }
       }
+      if (Object.prototype.hasOwnProperty.call(fields, 'customfield_12345')) {
+        state.issue.customFields.customfield_12345 = fields.customfield_12345 === null
+          ? null
+          : String(fields.customfield_12345);
+      }
       if (fields.timetracking) {
         const tt = fields.timetracking;
         state.issue.timetracking = {
