@@ -11,7 +11,10 @@ import {createContentFieldCapabilityHelpers} from 'src/content-field-capability-
 import {createContentHistoryHelpers} from 'src/content-history-helpers';
 import {createContentIssueDataHelpers} from 'src/content-issue-data-helpers';
 import {createContentIssueLinkageHelpers} from 'src/content-issue-linkage-helpers';
+import {createContentDisplayHelpers} from 'src/content-display-helpers';
+import {createContentPeopleHelpers} from 'src/content-people-helpers';
 import {createContentPopupStateHelpers} from 'src/content-popup-state-helpers';
+import {createContentShellHelpers} from 'src/content-shell-helpers';
 import {MENTION_CONTEXT_WINDOW} from 'src/comment-mention-constants';
 import {createContentCommentHelpers} from 'src/content-comment-helpers';
 import {positionMentionMenuAtCaret} from 'src/mention-menu-positioning';
@@ -337,6 +340,7 @@ async function mainAsyncLocal() {
   const userPickerLocalOptionsCache = new Map();
   const jiraUserDisplayNameCache = new Map();
   const sharedAvatarUrls = new Set();
+  let contentShellHelpers = null;
   const {
     buildHistoryAttachmentLookup,
     buildHistoryAttachmentView,
@@ -2058,54 +2062,6 @@ async function mainAsyncLocal() {
 
   // ── Assignee Search ────────────────────────────────────────
 
-  function normalizeAssignableUsers(users) {
-    const uniqueById = new Map();
-    cacheKnownJiraUsers(users);
-    (Array.isArray(users) ? users : []).forEach(user => {
-      const view = buildUserView(user);
-      const id = view.accountId || view.name || view.key;
-      if (!id || uniqueById.has(id)) {
-        return;
-      }
-      const option = buildEditOption(id, view.displayName || id, {
-        avatarUrl: view.avatarUrl,
-        initials: view.initials,
-        metaText: view.emailAddress || view.name || view.key || '',
-        searchText: `${view.displayName} ${view.name} ${view.key} ${view.emailAddress}`,
-        rawValue: {
-          accountId: view.accountId,
-          name: view.name,
-          key: view.key
-        }
-      });
-      if (option.id && option.label) {
-        uniqueById.set(id, option);
-      }
-    });
-    return [...uniqueById.values()];
-  }
-
-  async function proxyUserAvatars(users) {
-    const beforeUrls = new Map();
-    (users || []).forEach(user => {
-      const url = user?.avatarUrls?.['48x48'];
-      if (url) beforeUrls.set(user, url);
-    });
-    await Promise.all((users || []).map(user => {
-      const url = user?.avatarUrls?.['48x48'];
-      if (!url) return Promise.resolve();
-      return getDisplayImageUrl(url).then(src => { user.avatarUrls['48x48'] = src; }).catch(() => {});
-    }));
-    // Propagate shared-avatar status from raw URLs to their proxied data URIs
-    for (const [user, rawUrl] of beforeUrls) {
-      const proxiedUrl = user?.avatarUrls?.['48x48'];
-      if (proxiedUrl && proxiedUrl !== rawUrl && sharedAvatarUrls.has(rawUrl)) {
-        sharedAvatarUrls.add(proxiedUrl);
-      }
-    }
-    return users;
-  }
-
   async function fetchAssignableUsers(query, issueData) {
     const issueKey = issueData?.key || '';
     const projectKey = String(issueKey).split('-')[0];
@@ -2184,36 +2140,6 @@ async function mainAsyncLocal() {
     return getCachedValue(userPickerSearchCache, normalizedQuery, () => fetchUserPickerResults(normalizedQuery));
   }
 
-  function getJiraUserIdentityCandidates(user) {
-    return [user?.accountId, user?.name, user?.username, user?.key]
-      .map(value => String(value || '').trim())
-      .filter((value, index, array) => value && array.indexOf(value) === index);
-  }
-
-  function buildWatcherUserView(user, currentUser = null) {
-    const view = buildUserView(user);
-    const displayName = view.displayName || 'Unknown user';
-    const identityCandidates = getJiraUserIdentityCandidates(user);
-    const id = identityCandidates[0] || '';
-    return {
-      id,
-      accountId: view.accountId,
-      name: view.name,
-      key: view.key,
-      displayName,
-      avatarUrl: view.avatarUrl,
-      initials: view.initials,
-      metaText: view.emailAddress || view.name || view.key || '',
-      titleText: `Watcher: ${displayName}`,
-      isCurrentUser: areSameJiraUser(user, currentUser),
-      rawValue: {
-        accountId: view.accountId,
-        name: view.name,
-        key: view.key,
-      }
-    };
-  }
-
   function buildClearUserOption(label = 'Clear value') {
     return buildEditOption('__clear__', label, {
       metaText: 'Remove the current user',
@@ -2221,35 +2147,6 @@ async function mainAsyncLocal() {
     });
   }
 
-  function compareWatcherUsers(left, right) {
-    if (!!left?.isCurrentUser !== !!right?.isCurrentUser) {
-      return left?.isCurrentUser ? -1 : 1;
-    }
-
-    const displayNameComparison = String(left?.displayName || '').localeCompare(
-      String(right?.displayName || ''),
-      undefined,
-      {sensitivity: 'base'}
-    );
-    if (displayNameComparison !== 0) {
-      return displayNameComparison;
-    }
-
-    return String(left?.id || '').localeCompare(String(right?.id || ''), undefined, {sensitivity: 'base'});
-  }
-
-  function normalizeWatcherUsers(users, currentUser = null) {
-    cacheKnownJiraUsers(users);
-    cacheKnownJiraUser(currentUser);
-    const uniqueById = new Map();
-    (Array.isArray(users) ? users : []).forEach(user => {
-      const watcher = buildWatcherUserView(user, currentUser);
-      if (watcher.id && !uniqueById.has(watcher.id)) {
-        uniqueById.set(watcher.id, watcher);
-      }
-    });
-    return [...uniqueById.values()].sort(compareWatcherUsers);
-  }
 
   async function getIssueWatchers(issueKey) {
     if (!issueKey) {
@@ -2334,53 +2231,6 @@ async function mainAsyncLocal() {
       }
     }
     throw lastError || new Error('Could not remove watcher');
-  }
-
-  function buildWatchersPanelView(state) {
-    const watcherState = state?.watchersState || emptyWatchersState();
-    const watchers = Array.isArray(watcherState.watchers) ? watcherState.watchers : [];
-    const pendingAddIds = new Set(watcherState.pendingAddIds || []);
-    const pendingRemoveIds = new Set(watcherState.pendingRemoveIds || []);
-    const watcherIds = new Set(watchers.map(watcher => watcher.id));
-    const addFeedback = watcherState.addFeedback;
-    const removeFeedback = watcherState.removeFeedback;
-    const searchResults = (watcherState.searchResults || [])
-      .filter(result => result?.id && !watcherIds.has(result.id))
-      .map(result => ({
-        ...result,
-        isPending: pendingAddIds.has(result.id),
-        disabledAttr: pendingAddIds.has(result.id) ? 'disabled' : ''
-      }));
-    return {
-      isOpen: !!watcherState.open,
-      isLoading: !!watcherState.loading,
-      loadingText: watcherState.loading ? 'Loading watchers...' : '',
-      errorMessage: watcherState.errorMessage || '',
-      searchValue: watcherState.searchValue || '',
-      searchLoading: !!watcherState.searchLoading,
-      searchHintText: watcherState.searchValue
-        ? ''
-        : 'Start typing to find users.',
-      watchers: watchers.map(watcher => ({
-        ...watcher,
-        hasAvatar: !!watcher.avatarUrl,
-        pendingRemove: pendingRemoveIds.has(watcher.id),
-        pendingAction: pendingRemoveIds.has(watcher.id) ? 'Removing...' : '',
-        removeDisabled: pendingRemoveIds.has(watcher.id) ? 'disabled' : ''
-      })),
-      hasWatchers: watchers.length > 0,
-      emptyText: watcherState.loading ? '' : 'No watchers yet.',
-      searchResults,
-      hasSearchSection: searchResults.length > 0 || !!addFeedback,
-      hasSearchResults: searchResults.length > 0,
-      searchFeedback: addFeedback,
-      hasSearchFeedback: !!addFeedback,
-      showSearchEmpty: !!(watcherState.searchValue && !watcherState.searchLoading && searchResults.length === 0 && !addFeedback),
-      searchEmptyText: 'No matching users.',
-      hasWatcherSectionContent: watchers.length > 0 || !!removeFeedback,
-      watcherFeedback: removeFeedback,
-      hasWatcherFeedback: !!removeFeedback,
-    };
   }
 
   function clearWatchersFeedbackTimer() {
@@ -3556,62 +3406,6 @@ async function mainAsyncLocal() {
     };
   }
 
-  function buildAttachmentChips(attachments) {
-    const totals = {
-      image: 0,
-      pdf: 0,
-      doc: 0,
-      other: 0
-    };
-
-    (attachments || []).forEach(attachment => {
-      const mimeType = (attachment.mimeType || '').toLowerCase();
-      if (mimeType.startsWith('image/')) {
-        totals.image += 1;
-      } else if (mimeType === 'application/pdf') {
-        totals.pdf += 1;
-      } else if (
-        mimeType.includes('word') ||
-        mimeType.includes('excel') ||
-        mimeType.includes('powerpoint') ||
-        mimeType.includes('officedocument') ||
-        mimeType.includes('msword') ||
-        mimeType.includes('opendocument') ||
-        mimeType.includes('rtf') ||
-        mimeType.startsWith('text/')
-      ) {
-        totals.doc += 1;
-      } else {
-        totals.other += 1;
-      }
-    });
-
-    const chips = [];
-    if (totals.image) chips.push({icon: '🖼️', count: totals.image});
-    if (totals.pdf) chips.push({icon: '📕', count: totals.pdf});
-    if (totals.doc) chips.push({icon: '📝', count: totals.doc});
-    if (totals.other) chips.push({icon: '📎', count: totals.other});
-    return chips;
-  }
-
-
-  function buildActivityIndicators() {
-    return [
-      {
-        iconHtml: '<span class="_JX_history_toggle_icon" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" focusable="false" role="presentation"><circle cx="12" cy="12" r="8.25" fill="none" stroke="currentColor" stroke-width="1.75"></circle><path d="M12 7.75v4.6l3.1 1.9" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"></path></svg></span>',
-        label: 'History',
-        isHistory: true,
-        clickable: true,
-        title: 'View change history',
-        ariaLabel: 'View change history'
-      }
-    ].map(item => ({
-      ...item,
-      title: item.title || (item.hasCount ? item.count + ' ' + item.label.toLowerCase() : item.label),
-      ariaLabel: item.ariaLabel || item.title || item.label
-    }));
-  }
-
   // ── Pull Request Display ───────────────────────────────────
 
   function formatPullRequestTitle(pr) {
@@ -3906,130 +3700,6 @@ async function mainAsyncLocal() {
 
   // ── Avatars & User Display ─────────────────────────────────
 
-  function detectSharedAvatarUrls(users) {
-    if (!Array.isArray(users) || users.length < 2) {
-      return;
-    }
-    const urlCounts = new Map();
-    for (const user of users) {
-      const url = user?.avatarUrls?.['48x48'] || '';
-      if (url) {
-        urlCounts.set(url, (urlCounts.get(url) || 0) + 1);
-      }
-    }
-    for (const [url, count] of urlCounts) {
-      if (count >= 2) {
-        sharedAvatarUrls.add(url);
-      }
-    }
-  }
-
-  function buildUserView(user) {
-    const displayName = user?.displayName || user?.name || user?.username || user?.emailAddress || '';
-    const rawAvatarUrl = user?.avatarUrls?.['48x48'] || '';
-    const useInitials = isLikelyDefaultAvatar(user, rawAvatarUrl);
-    return {
-      displayName,
-      avatarUrl: useInitials ? '' : rawAvatarUrl,
-      initials: getUserInitials(displayName, '--'),
-      accountId: user?.accountId || '',
-      name: user?.name || user?.username || '',
-      key: user?.key || '',
-      emailAddress: user?.emailAddress || '',
-    };
-  }
-
-  function getUserInitials(displayName, fallbackInitials = '--') {
-    const tokens = String(displayName || '')
-      .trim()
-      .split(/\s+/)
-      .filter(Boolean);
-    if (!tokens.length) {
-      return fallbackInitials;
-    }
-    if (tokens.length === 1) {
-      return tokens[0].slice(0, 2).toUpperCase();
-    }
-    return `${tokens[0][0] || ''}${tokens[tokens.length - 1][0] || ''}`.toUpperCase();
-  }
-
-  function isLikelyDefaultAvatar(user, avatarUrl) {
-    if (!avatarUrl) {
-      return true;
-    }
-    if (user?.isDefaultAvatar === true) {
-      return true;
-    }
-    const JIRA_DEFAULT_AVATAR_DATA_URI = 'data:image/svg+xml;base64,PHN2ZyBpZD0iV2Fyc3R3YV8xIiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI+CiAgPHN0eWxlPgogICAgLnN0MHtmaWxsOiNjMWM3ZDB9CiAgPC9zdHlsZT4KICA8cGF0aCBjbGFzcz0ic3QwIiBkPSJNMTIgMjRDNS40IDI0IDAgMTguNiAwIDEyUzUuNCAwIDEyIDBzMTIgNS40IDEyIDEyLTUuNCAxMi0xMiAxMnoiLz4KICA8cGF0aCBkPSJNMTkuNSAxMmMwLS45LS42LTEuNy0xLjUtMS45LS4yLTMuMS0yLjgtNS42LTYtNS42UzYuMiA3IDYgMTAuMWMtLjkuMi0xLjUgMS0xLjUgMS45IDAgMSAuNyAxLjggMS43IDIgLjYgMi44IDMgNS41IDUuOCA1LjVzNS4yLTIuNyA1LjgtNS41YzEtLjIgMS43LTEgMS43LTJ6IiBmaWxsPSIjZjRmNWY3Ii8+CiAgPHBhdGggY2xhc3M9InN0MCIgZD0iTTEyIDE2LjljLTEgMC0yLS43LTIuMy0xLjYtLjEtLjMgMC0uNS4zLS42LjMtLjEuNSAwIC42LjMuMi42LjggMSAxLjQgMSAuNiAwIDEuMi0uNCAxLjQtMSAuMS0uMy40LS40LjYtLjMuMy4xLjQuNC4zLjYtLjMuOS0xLjMgMS42LTIuMyAxLjZ6Ii8+Cjwvc3ZnPg==';
-    const normalizedUrl = String(avatarUrl || '').toLowerCase();
-    if (avatarUrl === JIRA_DEFAULT_AVATAR_DATA_URI ||
-      normalizedUrl.includes('defaultavatar') ||
-      normalizedUrl.includes('/avatar.png') ||
-      normalizedUrl.includes('avatar/default') ||
-      normalizedUrl.includes('initials=')) {
-      return true;
-    }
-    // Jira Server system default: /secure/useravatar?avatarId=NNN (no ownerId)
-    if (/\buseravatar\b/.test(normalizedUrl) && !normalizedUrl.includes('ownerid=')) {
-      return true;
-    }
-    // URL seen by multiple distinct users is a shared default
-    if (avatarUrl && sharedAvatarUrls.has(avatarUrl)) {
-      return true;
-    }
-    return false;
-  }
-
-  function buildUserAvatarView(user, titlePrefix, fallbackInitials = '--') {
-    const view = buildUserView(user);
-    return {
-      avatarUrl: view.avatarUrl,
-      initials: view.displayName ? view.initials : fallbackInitials,
-      displayName: view.displayName,
-      titleText: `${titlePrefix}: ${view.displayName || 'Unknown'}`
-    };
-  }
-
-  function buildAssigneeAvatarView(state, issueData, canEditAssignee) {
-    const assignee = issueData?.fields?.assignee;
-    const displayName = assignee?.displayName || 'Unassigned';
-    const baseAvatarView = assignee
-      ? buildUserAvatarView(assignee, 'Assignee', '--')
-      : {
-          avatarUrl: '',
-          initials: '--',
-          displayName,
-          titleText: 'Assignee: Unassigned'
-        };
-    const activeEdit = buildActiveEditPresentation('assignee', state);
-    return {
-      ...baseAvatarView,
-      displayName,
-      placeholderText: assignee ? '' : 'Unassigned',
-      isEditable: !!canEditAssignee,
-      editTitle: activeEdit ? 'Discard' : (assignee ? 'Edit assignee' : 'Assign issue'),
-      ...(activeEdit || {})
-    };
-  }
-
-  function buildTitleView(state, issueData, canEditTitle) {
-    const issueKey = String(issueData?.key || '');
-    const summary = String(issueData?.fields?.summary || '');
-    const issueUrl = `${INSTANCE_URL}browse/${issueKey}`;
-    const activeEdit = buildActiveEditPresentation('summary', state);
-    return {
-      ticketKey: issueKey,
-      ticketTitle: summary,
-      keyPrefix: `[${issueKey}]`,
-      url: issueUrl,
-      urlTitle: `[${issueKey}] ${summary}`,
-      urlHoverTitle: buildLinkHoverTitle('Open issue in Jira', `[${issueKey}] ${summary}`, issueUrl),
-      isEditable: !!canEditTitle,
-      editTitle: activeEdit ? 'Discard title changes' : 'Edit issue title',
-      ...(activeEdit || {})
-    };
-  }
-
   function compareSprintState(left, right) {
     const order = {
       active: 0,
@@ -4200,309 +3870,82 @@ async function mainAsyncLocal() {
     return sprintPromise;
   }
 
+  function buildDefaultActivityIndicators() {
+    return [
+      {
+        iconHtml: '<span class="_JX_history_toggle_icon" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" focusable="false" role="presentation"><circle cx="12" cy="12" r="8.25" fill="none" stroke="currentColor" stroke-width="1.75"></circle><path d="M12 7.75v4.6l3.1 1.9" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"></path></svg></span>',
+        label: 'History',
+        isHistory: true,
+        clickable: true,
+        title: 'View change history',
+        ariaLabel: 'View change history'
+      }
+    ].map(item => ({
+      ...item,
+      title: item.title || (item.hasCount ? item.count + ' ' + item.label.toLowerCase() : item.label),
+      ariaLabel: item.ariaLabel || item.title || item.label
+    }));
+  }
+
   // ── Quick Actions ──────────────────────────────────────────
+
+  const {
+    buildUserView,
+    detectSharedAvatarUrls,
+    normalizeAssignableUsers,
+    normalizeWatcherUsers,
+    proxyUserAvatars,
+  } = createContentPeopleHelpers({
+    areSameJiraUser,
+    buildEditOption,
+    cacheKnownJiraUser,
+    cacheKnownJiraUsers,
+    getDisplayImageUrl,
+    sharedAvatarUrls,
+  });
+
+  const {buildPopupDisplayData} = createContentDisplayHelpers({
+    buildActivityIndicatorsDefault: buildDefaultActivityIndicators,
+    buildActiveEditPresentation,
+    buildCommentsForDisplay,
+    buildCustomFieldChips,
+    buildEditableFieldChip,
+    buildFilterChip,
+    buildLabelsChip,
+    buildLinkHoverTitle,
+    buildQuickActionViewData,
+    buildTimeTrackingSectionPresentation,
+    buildUserView,
+    customFields,
+    displayFields,
+    emptyWatchersState,
+    encodeJqlValue,
+    formatChangelogForDisplay,
+    formatEnvironmentDisplayText,
+    formatFixVersionText,
+    formatPullRequestAuthor,
+    formatPullRequestBranch,
+    formatPullRequestTitle,
+    formatSprintText,
+    getEditableFieldCapability,
+    getTransitionOptions,
+    getVisibleSprintsForDisplay,
+    hasLabelSuggestionSupport,
+    instanceUrl: INSTANCE_URL,
+    layoutContentBlocks,
+    loaderGifUrl,
+    normalizeIssueTypeOptions,
+    normalizeRichHtml,
+    readSprintsFromIssue,
+    resolveIssueLinkage,
+    scopeJqlToProject,
+    showPullRequests,
+    tooltipLayout,
+    buildPreviewAttachments,
+  });
 
 
   // ── Popup Data & Rendering ─────────────────────────────────
-
-  async function buildPopupDisplayData(state) {
-    const {key, issueData, pullRequests, actionLoadingKey, actionError, lastActionSuccess, actionsOpen, quickActions, historyOpen, changelogData, changelogLoading} = state;
-    const normalizedDescription = await normalizeRichHtml(issueData.renderedFields.description, {
-      imageMaxHeight: 180
-    });
-    const commentsForDisplay = await buildCommentsForDisplay(issueData, state.commentSession, state.commentReactionState);
-    const fixVersions = issueData.fields.fixVersions || [];
-    const affectsVersions = issueData.fields.versions || [];
-    const sprints = readSprintsFromIssue(issueData);
-    const commentsTotal = commentsForDisplay.length;
-    const attachments = issueData.fields.attachment || [];
-    const previewAttachments = buildPreviewAttachments(attachments);
-    const labels = issueData.fields.labels || [];
-    const linkageData = await resolveIssueLinkage(issueData);
-    const issueTypeName = issueData.fields.issuetype?.name;
-    const statusName = issueData.fields.status?.name;
-    const priorityName = issueData.fields.priority?.name;
-    const projectKey = key.split('-')[0];
-    const [issueTypeCapability, priorityCapability, assigneeCapability, transitionOptions, sprintCapability, affectsCapability, fixVersionsCapability, labelsCapability, environmentCapability, labelSuggestionSupport, summaryCapability, timeTrackingCapability, customFieldChips] = await Promise.all([
-      displayFields.issueType ? getEditableFieldCapability(issueData, 'issuetype') : Promise.resolve({editable: false, allowedValues: []}),
-      displayFields.priority ? getEditableFieldCapability(issueData, 'priority') : Promise.resolve({editable: false}),
-      displayFields.assignee ? getEditableFieldCapability(issueData, 'assignee') : Promise.resolve({editable: false}),
-      displayFields.status ? getTransitionOptions(issueData.key).catch(() => []) : Promise.resolve([]),
-      displayFields.sprint ? getEditableFieldCapability(issueData, 'sprint') : Promise.resolve({editable: false}),
-      displayFields.affects ? getEditableFieldCapability(issueData, 'versions') : Promise.resolve({editable: false}),
-      displayFields.fixVersions ? getEditableFieldCapability(issueData, 'fixVersions') : Promise.resolve({editable: false}),
-      displayFields.labels ? getEditableFieldCapability(issueData, 'labels') : Promise.resolve({editable: false}),
-      displayFields.environment ? getEditableFieldCapability(issueData, 'environment') : Promise.resolve({editable: false, operations: []}),
-      displayFields.labels ? hasLabelSuggestionSupport() : Promise.resolve(false),
-      getEditableFieldCapability(issueData, 'summary').catch(() => ({editable: false, operations: []})),
-      getEditableFieldCapability(issueData, 'timetracking').catch(() => ({editable: false})),
-      buildCustomFieldChips(issueData, customFields, state)
-    ]);
-    const statusEditable = Array.isArray(transitionOptions) && transitionOptions.length > 0;
-    const issueTypeEditable = !!issueTypeCapability?.editable && normalizeIssueTypeOptions(issueTypeCapability.allowedValues || [], issueData.fields.issuetype).length > 1;
-    const priorityEditable = !!priorityCapability?.editable;
-    const assigneeEditable = !!assigneeCapability?.editable;
-    const labelsEditable = !!labelsCapability?.editable && !!labelSuggestionSupport;
-    const environmentEditable = !!environmentCapability?.editable && (environmentCapability.operations || []).includes('set');
-    const summaryEditable = !!summaryCapability?.editable && (summaryCapability.operations || []).includes('set');
-
-    const layoutRow1 = tooltipLayout?.row1 || ['issueType', 'status', 'priority'];
-    const layoutRow2 = tooltipLayout?.row2 || ['epicParent', 'sprint', 'affects', 'fixVersions'];
-    const layoutRow3 = tooltipLayout?.row3 || ['environment', 'labels'];
-
-    const singleAffectsVersion = affectsVersions.length === 1 ? affectsVersions[0]?.name : '';
-    const singleFixVersion = fixVersions.length === 1 ? fixVersions[0]?.name : '';
-    const visibleSprints = getVisibleSprintsForDisplay(sprints);
-    const sprintClauses = visibleSprints
-      .map(sprint => sprint?.id
-        ? `sprint = ${sprint.id}`
-        : (sprint?.name ? `sprint = ${encodeJqlValue(sprint.name)}` : ''))
-      .filter(Boolean);
-    const sprintJql = sprintClauses.length
-      ? scopeJqlToProject(
-          projectKey,
-          sprintClauses.length === 1 ? sprintClauses[0] : `(${sprintClauses.join(' OR ')})`
-        )
-      : '';
-
-    const buildRow1Chip = (fieldKey) => {
-      switch (fieldKey) {
-        case 'issueType':
-          return buildEditableFieldChip('issuetype', buildFilterChip(
-            issueTypeName || 'No type',
-            issueTypeName ? `${scopeJqlToProject(projectKey, `issuetype = ${encodeJqlValue(issueTypeName)}`)}` : '',
-            {iconUrl: issueData.fields.issuetype?.iconUrl || '', linkLabel: issueTypeName}
-          ), state, {
-            canEdit: issueTypeEditable,
-            editTitle: 'Edit issue type'
-          });
-        case 'status':
-          return buildEditableFieldChip('status', buildFilterChip(
-            statusName || 'No status',
-            statusName ? `${scopeJqlToProject(projectKey, `status = ${encodeJqlValue(statusName)}`)}` : '',
-            {iconUrl: issueData.fields.status?.iconUrl || '', linkLabel: statusName}
-          ), state, {
-            canEdit: statusEditable,
-            editTitle: 'Change status'
-          });
-        case 'priority':
-          return buildEditableFieldChip('priority', buildFilterChip(
-            `Priority: ${priorityName || '--'}`,
-            priorityName ? `${scopeJqlToProject(projectKey, `priority = ${encodeJqlValue(priorityName)}`)}` : '',
-            {iconUrl: issueData.fields.priority?.iconUrl || '', linkLabel: priorityName}
-          ), state, {
-            canEdit: priorityEditable,
-            editTitle: 'Edit priority'
-          });
-        case 'epicParent':
-          return buildEditableFieldChip('parentLink', {
-            text: linkageData?.currentLink
-              ? `${linkageData.label}: [${linkageData.currentLink.key}] ${linkageData.currentLink.summary}`
-              : `${linkageData?.label || 'Parent'}: --`,
-            linkUrl: linkageData?.currentLink?.url || '',
-            linkTitle: linkageData?.currentLink
-              ? buildLinkHoverTitle(
-                  linkageData.mode === 'epicLink' ? 'View epic issue' : 'View parent issue',
-                  `[${linkageData.currentLink.key}] ${linkageData.currentLink.summary}`
-                )
-              : ''
-          }, state, {
-            canEdit: !!linkageData?.editable,
-            editTitle: linkageData?.mode === 'epicLink' ? 'Edit epic link' : 'Edit parent'
-          });
-        default:
-          return null;
-      }
-    };
-
-    const buildRow2Chip = (fieldKey) => {
-      switch (fieldKey) {
-        case 'sprint':
-          return buildEditableFieldChip('sprint', buildFilterChip(
-            `Sprint: ${formatSprintText(sprints) || '--'}`,
-            sprintJql,
-            {linkLabel: visibleSprints.length > 1 ? 'listed sprints' : (formatSprintText(sprints) || '')}
-          ), state, {
-            canEdit: !!sprintCapability?.editable
-          });
-        case 'affects':
-          return buildEditableFieldChip('versions', buildFilterChip(
-            `Affects: ${formatVersionText(affectsVersions) || '--'}`,
-            singleAffectsVersion ? `${scopeJqlToProject(projectKey, `affectedVersion = ${encodeJqlValue(singleAffectsVersion)}`)}` : '',
-            {linkLabel: singleAffectsVersion}
-          ), state, {
-            canEdit: !!affectsCapability?.editable,
-            isRightAligned: true
-          });
-        case 'fixVersions':
-          return buildEditableFieldChip('fixVersions', buildFilterChip(
-            `Fix version: ${formatVersionText(fixVersions) || '--'}`,
-            singleFixVersion ? `${scopeJqlToProject(projectKey, `fixVersion = ${encodeJqlValue(singleFixVersion)}`)}` : '',
-            {linkLabel: singleFixVersion}
-          ), state, {
-            canEdit: !!fixVersionsCapability?.editable,
-            isRightAligned: true
-          });
-        default:
-          return null;
-      }
-    };
-
-    const singleLabel = labels.length === 1 ? labels[0] : '';
-    const environmentText = formatEnvironmentDisplayText(issueData.fields.environment);
-    const environmentTooltip = String(issueData.fields.environment || '')
-      .replace(/\r\n/g, '\n')
-      .replace(/\r/g, '\n')
-      .trim();
-
-    const buildRow3Chip = (fieldKey) => {
-      switch (fieldKey) {
-        case 'environment':
-          return buildEditableFieldChip('environment', buildFilterChip(
-            `Environment: ${environmentText}`,
-            '',
-            {
-              chipTitle: environmentTooltip ? `Environment: ${environmentTooltip}` : 'Environment: --',
-              truncateText: true
-            }
-          ), state, {
-            canEdit: environmentEditable,
-            editTitle: 'Edit environment'
-          });
-        case 'labels':
-          return buildEditableFieldChip('labels', buildLabelsChip(labels, projectKey), state, {
-            canEdit: labelsEditable,
-            editTitle: 'Edit labels'
-          });
-        default:
-          return null;
-      }
-    };
-
-    const row1Chips = layoutRow1.map(buildRow1Chip).filter(Boolean).concat(customFieldChips[1]);
-    const row2Chips = layoutRow2.map(buildRow2Chip).filter(Boolean).concat(customFieldChips[2]);
-    const row3Chips = layoutRow3.map(buildRow3Chip).filter(Boolean).concat(customFieldChips[3]);
-    const maxMetaFieldsPerRow = Math.max(row2Chips.length, row3Chips.length);
-
-    const copyTicketMeta = ticket => ({
-      copyUrl: ticket.url,
-      copyTicket: ticket.key,
-      copyTitle: ticket.summary
-    });
-
-    const issueUrl = INSTANCE_URL + 'browse/' + key;
-    const showAttachments = layoutContentBlocks.includes('attachments');
-    const showComments = layoutContentBlocks.includes('comments');
-    const showTimeTracking = layoutContentBlocks.includes('timeTracking');
-    const visibleCommentsTotal = showComments ? commentsTotal : 0;
-    const visibleAttachments = showAttachments ? previewAttachments : [];
-    const quickActionData = buildQuickActionViewData(actionsOpen, actionLoadingKey, quickActions);
-    const reporterView = displayFields.reporter && issueData.fields.reporter
-      ? buildUserAvatarView(issueData.fields.reporter, 'Reporter', '--')
-      : null;
-    const assigneeView = displayFields.assignee
-      ? buildAssigneeAvatarView(state, issueData, assigneeEditable)
-      : null;
-    const titleView = buildTitleView(state, issueData, summaryEditable);
-    const titleStatusText = titleView.isEditing && titleView.fieldKey === 'summary' ? titleView.loadingText : '';
-    const watches = issueData.fields.watches || {};
-    const watcherCount = Number.isFinite(Number(watches.watchCount)) ? Number(watches.watchCount) : 0;
-    const watchersPanel = buildWatchersPanelView(state);
-    const timeTrackingSection = showTimeTracking ? buildTimeTrackingSectionPresentation(issueData, state.timeTrackingEditState, timeTrackingCapability) : null;
-    const displayData = {
-      urlTitle: titleView.urlTitle,
-      ticketKey: titleView.ticketKey,
-      ticketTitle: titleView.ticketTitle,
-      url: titleView.url,
-      urlHoverTitle: titleView.urlHoverTitle,
-      ...copyTicketMeta({
-        key,
-        summary: issueData.fields.summary,
-        url: issueUrl
-      }),
-      prs: [],
-      description: layoutContentBlocks.includes('description') ? normalizedDescription : '',
-      hasBodyContent: true,
-      emptyBodyText: (!normalizedDescription && visibleAttachments.length === 0 && visibleCommentsTotal === 0)
-        ? 'No description, attachments or comments.'
-        : '',
-      attachments,
-      previewAttachments: visibleAttachments,
-      commentsForDisplay: showComments ? commentsForDisplay : [],
-      showCommentsSection: showComments || commentsForDisplay.length > 0,
-      showCommentComposer: showComments,
-      issuetype: issueData.fields.issuetype,
-      status: issueData.fields.status,
-      priority: issueData.fields.priority,
-      issueTypeText: displayFields.issueType ? (issueTypeName || 'No type') : '',
-      statusText: displayFields.status ? (statusName || 'No status') : '',
-      sprintText: displayFields.sprint ? (formatSprintText(sprints) || 'No sprint') : '',
-      fixVersionText: displayFields.fixVersions ? (formatFixVersionText(fixVersions) || 'No fix version') : '',
-      useWideAnnotation: maxMetaFieldsPerRow > 3,
-      row1Chips,
-      row2Chips,
-      row3Chips,
-      timeTrackingSection,
-      hasComments: visibleCommentsTotal > 0,
-      commentsTotal: visibleCommentsTotal,
-      attachmentChips: displayFields.attachments ? buildAttachmentChips(attachments) : [],
-      reporter: displayFields.reporter ? issueData.fields.reporter : null,
-      reporterView,
-      assignee: displayFields.assignee ? issueData.fields.assignee : null,
-      assigneeView,
-      titleView,
-      watchersTrigger: {
-        count: watcherCount,
-        title: watcherCount === 1 ? '1 watcher' : `${watcherCount} watchers`,
-        watchingTitle: watches.isWatching ? 'You are watching this issue.' : 'You are not watching this issue.',
-        isWatching: !!watches.isWatching,
-        isOpen: watchersPanel.isOpen,
-        isLoading: watchersPanel.isLoading,
-        hasCount: true,
-      },
-      watchersPanel,
-      commentUrl: issueUrl,
-      hasFieldSummary: row1Chips.length > 0 || row2Chips.length > 0 || row3Chips.length > 0,
-      activityIndicators: [],
-      loaderGifUrl,
-      actionNoticeText: titleStatusText || actionError || lastActionSuccess,
-      actionNoticeClass: titleStatusText
-        ? '_JX_action_notice_info'
-        : (actionError ? '_JX_action_notice_error' : '_JX_action_notice_success'),
-      hasActionNotice: !!(titleStatusText || actionError || lastActionSuccess),
-      ...quickActionData
-    };
-    if (issueData.fields.comment?.comments?.[0]?.id) {
-      displayData.commentUrl = `${displayData.url}#comment-${issueData.fields.comment.comments[0].id}`;
-    }
-    if (showPullRequests && size(pullRequests)) {
-      const filteredPullRequests = pullRequests.filter(pr => {
-        return pr && pr.url !== location.href;
-      });
-      displayData.prs = filteredPullRequests.map(pr => {
-        return {
-          id: pr.id,
-          url: pr.url,
-          linkUrl: pr.url,
-          linkTitle: buildLinkHoverTitle('Open pull request', formatPullRequestTitle(pr), pr.url),
-          title: formatPullRequestTitle(pr),
-          status: pr.status,
-          authorName: formatPullRequestAuthor(pr),
-          branchText: formatPullRequestBranch(pr)
-        };
-      });
-    }
-    const changelogHistories = changelogData?.histories || [];
-    displayData.activityIndicators = buildActivityIndicators();
-    displayData.hasRow1Meta = !!displayData.watchersTrigger || displayData.activityIndicators.length > 0;
-    displayData.hasPrimaryStatusRow = row1Chips.length > 0 || displayData.hasRow1Meta;
-    displayData.historyOpen = !!historyOpen;
-    displayData.changelogLoading = !!changelogLoading;
-    displayData.changelogEntries = historyOpen ? await formatChangelogForDisplay(changelogData, issueData) : [];
-    displayData.hasChangelogEntries = historyOpen && displayData.changelogEntries.length > 0;
-    displayData.showChangelogEmpty = historyOpen && !changelogLoading && displayData.changelogEntries.length === 0;
-    return displayData;
-  }
   // ── Popup Positioning ──────────────────────────────────────
   function getRelativeHref(href) {
     const documentHref = document.location.href.split('#')[0];
@@ -4513,59 +3956,31 @@ async function mainAsyncLocal() {
   }
 
   function clampContainerPosition(left, top) {
-    const margin = 8;
-    const width = container.outerWidth() || 0;
-    const height = container.outerHeight() || 0;
-    const viewportLeft = window.scrollX + margin;
-    const viewportTop = window.scrollY + margin;
-    const viewportRight = window.scrollX + window.innerWidth - margin;
-    const viewportBottom = window.scrollY + window.innerHeight - margin;
-    const maxLeft = Math.max(viewportLeft, viewportRight - width);
-    const maxTop = Math.max(viewportTop, viewportBottom - height);
-
-    return {
-      left: Math.min(Math.max(left, viewportLeft), maxLeft),
-      top: Math.min(Math.max(top, viewportTop), maxTop)
-    };
+    if (!contentShellHelpers) {
+      return {left, top};
+    }
+    return contentShellHelpers.clampContainerPosition(left, top);
   }
 
   function keepContainerVisible() {
-    if (containerPinned || !container.html()) {
+    if (!contentShellHelpers) {
       return;
     }
-    const currentLeft = Number.parseFloat(container.css('left'));
-    const currentTop = Number.parseFloat(container.css('top'));
-    const fallbackLeft = window.scrollX + 8;
-    const fallbackTop = window.scrollY + 8;
-    container.css(clampContainerPosition(
-      Number.isFinite(currentLeft) ? currentLeft : fallbackLeft,
-      Number.isFinite(currentTop) ? currentTop : fallbackTop
-    ));
+    contentShellHelpers.keepContainerVisible();
   }
 
   function computeVisibleContainerPosition(pointerX, pointerY) {
-    const preferredLeft = pointerX + 20;
-    const preferredTop = pointerY + 25;
-    const width = container.outerWidth() || 0;
-    const height = container.outerHeight() || 0;
-    const viewportRight = window.scrollX + window.innerWidth - 8;
-    const viewportBottom = window.scrollY + window.innerHeight - 8;
-
-    let left = preferredLeft;
-    let top = preferredTop;
-
-    if (left + width > viewportRight) {
-      left = pointerX - width - 15;
+    if (!contentShellHelpers) {
+      return {left: pointerX, top: pointerY};
     }
-
-    if (top + height > viewportBottom) {
-      top = pointerY - height - 15;
-    }
-
-    return clampContainerPosition(left, top);
+    return contentShellHelpers.computeVisibleContainerPosition(pointerX, pointerY);
   }
 
   // ── Popup Rendering & State ────────────────────────────────
+  let hideTimeOut;
+  let hoverDelayTimeout;
+  let containerPinned = false;
+  let lastHoveredKey = '';
   const container = $('<div class="_JX_container" data-testid="jira-popup-root">');
   const previewOverlay = $(`
     <div class="_JX_preview_overlay" data-testid="jira-popup-preview-overlay">
@@ -4574,6 +3989,14 @@ async function mainAsyncLocal() {
   `);
   $(document.body).append(container);
   $(document.body).append(previewOverlay);
+  contentShellHelpers = createContentShellHelpers({
+    container,
+    previewOverlay,
+    getDisplayImageUrl,
+    isContainerPinned: () => containerPinned,
+    clearHideTimeout: () => clearTimeout(hideTimeOut),
+    pinContainer,
+  });
   async function renderIssuePopup(state) {
     if (!state?.issueData) {
       return;
@@ -6031,19 +5454,17 @@ async function mainAsyncLocal() {
 
   // ── Image Preview ─────────────────────────────────────────
   function closePreviewOverlay() {
-    previewOverlay.removeClass('is-open');
-    previewOverlay.find('img').attr('src', '');
+    if (!contentShellHelpers) {
+      return;
+    }
+    contentShellHelpers.closePreviewOverlay();
   }
 
   async function openPreviewOverlay(imageUrl) {
-    if (!imageUrl) {
+    if (!contentShellHelpers) {
       return;
     }
-    clearTimeout(hideTimeOut);
-    pinContainer({showNotice: false});
-    const displaySrc = await getDisplayImageUrl(imageUrl);
-    previewOverlay.find('img').attr('src', displaySrc || imageUrl);
-    previewOverlay.addClass('is-open');
+    await contentShellHelpers.openPreviewOverlay(imageUrl);
   }
 
   previewOverlay.on('click', function (e) {
@@ -6129,10 +5550,6 @@ async function mainAsyncLocal() {
     }, cooldown);
   }
 
-  let hideTimeOut;
-  let hoverDelayTimeout;
-  let containerPinned = false;
-  let lastHoveredKey = '';
   container.on('dragstop', () => {
     pinContainer();
   });
