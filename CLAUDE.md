@@ -10,6 +10,7 @@
 
 - Always `git pull origin master --rebase` before starting work to stay in sync with remote
 - PRs target `master` on `dgebaei/Jira-Hot-Linker`
+- For `gh` commands, always target `dgebaei/Jira-Hot-Linker` explicitly with `-R dgebaei/Jira-Hot-Linker`, or verify first that `gh repo view --json nameWithOwner` resolves to `dgebaei/Jira-Hot-Linker`. Never rely on upstream inference when creating or closing PRs/releases.
 - By default, do feature work in a dedicated git worktree under `.worktrees/` inside the repo, unless the user explicitly asks to work in the main checkout.
 - Name each worktree folder after the task or branch and keep `.worktrees/` ignored.
 - For manual extension testing, use the stable unpacked path `.worktrees/_active-extension_/jira-plugin` and refresh it with `npm run build:active-extension`.
