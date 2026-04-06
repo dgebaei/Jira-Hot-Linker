@@ -63,7 +63,7 @@ function main() {
 
   console.log(`Building extension from: ${targetWorktree}`);
   run('npx', ['webpack', '--mode=development', '--config', path.join(targetWorktree, 'webpack.config.js')], {
-    cwd: repoRoot,
+    cwd: targetWorktree,
   });
 
   copyIntoActiveExtension(targetWorktree, activeExtensionRoot);
