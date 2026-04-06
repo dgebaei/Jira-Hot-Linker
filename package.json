@@ -18,7 +18,7 @@
     "test:e2e:all": "node scripts/playwright/run-all-suites.js",
     "test:e2e:mock-edge": "npm exec -- playwright test --project=mock-edge --project=mock-popup",
     "test:e2e:public-smoke": "npm exec -- playwright test --project=public-smoke",
-    "test:e2e:live-authenticated": "npm exec -- playwright test --project=live-authenticated",
+    "test:e2e:live-authenticated": "node scripts/playwright/run-live-authenticated.js",
     "test:e2e:extension": "npm run test:e2e:live-authenticated",
     "test:e2e:public": "npm run test:e2e:public-smoke",
     "test:e2e:live": "npm run test:e2e:live-authenticated",
