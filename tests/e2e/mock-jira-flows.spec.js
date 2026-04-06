@@ -32,8 +32,8 @@ async function openPopup(extensionApp, servers, target) {
   return {page, target: resolvedTarget};
 }
 
-async function pasteImageIntoComment(page) {
-  await page.locator('._JX_comment_input').evaluate((element, bytes) => {
+async function pasteImageIntoTextarea(locator) {
+  await locator.evaluate((element, bytes) => {
     const file = new File([new Uint8Array(bytes)], 'paste.png', {type: 'image/png'});
     const dataTransfer = new DataTransfer();
     dataTransfer.items.add(file);
@@ -259,6 +259,172 @@ test('renders text custom fields with a plain prefilled input instead of select-
   await input.fill('Rain is coming');
   await input.press('Enter');
   await expect(popup.root).toContainText('CustomTextField: Rain is coming');
+
+  await page.close();
+});
+
+test('always shows the Description section and saves plain text edits through reopen in mocked mode @mock-only', async ({extensionApp, optionsPage, servers}) => {
+  const target = requireJiraTestTarget(test, servers, {requireAuth: process.env.MOCK === 'false'});
+  test.skip(target.mode !== 'mock', 'Description editor coverage is deterministic in mocked mode only.');
+
+  await servers.jira.setScenario('editable');
+  let forceInitialEmptyDescription = true;
+  await patchJsonResponse(optionsPage.context(), target.instanceUrl, '/rest/api/2/issue/[^?]+\\?fields=[^#]+$', (payload, request) => {
+    if (request.method() !== 'GET') {
+      return payload;
+    }
+    if (!forceInitialEmptyDescription) {
+      return payload;
+    }
+    forceInitialEmptyDescription = false;
+    return {
+      ...payload,
+      fields: {
+        ...payload.fields,
+        description: null,
+      },
+      renderedFields: {
+        ...payload.renderedFields,
+        description: '',
+      },
+    };
+  });
+  await patchJsonResponse(optionsPage.context(), target.instanceUrl, '/rest/api/2/issue/[^/]+/editmeta(?:\\?.*)?$', (payload, request) => {
+    if (request.method() !== 'GET') {
+      return payload;
+    }
+    return {
+      ...payload,
+      fields: {
+        ...payload.fields,
+        description: {
+          name: 'Description',
+          operations: ['set'],
+          schema: {type: 'string'},
+        },
+      },
+    };
+  });
+  await configureExtension(optionsPage, baseConfig(servers, target));
+
+  const {page} = await openPopup(extensionApp, servers, target);
+  const popup = popupModel(page);
+  const descriptionBlock = page.locator('[data-content-block="description"]');
+
+  await expect(descriptionBlock).toContainText('Description');
+  await expect(page.getByTestId('jira-popup-description-empty')).toContainText('No description yet.');
+
+  await page.getByTestId('jira-popup-description-edit').click();
+  const input = page.getByTestId('jira-popup-description-input');
+  await expect(input).toBeVisible();
+  await input.fill('This task needs more context.');
+  await page.getByTestId('jira-popup-description-save').click();
+
+  await expect(page.getByTestId('jira-popup-description-status')).toContainText('Description updated');
+  await expect(page.getByTestId('jira-popup-description-rendered')).toContainText('This task needs more context.');
+
+  await page.locator('._JX_close_button').click();
+  await expect(page.locator('._JX_title')).toHaveCount(0);
+  await hoverIssueKey(page, '#popup-key');
+  await expect(popup.root).toContainText('JRACLOUD-97846');
+  await expect(page.getByTestId('jira-popup-description-rendered')).toContainText('This task needs more context.');
+
+  await page.close();
+});
+
+test('keeps the Description section visible after clearing it in mocked mode @mock-only', async ({extensionApp, optionsPage, servers}) => {
+  const target = requireJiraTestTarget(test, servers, {requireAuth: process.env.MOCK === 'false'});
+  test.skip(target.mode !== 'mock', 'Description editor coverage is deterministic in mocked mode only.');
+
+  await servers.jira.setScenario('editable');
+  await configureExtension(optionsPage, baseConfig(servers, target));
+
+  const {page} = await openPopup(extensionApp, servers, target);
+  const descriptionBlock = page.locator('[data-content-block="description"]');
+
+  await page.getByTestId('jira-popup-description-edit').click();
+  const input = page.getByTestId('jira-popup-description-input');
+  await input.fill('');
+  await page.getByTestId('jira-popup-description-save').click();
+
+  await expect(page.getByTestId('jira-popup-description-status')).toContainText('Description cleared');
+  await expect(descriptionBlock).toContainText('Description');
+  await expect(page.getByTestId('jira-popup-description-empty')).toContainText('No description yet.');
+
+  await page.locator('._JX_close_button').click();
+  await expect(page.locator('._JX_title')).toHaveCount(0);
+  await hoverIssueKey(page, '#popup-key');
+  await expect(descriptionBlock).toContainText('Description');
+  await expect(page.getByTestId('jira-popup-description-empty')).toContainText('No description yet.');
+
+  await page.close();
+});
+
+test('shows inline error feedback when saving the Description fails in mocked mode @mock-only', async ({extensionApp, optionsPage, servers}) => {
+  const target = requireJiraTestTarget(test, servers, {requireAuth: process.env.MOCK === 'false'});
+  test.skip(target.mode !== 'mock', 'Description save failure coverage is deterministic in mocked mode only.');
+
+  await servers.jira.setScenario('editable');
+  await optionsPage.context().route('**/rest/api/2/issue/**', async route => {
+    const request = route.request();
+    const url = request.url();
+    if (
+      request.method() === 'PUT' &&
+      url.includes('/rest/api/2/issue/') &&
+      !url.includes('/comment') &&
+      !url.includes('/worklog')
+    ) {
+      await route.fulfill({
+        status: 500,
+        headers: {'content-type': 'application/json; charset=utf-8'},
+        body: JSON.stringify({errorMessages: ['Could not update description']}),
+      });
+      return;
+    }
+    await route.continue();
+  });
+  await configureExtension(optionsPage, baseConfig(servers, target));
+
+  const {page} = await openPopup(extensionApp, servers, target);
+
+  await page.getByTestId('jira-popup-description-edit').click();
+  const input = page.getByTestId('jira-popup-description-input');
+  await input.fill('This description should fail to save.');
+  await page.getByTestId('jira-popup-description-save').click();
+
+  await expect(page.getByTestId('jira-popup-description-status')).toContainText('Could not update description');
+  await expect(input).toHaveValue('This description should fail to save.');
+  await expect(page.getByTestId('jira-popup-description-save')).toHaveText('Save');
+
+  await page.close();
+});
+
+test('supports pasted images while editing the Description in mocked mode @mock-only', async ({extensionApp, optionsPage, servers}) => {
+  const target = requireJiraTestTarget(test, servers, {requireAuth: process.env.MOCK === 'false'});
+  test.skip(target.mode !== 'mock', 'Description image coverage is deterministic in mocked mode only.');
+
+  await servers.jira.setScenario('editable');
+  await configureExtension(optionsPage, baseConfig(servers, target));
+
+  const {page} = await openPopup(extensionApp, servers, target);
+
+  await page.getByTestId('jira-popup-description-edit').click();
+  const input = page.getByTestId('jira-popup-description-input');
+  await pasteImageIntoTextarea(input);
+  await expect(input).toHaveValue(/!pasted-image-/);
+  await page.getByTestId('jira-popup-description-save').click();
+
+  const renderedImage = page.getByTestId('jira-popup-description-rendered').locator('img._JX_previewable').last();
+  await expect(renderedImage).toBeVisible();
+  await renderedImage.click();
+  const popup = popupModel(page);
+  await expect(popup.previewOverlay).toHaveClass(/is-open/);
+  await page.keyboard.press('Escape');
+
+  await page.locator('._JX_close_button').click();
+  await expect(page.locator('._JX_title')).toHaveCount(0);
+  await hoverIssueKey(page, '#popup-key');
+  await expect(page.getByTestId('jira-popup-description-rendered').locator('img._JX_previewable').last()).toBeVisible();
 
   await page.close();
 });
@@ -681,7 +847,7 @@ test('uploads a pasted image into the comment composer in mocked mode @mock-only
 
   const {page} = await openPopup(extensionApp, servers, target);
   const persistedCommentText = `Persisted attachment preview ${Date.now()}`;
-  await pasteImageIntoComment(page);
+  await pasteImageIntoTextarea(page.locator('._JX_comment_input'));
   await page.locator('._JX_comment_input').type(`\n\n${persistedCommentText}`);
 
   await expect(page.locator('._JX_comment_upload_status')).toContainText('Attached to issue');
