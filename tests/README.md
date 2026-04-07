@@ -1,6 +1,6 @@
 # Test Automation Guide
 
-This folder contains the Playwright automation setup for Jira HotLinker.
+This folder contains the Playwright automation setup for Jira QuickView.
 
 ## What Lives Here
 

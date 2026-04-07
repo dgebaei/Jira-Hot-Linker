@@ -467,16 +467,16 @@ async function browserOnClicked (tab) {
 
   const granted = await requestActionOrigins(origins);
   if (!granted) {
-    await showActionFeedback(tab.id, 'Jira HotLinker was not enabled because the permission request was cancelled.').catch(() => {});
+    await showActionFeedback(tab.id, 'Jira QuickView was not enabled because the permission request was cancelled.').catch(() => {});
     clearActionBadgeLater(tab.id);
     return;
   }
 
-  await setActionBadge(tab.id, '...', '#6b7280', 'Jira HotLinker is checking this page').catch(() => {});
+  await setActionBadge(tab.id, '...', '#6b7280', 'Jira QuickView is checking this page').catch(() => {});
 
   const config = await storageGet(defaultConfig);
   if (!config.instanceUrl || !config.v15upgrade) {
-    await showActionFeedback(tab.id, 'Open Jira HotLinker options and save your Jira instance before enabling pages.').catch(() => {});
+    await showActionFeedback(tab.id, 'Open Jira QuickView options and save your Jira instance before enabling pages.').catch(() => {});
     chrome.runtime.openOptionsPage();
     clearActionBadgeLater(tab.id);
     return;
@@ -486,7 +486,7 @@ async function browserOnClicked (tab) {
     const config = await storageGet(defaultConfig);
     const domainsToAdd = origins.filter(candidate => !hasConfiguredDomain(config.domains, candidate));
     if (!domainsToAdd.length) {
-      await showActionFeedback(tab.id, origin + ' is already enabled for Jira HotLinker.');
+      await showActionFeedback(tab.id, origin + ' is already enabled for Jira QuickView.');
       clearActionBadgeLater(tab.id);
       return;
     }
@@ -514,9 +514,9 @@ async function browserOnClicked (tab) {
 
   chrome.action.onClicked.addListener(tab => {
     browserOnClicked(tab).catch(async error => {
-      console.error('Jira HotLinker action click failed', error);
+      console.error('Jira QuickView action click failed', error);
       if (hasTabId(tab)) {
-        const message = error?.message || 'Jira HotLinker failed to enable this page.';
+        const message = error?.message || 'Jira QuickView failed to enable this page.';
         await showActionFeedback(tab.id, message).catch(() => {});
         await setActionBadge(tab.id, 'ERR', '#b42318', message).catch(() => {});
         clearActionBadgeLater(tab.id, 5000);

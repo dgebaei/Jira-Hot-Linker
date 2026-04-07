@@ -1,4 +1,4 @@
-# Jira HotLinker
+# Jira QuickView
 
 > Hover a Jira key anywhere on the web and get issue context, linked PR status, attachments, comments, and edit controls without opening a new Jira tab.
 
@@ -8,7 +8,7 @@
 
 ## One hover, much more context
 
-Jira HotLinker keeps issue context next to the work you are already doing. Review a PR, read a spec, check a release note, or scan a bug queue, then hover the Jira key and work from the popup instead of jumping into Jira.
+Jira QuickView keeps issue context next to the work you are already doing. Review a PR, read a spec, check a release note, or scan a bug queue, then hover the Jira key and work from the popup instead of jumping into Jira.
 
 ![Main product overview](docs/screenshots/marketing-hidpi-light/popup-overview.png)
 
@@ -42,7 +42,7 @@ Chrome Web Store listing: coming soon
 
 Until then:
 
-1. [Download the latest build](https://github.com/dgebaei/Jira-Hot-Linker/releases/latest/download/jira-plugin-build.zip)
+1. [Download the latest build](https://github.com/dgebaei/Jira-QuickView/releases/latest/download/jira-plugin-build.zip)
 2. Open `chrome://extensions`
 3. Enable `Developer mode`
 4. Click `Load unpacked`

@@ -1418,7 +1418,7 @@ async function mainAsyncLocal() {
     try {
       await requestJson('DELETE', `${INSTANCE_URL}rest/api/2/attachment/${attachmentId}`);
     } catch (error) {
-      console.warn('[Jira HotLinker] Could not delete description draft attachment', {
+      console.warn('[Jira QuickView] Could not delete description draft attachment', {
         attachmentId,
         error: error?.message || String(error),
       });
@@ -6539,7 +6539,7 @@ async function mainAsyncLocal() {
           const pullRequestResponse = await getPullRequestDataCached(issueData.id);
           pullRequests = normalizePullRequests(pullRequestResponse);
         } catch (ex) {
-          console.log('[Jira HotLinker] Pull request fetch failed', {
+          console.log('[Jira QuickView] Pull request fetch failed', {
             issueKey: key,
             issueId: issueData.id,
             error: ex?.message || String(ex)

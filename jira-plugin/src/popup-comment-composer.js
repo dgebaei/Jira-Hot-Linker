@@ -302,7 +302,7 @@ export function createPopupCommentComposer(deps) {
     try {
       await requestJson('DELETE', `${INSTANCE_URL}rest/api/2/attachment/${attachmentId}`);
     } catch (error) {
-      console.warn('[Jira HotLinker] Could not delete draft attachment', {
+      console.warn('[Jira QuickView] Could not delete draft attachment', {
         attachmentId,
         error: error?.message || String(error),
       });

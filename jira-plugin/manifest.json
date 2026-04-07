@@ -1,6 +1,6 @@
 {
-  "name": "Jira HotLinker",
-  "description": "Jira HotLinker, quick access to Jira metadata when hovering over ticket numbers!",
+  "name": "Jira QuickView",
+  "description": "Jira QuickView, quick access to Jira metadata when hovering over ticket numbers!",
   "version": "2.3.0.0",
   "version_name": "2.3.0-beta",
   "manifest_version": 3,

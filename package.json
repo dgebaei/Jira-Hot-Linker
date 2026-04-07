@@ -1,7 +1,7 @@
 {
-  "name": "jira-hot-linker",
+  "name": "jira-quickview",
   "version": "2.3.0-beta",
-  "description": "Jira HotLinker, quick access to Jira metadata when hovering over ticket numbers!",
+  "description": "Jira QuickView, quick access to Jira metadata when hovering over ticket numbers!",
   "scripts": {
     "analyze": "webpack --mode=production --bail --profile --json > stats.json || webpack-bundle-analyzer stats.json",
     "build": "node scripts/build-extension-and-reload.js",
@@ -34,14 +34,14 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/dgebaei/Jira-Hot-Linker.git"
+    "url": "git+https://github.com/dgebaei/Jira-QuickView.git"
   },
   "author": "Willem",
   "license": "MIT",
   "bugs": {
-    "url": "https://github.com/dgebaei/Jira-Hot-Linker/issues"
+    "url": "https://github.com/dgebaei/Jira-QuickView/issues"
   },
-  "homepage": "https://github.com/dgebaei/Jira-Hot-Linker#readme",
+  "homepage": "https://github.com/dgebaei/Jira-QuickView#readme",
   "devDependencies": {
     "@babel/core": "7.17.5",
     "@babel/preset-env": "7.16.11",

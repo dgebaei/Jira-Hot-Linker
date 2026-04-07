@@ -256,7 +256,7 @@ function ConfigPage(props) {
     modal.innerHTML = `
       <div style="background:white;border-radius:12px;padding:24px;max-width:400px;text-align:center;box-shadow:0 4px 24px rgba(0,0,0,0.2);">
         <h3 style="margin:0 0 12px;color:#1e40af;">Team Sync (Pro)</h3>
-        <p style="color:#64748b;margin:0 0 16px;">Auto-sync your Jira HotLinker settings across your team. Coming soon!</p>
+        <p style="color:#64748b;margin:0 0 16px;">Auto-sync your Jira QuickView settings across your team. Coming soon!</p>
         <p style="color:#94a3b8;font-size:12px;margin:0 0 16px;">Join the waitlist to get early access.</p>
         <a href="mailto:dgebaei@gmail.com?subject=Team Sync Pro Waitlist" style="display:inline-block;background:#7c3aed;color:white;padding:8px 16px;border-radius:8px;text-decoration:none;font-weight:600;">Join Waitlist</a>
         <button onclick="this.closest('div').parentElement.remove()" style="display:block;margin:12px auto 0;background:transparent;border:none;color:#64748b;cursor:pointer;">Close</button>
@@ -352,7 +352,7 @@ function ConfigPage(props) {
       {/* ── Hero ─────────────────────────────────────────── */}
       <header className='heroCard'>
         <div className='heroLeft'>
-          <div className='heroEyebrow'>Jira HotLinker</div>
+          <div className='heroEyebrow'>Jira QuickView</div>
           <h1 className='heroTitle'>Extension Options</h1>
           <p className='heroCopy'>
             Configure your Jira connection, theme, and which fields appear in the hover popup.
