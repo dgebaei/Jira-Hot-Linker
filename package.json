@@ -44,7 +44,7 @@
   "bugs": {
     "url": "https://github.com/dgebaei/Jira-QuickView/issues"
   },
-  "homepage": "https://github.com/dgebaei/Jira-QuickView#readme",
+  "homepage": "https://dgebaei.github.io/Jira-QuickView/",
   "devDependencies": {
     "@babel/core": "7.17.5",
     "@babel/preset-env": "7.16.11",

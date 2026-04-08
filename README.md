@@ -6,6 +6,8 @@
 ![Manifest V3](https://img.shields.io/badge/Manifest-V3-0f766e?style=for-the-badge)
 ![MIT License](https://img.shields.io/badge/License-MIT-f59e0b?style=for-the-badge)
 
+[GitHub repository](https://github.com/dgebaei/Jira-QuickView) · [Issue tracker](https://github.com/dgebaei/Jira-QuickView/issues)
+
 ## One hover, much more context
 
 Open a Jira notification email in Gmail or Outlook, hover the issue key in the message, and triage the ticket directly from your inbox. The same workflow applies on GitHub pull requests, release notes, docs, bug lists, and other enabled pages: inspect the issue, review linked PRs, add comments, transition status, and update fields without breaking context.
