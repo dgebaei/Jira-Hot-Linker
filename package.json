@@ -8,6 +8,7 @@
     "build:active-extension": "node scripts/build-extension-and-reload.js",
     "build:bundle-only": "webpack --mode=development",
     "build:bundle-prod": "webpack --mode=production",
+    "build:pages": "node scripts/build-pages-site.js",
     "dev": "webpack --watch --mode=development",
     "lint": "eslint . --ext .js,.jsx",
     "lint:fix": "eslint . --ext .js,.jsx --fix",

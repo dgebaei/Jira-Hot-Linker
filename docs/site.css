@@ -82,7 +82,8 @@ code {
 }
 
 .hero-copy h1,
-.policy h1 {
+.policy h1,
+.readme-render h1 {
   margin: 0;
   font-size: clamp(2.4rem, 5vw, 4.6rem);
   line-height: 0.95;
@@ -331,6 +332,123 @@ code {
 
 .policy {
   padding: 2rem;
+}
+
+.readme-render {
+  padding: 2rem;
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(12px);
+}
+
+.readme-render > :first-child {
+  margin-top: 0;
+}
+
+.readme-render > :last-child {
+  margin-bottom: 0;
+}
+
+.readme-render p,
+.readme-render li,
+.readme-render td,
+.readme-render th {
+  color: var(--muted);
+  line-height: 1.7;
+}
+
+.readme-render h2,
+.readme-render h3 {
+  color: var(--text);
+}
+
+.readme-render h2 {
+  margin-top: 2.4rem;
+  margin-bottom: 0.75rem;
+  font-size: 1.55rem;
+}
+
+.readme-render h3 {
+  margin-top: 1.5rem;
+  margin-bottom: 0.4rem;
+  font-size: 1.08rem;
+}
+
+.readme-render blockquote {
+  margin: 1.5rem 0;
+  padding: 1rem 1.2rem;
+  border-left: 4px solid var(--accent);
+  border-radius: 18px;
+  background: rgba(29, 63, 110, 0.06);
+}
+
+.readme-render blockquote p {
+  margin: 0;
+  color: var(--text);
+  font-weight: 600;
+}
+
+.readme-render ul,
+.readme-render ol {
+  padding-left: 1.35rem;
+}
+
+.readme-render pre {
+  overflow-x: auto;
+  padding: 1rem 1.1rem;
+  border-radius: 18px;
+  background: rgba(20, 34, 52, 0.92);
+  color: #eef4f8;
+}
+
+.readme-render pre code {
+  padding: 0;
+  background: transparent;
+  color: inherit;
+}
+
+.readme-render p > img[src*="img.shields.io"] {
+  display: inline-block;
+  margin-right: 0.4rem;
+  margin-bottom: 0.4rem;
+  vertical-align: middle;
+}
+
+.readme-render img {
+  max-width: 100%;
+  height: auto;
+}
+
+.readme-render .lightbox-trigger {
+  margin: 1rem 0;
+}
+
+.readme-render .lightbox-trigger img {
+  display: block;
+  width: 100%;
+  border-radius: calc(var(--radius) - 8px);
+}
+
+.readme-render table {
+  width: 100%;
+  margin: 1.25rem 0;
+  border-collapse: separate;
+  border-spacing: 0.8rem;
+}
+
+.readme-render th,
+.readme-render td {
+  width: 50%;
+  vertical-align: top;
+  text-align: left;
+  padding: 0;
+}
+
+.readme-render th {
+  color: var(--text);
+  font-weight: 700;
 }
 
 .policy h2 {

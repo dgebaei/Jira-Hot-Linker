@@ -1,3 +1,26 @@
+function enhanceReadmeImages() {
+  const readmeImages = Array.from(document.querySelectorAll('.readme-render img'));
+
+  readmeImages.forEach(image => {
+    const rawSrc = image.getAttribute('src') || '';
+    if (!rawSrc || rawSrc.startsWith('http://') || rawSrc.startsWith('https://')) {
+      return;
+    }
+    if (image.closest('.lightbox-trigger') || image.closest('a')) {
+      return;
+    }
+
+    const trigger = document.createElement('button');
+    trigger.type = 'button';
+    trigger.className = 'lightbox-trigger';
+    trigger.setAttribute('aria-label', `Open ${image.alt || 'image'} in full screen`);
+    image.parentNode.insertBefore(trigger, image);
+    trigger.appendChild(image);
+  });
+}
+
+enhanceReadmeImages();
+
 const lightboxTriggers = Array.from(document.querySelectorAll('.lightbox-trigger'));
 
 if (lightboxTriggers.length) {

@@ -9,6 +9,7 @@ docs/mockups/
 *.swp
 *.zip
 /bun.lock
+.site-build/
 node_modules
 node_modules/
 tests/.auth/
