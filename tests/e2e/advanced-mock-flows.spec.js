@@ -82,11 +82,21 @@ test('shows assignee and parent search results inside their editors', async ({ex
   await page.close();
 });
 
-test('prefers picker results when legacy user search omits an assignee candidate @mock-only', async ({extensionApp, optionsPage, servers}) => {
+test('prefers Jira internal assignee results when public user endpoints miss a candidate @mock-only', async ({extensionApp, optionsPage, servers}) => {
   const target = requireJiraTestTarget(test, servers, {requireAuth: process.env.MOCK === 'false'});
   test.skip(target.mode !== 'mock', 'Assignee fallback coverage is deterministic in mocked mode only.');
 
   await servers.jira.setScenario('editable');
+  await patchJsonResponse(extensionApp.context, target.instanceUrl, '/rest/internal/2/users/assignee(?:\\?.*)?$', (payload, request) => {
+    const url = new URL(request.url());
+    const query = String(url.searchParams.get('query') || '').trim().toLowerCase();
+    if (query.includes('morgan')) {
+      return Array.isArray(payload)
+        ? payload.filter(user => String(user?.displayName || '').toLowerCase() === 'morgan agent')
+        : payload;
+    }
+    return payload;
+  });
   await patchJsonResponse(extensionApp.context, target.instanceUrl, '/rest/api/2/user/assignable/search(?:\\?.*)?$', (payload, request) => {
     const url = new URL(request.url());
     const query = String(url.searchParams.get('query') || url.searchParams.get('username') || '').trim().toLowerCase();
@@ -101,6 +111,17 @@ test('prefers picker results when legacy user search omits an assignee candidate
     return Array.isArray(payload)
       ? payload.filter(user => String(user?.displayName || '').toLowerCase() !== 'morgan agent')
       : payload;
+  });
+  await patchJsonResponse(extensionApp.context, target.instanceUrl, '/rest/api/2/user/picker(?:\\?.*)?$', payload => {
+    if (Array.isArray(payload)) {
+      return payload.filter(user => String(user?.displayName || '').toLowerCase() !== 'morgan agent');
+    }
+    return {
+      ...(payload || {}),
+      users: Array.isArray(payload?.users)
+        ? payload.users.filter(user => String(user?.displayName || '').toLowerCase() !== 'morgan agent')
+        : [],
+    };
   });
   await configureExtension(optionsPage, baseConfig(servers, target));
 
@@ -124,6 +145,7 @@ test('falls back to legacy user search when picker search fails for assignee sug
   test.skip(target.mode !== 'mock', 'Assignee fallback coverage is deterministic in mocked mode only.');
 
   await servers.jira.setScenario('editable');
+  await failWithJson(extensionApp.context, target.instanceUrl, '/rest/internal/2/users/assignee(?:\\?.*)?$', 500, {errorMessages: ['Could not load assignee candidates']});
   await patchJsonResponse(extensionApp.context, target.instanceUrl, '/rest/api/2/user/assignable/search(?:\\?.*)?$', (payload, request) => {
     const url = new URL(request.url());
     const query = String(url.searchParams.get('query') || url.searchParams.get('username') || '').trim().toLowerCase();

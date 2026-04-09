@@ -2669,6 +2669,31 @@ async function mainAsyncLocal() {
     return Array.isArray(response) ? response : null;
   }
 
+  function normalizeJiraUserRecord(user) {
+    if (!user || typeof user !== 'object') {
+      return null;
+    }
+    const candidate = user.user && typeof user.user === 'object'
+      ? user.user
+      : user;
+    const avatarUrl48 = candidate?.avatarUrls?.['48x48'] || candidate?.avatarUrl || '';
+    return {
+      ...candidate,
+      accountId: candidate?.accountId || candidate?.id || '',
+      name: candidate?.name || candidate?.username || candidate?.userName || '',
+      key: candidate?.key || candidate?.userKey || '',
+      displayName: candidate?.displayName || candidate?.name || candidate?.username || candidate?.emailAddress || '',
+      emailAddress: candidate?.emailAddress || candidate?.email || '',
+      avatarUrls: candidate?.avatarUrls || (avatarUrl48 ? {'48x48': avatarUrl48} : {}),
+    };
+  }
+
+  function normalizeJiraUserRecords(users) {
+    return (Array.isArray(users) ? users : [])
+      .map(normalizeJiraUserRecord)
+      .filter(Boolean);
+  }
+
   function extractPickerUserResults(response) {
     if (Array.isArray(response)) {
       return response;
@@ -2678,6 +2703,25 @@ async function mainAsyncLocal() {
     }
     if (Array.isArray(response?.items)) {
       return response.items;
+    }
+    return null;
+  }
+
+  function extractInternalAssigneeUsers(response) {
+    if (Array.isArray(response)) {
+      return response;
+    }
+    if (Array.isArray(response?.users)) {
+      return response.users;
+    }
+    if (Array.isArray(response?.items)) {
+      return response.items;
+    }
+    if (Array.isArray(response?.results)) {
+      return response.results;
+    }
+    if (Array.isArray(response?.values)) {
+      return response.values;
     }
     return null;
   }
@@ -2731,6 +2775,13 @@ async function mainAsyncLocal() {
     const strategies = [
       issueKey
         ? {
+            key: 'internal-assignee',
+            url: `${INSTANCE_URL}rest/internal/2/users/assignee?issueKey=${encodedIssueKey}&maxResults=100&query=${encodedQuery}`,
+            extractUsers: extractInternalAssigneeUsers,
+          }
+        : null,
+      issueKey
+        ? {
             key: 'issue-query',
             url: `${INSTANCE_URL}rest/api/2/user/assignable/search?issueKey=${encodedIssueKey}&maxResults=20&query=${encodedQuery}`,
             extractUsers: extractArrayUserResults,
@@ -2758,7 +2809,7 @@ async function mainAsyncLocal() {
           }
         : null,
     ].filter(Boolean);
-    const users = await fetchUsersBySearchStrategy('assignable', strategies);
+    const users = normalizeJiraUserRecords(await fetchUsersBySearchStrategy('assignable', strategies));
     detectSharedAvatarUrls(users);
     return proxyUserAvatars(users);
   }
@@ -2778,10 +2829,10 @@ async function mainAsyncLocal() {
 
   async function fetchUserPickerResults(query) {
     const encodedQuery = encodeURIComponent(query);
-    const users = await fetchUsersBySearchStrategy('people', [
+    const users = normalizeJiraUserRecords(await fetchUsersBySearchStrategy('people', [
       {
         key: 'picker-query',
-        url: `${INSTANCE_URL}rest/api/2/user/picker?query=${encodedQuery}&maxResults=20`,
+        url: `${INSTANCE_URL}rest/api/2/user/picker?query=${encodedQuery}`,
         extractUsers: extractPickerUserResults,
       },
       {
@@ -2794,7 +2845,7 @@ async function mainAsyncLocal() {
         url: `${INSTANCE_URL}rest/api/2/user/search?username=${encodedQuery}&maxResults=20`,
         extractUsers: extractArrayUserResults,
       }
-    ]);
+    ]));
     detectSharedAvatarUrls(users);
     await proxyUserAvatars(users);
     return normalizeAssignableUsers(users);

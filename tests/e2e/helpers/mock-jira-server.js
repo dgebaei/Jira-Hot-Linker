@@ -1068,6 +1068,22 @@ async function createMockJiraServer() {
       return;
     }
 
+    if (pathname === '/rest/internal/2/users/assignee' && req.method === 'GET') {
+      const query = String(url.searchParams.get('query') || '').toLowerCase();
+      const users = state.assignableUsers
+        .filter(user => !query || user.displayName.toLowerCase().includes(query) || user.name.toLowerCase().includes(query))
+        .map(user => ({
+          accountId: user.accountId,
+          name: user.name,
+          key: user.key,
+          displayName: user.displayName,
+          emailAddress: user.emailAddress || '',
+          avatarUrl: user.avatarUrls?.['48x48'] || '',
+        }));
+      json(res, 200, users);
+      return;
+    }
+
     if (pathname === '/rest/api/2/user/picker' && req.method === 'GET') {
       if (scenarioIn('mention-search-fails')) {
         json(res, 500, {errorMessages: ['Could not load people']});
