@@ -5,32 +5,36 @@ const { execFileSync } = require('node:child_process');
 const repoRoot = path.resolve(__dirname, '..');
 const docsDir = path.join(repoRoot, 'docs');
 const readmePath = path.join(repoRoot, 'README.md');
+const userGuidePath = path.join(docsDir, 'user-guide.md');
 const outputDir = path.join(repoRoot, '.site-build');
 const faviconSvgPath = path.join(docsDir, 'branding', 'jira-quickview-mark.svg');
 const faviconPngPath = path.join(docsDir, 'branding', 'jira-quickview-mark-128.png');
 
-function renderReadmeHtml() {
+function renderMarkdownHtml(markdownPath) {
   try {
-    return execFileSync('pandoc', [readmePath, '--from=gfm', '--to=html5', '--wrap=none'], {
+    return execFileSync('pandoc', [markdownPath, '--from=gfm', '--to=html5', '--wrap=none'], {
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'inherit'],
     });
   } catch (error) {
-    throw new Error('pandoc is required to build the Pages site from README.md');
+    throw new Error('pandoc is required to build the Pages site from Markdown files');
   }
 }
 
-function buildReadmeSite() {
-  const renderedReadme = renderReadmeHtml()
+function rewriteDocsLinks(html) {
+  return html
+    .replace(/href="docs\/user-guide\.md"/g, 'href="user-guide.html"')
     .replace(/(src|href)="docs\//g, '$1="');
+}
 
-  const html = `<!DOCTYPE html>
+function buildPageHtml({title, description, bodyHtml}) {
+  return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Jira QuickView</title>
-  <meta name="description" content="Act on Jira issues from Gmail, Outlook, GitHub, docs, and other enabled pages without opening a new Jira tab.">
+  <title>${title}</title>
+  <meta name="description" content="${description}">
   <link rel="icon" href="favicon.svg" type="image/svg+xml">
   <link rel="icon" href="favicon.png" type="image/png" sizes="128x128">
   <link rel="apple-touch-icon" href="favicon.png">
@@ -39,13 +43,29 @@ function buildReadmeSite() {
 <body>
   <main class="page page-narrow">
     <article class="readme-render">
-${renderedReadme}
+${bodyHtml}
     </article>
   </main>
   <script src="site.js"></script>
 </body>
 </html>
 `;
+}
+
+function buildReadmeSite() {
+  const renderedReadme = rewriteDocsLinks(renderMarkdownHtml(readmePath));
+  const renderedUserGuide = rewriteDocsLinks(renderMarkdownHtml(userGuidePath));
+
+  const indexHtml = buildPageHtml({
+    title: 'Jira QuickView',
+    description: 'Act on Jira issues from Gmail, Outlook, GitHub, docs, and other enabled pages without opening a new Jira tab.',
+    bodyHtml: renderedReadme,
+  });
+  const userGuideHtml = buildPageHtml({
+    title: 'Jira QuickView User Guide',
+    description: 'Detailed setup and day-to-day usage guide for the Jira QuickView Chrome extension.',
+    bodyHtml: renderedUserGuide,
+  });
 
   fs.rmSync(outputDir, { recursive: true, force: true });
   fs.mkdirSync(outputDir, { recursive: true });
@@ -55,7 +75,8 @@ ${renderedReadme}
   fs.cpSync(faviconSvgPath, path.join(outputDir, 'favicon.svg'));
   fs.cpSync(faviconPngPath, path.join(outputDir, 'favicon.png'));
   fs.cpSync(path.join(docsDir, 'screenshots'), path.join(outputDir, 'screenshots'), { recursive: true });
-  fs.writeFileSync(path.join(outputDir, 'index.html'), html);
+  fs.writeFileSync(path.join(outputDir, 'index.html'), indexHtml);
+  fs.writeFileSync(path.join(outputDir, 'user-guide.html'), userGuideHtml);
 
   console.log(`Built Pages site in ${outputDir}`);
 }

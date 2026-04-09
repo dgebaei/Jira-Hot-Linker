@@ -1,0 +1,696 @@
+# Jira QuickView User Guide
+
+Jira QuickView lets you work with Jira issues directly from the web pages where issue keys appear. Instead of opening Jira in a separate tab for every notification, pull request, document, or checklist, you can hover an issue key and use the popup to inspect, update, comment on, and triage the issue.
+
+The screenshots in this guide are examples. Your popup can look different depending on your Jira project, your permissions, your workflow, and the layout you choose in the Options page.
+
+## 1. What Jira QuickView Helps You Do
+
+![Main popup overview](screenshots/marketing-hidpi-light/popup-overview.png)
+
+Jira QuickView is built for people who see Jira issue keys outside Jira all day: in Gmail, Outlook, GitHub, release notes, incident docs, QA checklists, internal dashboards, and team wikis.
+
+With the extension, you can:
+
+- Open a Jira issue preview by hovering an issue key such as `ABC-123`.
+- See the issue summary, reporter, assignee, status, priority, versions, sprint, labels, description, comments, attachments, history, and linked pull requests.
+- Update supported fields directly from the popup when Jira allows it.
+- Add comments, mention teammates, react to comments, edit your own comments, and inspect attachment evidence.
+- Customize which fields and content blocks appear in the popup.
+
+## 2. Before You Start
+
+![Options page overview](screenshots/marketing-hidpi-light/options-basic-overview.png)
+
+Before Jira QuickView can show issue data, three things must be true:
+
+- You must be signed in to Jira in the same browser.
+- The extension must know your Jira instance URL.
+- The page where you want popups must be allowed in the Options page.
+
+Jira QuickView uses your existing browser session. It does not store a separate Jira password. If your Jira instance requires VPN or company network access, the extension has the same requirement because the requests are still going from your browser to Jira.
+
+## 3. First-Time Setup
+
+![Options page overview](screenshots/marketing-hidpi-light/options-basic-overview.png)
+
+1. Open the Jira QuickView Options page.
+2. Enter your Jira instance URL, for example `https://your-company.atlassian.net`.
+3. Add the pages where you want Jira issue popups to appear.
+4. Choose your color mode, or keep `System`.
+5. Click `Save`.
+6. Open an allowed page and hover a Jira key.
+
+If nothing happens after setup, check the troubleshooting section at the end of this guide. The most common causes are an unallowed page, a Jira URL typo, not being signed in to Jira, or using the hover modifier incorrectly.
+
+## 4. Options Page
+
+![Options page overview](screenshots/marketing-hidpi-light/options-basic-overview.png)
+
+The Options page controls where Jira QuickView runs and what the popup shows. Most users only need the Basic settings. Advanced settings are useful when you want tighter hover behavior, a team-specific popup layout, custom Jira fields, or a shared configuration file.
+
+### 4.1 Basic: Connection
+
+![Connection settings](screenshots/marketing-hidpi-light/options-basic-overview.png)
+
+The Connection block tells Jira QuickView which Jira site to use and which websites can show the popup.
+
+#### Jira instance URL
+
+Enter the normal Jira address you use in the browser. Examples:
+
+- `https://your-company.atlassian.net`
+- `https://jira.your-company.com`
+
+If you omit `https://`, Jira QuickView normalizes the value for you when possible. Still, the clearest setup is to paste the full address from your browser.
+
+#### Allowed pages
+
+Allowed pages decide where Jira QuickView is allowed to inject its popup. This protects you from having the extension run everywhere.
+
+Simple examples:
+
+- `github.com`
+- `mail.google.com`
+- `outlook.office.com`
+- `docs.your-company.com`
+
+Advanced examples:
+
+- `https://github.com/your-org/*`
+- `https://*.your-company.com/*`
+- `https://wiki.your-company.com/projects/*`
+- `<all_urls>`
+
+Technical note: this field accepts comma-separated domains, full URLs, Chrome-style match patterns, and wildcard patterns using `*`. Internally, Jira QuickView normalizes these patterns and converts wildcards into regular-expression matching. It does not treat the field as arbitrary raw JavaScript regex syntax, so prefer `*` wildcards instead of writing regex metacharacters directly.
+
+What to know:
+
+- A simple domain such as `github.com` becomes a broad match for that domain.
+- A full URL with a path can limit matching to that part of a site.
+- Wildcards are useful for subdomains, for example `https://*.your-company.com/*`.
+- The extension also asks Chrome for host permissions when you save. If you cancel the browser permission prompt, the settings may not apply.
+- If this is your first save and no Jira URL was stored before, Jira QuickView also adds your Jira instance URL to the allowed pages list.
+
+### 4.2 Basic: Appearance
+
+![Appearance settings](screenshots/marketing-hidpi-light/options-basic-overview.png)
+
+The Appearance block controls the color mode for the Options page and popup.
+
+Available modes:
+
+- `System` follows your operating system or browser preference.
+- `Light` keeps the extension in light mode.
+- `Dark` keeps the extension in dark mode.
+
+Most users should keep `System`. Use `Light` or `Dark` only if you want Jira QuickView to stay fixed regardless of your OS theme.
+
+### 4.3 Advanced: Show Advanced Settings
+
+![Advanced settings overview](screenshots/marketing-hidpi-light/options-advanced-layout.png)
+
+The Advanced section is hidden by default so the setup page stays simple. Open it when you want to change how the popup is triggered, how its rows are arranged, which custom fields appear, or how to export/import settings.
+
+Advanced settings are still safe to use, but they affect the day-to-day feel of the extension. If you are setting this up for a team, configure one browser first, test the popup on real work pages, then export the configuration for others.
+
+### 4.4 Advanced: Hover Behavior
+
+![Advanced hover and layout settings](screenshots/marketing-hidpi-light/options-advanced-layout.png)
+
+Hover Behavior controls when Jira QuickView opens the popup after your mouse is near a Jira issue key.
+
+#### Trigger depth
+
+Trigger depth controls how aggressively the extension searches surrounding page elements for Jira keys.
+
+- `Exact` checks only the exact element under your mouse.
+- `Shallow` checks the hovered element and its immediate parent.
+- `Deep` walks up to 5 ancestor levels and is the most sensitive.
+
+Use `Exact` if popups appear too often on dense pages. Use `Deep` if a site wraps issue keys in complex HTML and the popup does not reliably open.
+
+#### Modifier key
+
+Modifier key controls whether hovering alone is enough, or whether you must press a keyboard key after hovering.
+
+- `None` opens the popup on hover.
+- `Alt` opens it when you hover and then press `Alt`.
+- `Ctrl` opens it when you hover and then press `Ctrl`.
+- `Shift` opens it when you hover and then press `Shift`.
+- `Any` opens it when you hover and then press `Alt`, `Ctrl`, or `Shift`.
+
+Modifier keys are useful on pages with many Jira keys, such as inboxes and pull request pages. They prevent accidental popups while still keeping the issue one gesture away.
+
+### 4.5 Advanced: Tooltip Layout Overview
+
+![Advanced layout editor](screenshots/marketing-hidpi-light/options-advanced-layout.png)
+
+Tooltip Layout controls the rows and content blocks inside the popup. The layout editor has two concepts:
+
+- Fields are small chips placed in Row 1, Row 2, or Row 3.
+- Content blocks are larger sections below the rows, such as Description, Pull Requests, Comments, Attachments, and Time Tracking.
+
+The preview in the Options page shows the overall shape of the popup. It is not a live Jira issue. It helps you understand where fields will appear after saving.
+
+What to know:
+
+- Drag fields from `Available Fields` into Row 1, Row 2, or Row 3.
+- Drag content blocks into the content area to show them in the popup.
+- Remove a field or block if it is not useful for your team.
+- Description is treated as the core issue content and is always represented in the content area by the current layout editor.
+- Reporter, assignee, summary, copy, pin, quick actions, and close live in the popup header. They are explained in the popup section of this guide.
+
+### 4.6 Advanced: Row 1 Fields
+
+![Popup row 1 overview](screenshots/marketing-hidpi-light/popup-overview.png)
+
+Row 1 is the best place for the most important triage fields. By default it contains:
+
+- Issue type
+- Status
+- Priority
+
+In the current marketing layout, Epic/Parent can also be placed in Row 1, but many teams prefer it in Row 2. Use Row 1 for fields you want to see first before reading the description or comments.
+
+Business logic and limitations:
+
+- Issue type editing appears only when Jira says the field is editable and there is more than one valid issue type available.
+- Status editing shows Jira workflow transitions, not every status in the project.
+- Priority editing appears only when Jira exposes priority as editable for that issue.
+- Row chips can link to filtered Jira searches when the field value can be expressed as a useful JQL filter.
+
+### 4.7 Advanced: Row 2 Fields
+
+![Popup metadata rows](screenshots/marketing-hidpi-light/popup-overview.png)
+
+Row 2 is useful for planning and release metadata. By default it contains:
+
+- Epic or Parent
+- Sprint
+- Affects Version
+- Fix Version
+
+Business logic and limitations:
+
+- Epic/Parent depends on whether the issue uses Jira parent hierarchy or an Epic Link style field.
+- Sprint support depends on Jira Agile fields being visible to the extension.
+- Sprint editing appears only if Jira exposes a valid Sprint field and editable metadata for the issue.
+- Version chips can link to Jira filters when there is exactly one version value. When multiple versions are present, the chip is still informative but may not be linked as narrowly.
+
+### 4.8 Advanced: Row 3 Fields
+
+![Popup inline editing](screenshots/marketing-hidpi-light/popup-inline-editor.png)
+
+Row 3 is useful for supporting metadata that matters after initial triage. By default it contains:
+
+- Environment
+- Labels
+- Custom fields you add
+
+Business logic and limitations:
+
+- Environment editing appears only when Jira allows the `set` operation for that field.
+- Labels editing requires both Jira edit permission and label suggestion support.
+- Custom fields can be displayed even when they cannot be edited.
+- Long text in chips can be truncated to keep the popup usable.
+
+### 4.9 Advanced: Content Blocks
+
+![Advanced layout editor](screenshots/marketing-hidpi-light/options-advanced-layout.png)
+
+Content blocks are larger sections under the popup rows. They are where you read and work with issue content.
+
+Available blocks:
+
+- Description
+- Attachments
+- Comments
+- Pull Requests
+- Time Tracking
+
+How to use them:
+
+- Keep blocks you use every day near the top.
+- Remove blocks that create noise for your team.
+- If your team mostly triages from email, Description and Comments are usually the most important.
+- If your team reviews releases, Pull Requests, Attachments, and History are often more important.
+
+Business logic and limitations:
+
+- Attachments currently preview image attachments. Non-image files may still be linked from Jira or visible in history, but the visual attachment grid focuses on previewable images.
+- Pull Requests appear only when Jira returns development-status data for the issue.
+- Time Tracking appears when Jira exposes time tracking data or editable time tracking metadata.
+- Comments appear when the content block is enabled. The composer follows your Jira permissions.
+
+### 4.10 Advanced: Custom Fields
+
+![Custom fields in layout editor](screenshots/marketing-hidpi-light/options-custom-fields.png)
+
+Custom fields let you add team-specific Jira fields to Row 1, Row 2, or Row 3. This is useful for fields like Customer Impact, Reviewer, Tempo Account, Severity, Component Owner, Release Train, or any other Jira field your team relies on.
+
+How to add a custom field:
+
+1. Open Advanced settings.
+2. In Tooltip Layout, click `+ Add field`.
+3. Enter the Jira field ID, for example `customfield_12345`.
+4. Wait for Jira QuickView to validate the field name.
+5. Save it and drag it into the row where you want it.
+6. Click `Save` at the bottom of the Options page.
+
+What to know:
+
+- Jira field IDs are not always the same as field names. A field named `Customer Impact` might have an ID like `customfield_12345`.
+- Jira QuickView validates custom fields by reading Jira's field catalog.
+- Built-in fields such as `status`, `priority`, `assignee`, and `description` cannot be added again as custom fields.
+- A custom field can be visible but not editable.
+
+Custom field editing support:
+
+- User fields and multi-user fields can use user search when Jira allows editing.
+- Tempo Account fields can use account search when Jira exposes the right field metadata.
+- Single-select and multi-select custom fields can be edited when Jira provides allowed values and the `set` operation.
+- Simple single-value text-like fields can be edited as text or textarea when supported.
+- Unsupported or permission-blocked fields are displayed as read-only chips.
+
+### 4.11 Advanced: Settings Sync
+
+![Advanced settings sync](screenshots/marketing-agent-browser/options-advanced-sync.png)
+
+Settings Sync lets you move a Jira QuickView configuration between browsers or teammates.
+
+Available actions:
+
+- `Export Settings (.json)` downloads the current configuration.
+- `Import Settings (.json)` loads a previously exported configuration into the Options page.
+- `Team Sync (Pro)` is shown as a future team-sync workflow and is not active in the current public setup.
+
+Important: importing settings does not fully apply them until you click `Save`. This gives you a chance to review the Jira URL, allowed pages, layout, hover behavior, and custom fields before changing the active browser setup.
+
+### 4.12 Save and Discard
+
+![Options page overview](screenshots/marketing-hidpi-light/options-basic-overview.png)
+
+The footer of the Options page applies or discards changes.
+
+- `Save` writes the configuration to Chrome storage, requests any needed host permissions, and refreshes the extension's page matching rules.
+- `Discard` reloads the Options page and drops unsaved changes.
+- The status pill tells you whether changes are local only, saving, saved, or blocked by validation.
+
+If custom fields are invalid, saving is disabled until the issue is fixed. This prevents a broken field ID from being saved accidentally.
+
+## 5. Using the Popup Every Day
+
+![Main popup overview](screenshots/marketing-hidpi-light/popup-overview.png)
+
+After setup, the normal flow is simple:
+
+1. Open a page you allowed in Options.
+2. Find a Jira key such as `ABC-123`.
+3. Hover the key.
+4. Press the configured modifier key if your settings require it.
+5. Read or update the issue from the popup.
+
+The popup uses your Jira permissions. If you can only view an issue in Jira, the popup will mostly be read-only. If you can edit the issue in Jira, supported edit controls may appear.
+
+### 5.1 Where the Popup Appears
+
+![Main popup overview](screenshots/marketing-hidpi-light/popup-overview.png)
+
+The popup appears on pages matched by your Allowed pages settings. Common places include:
+
+- Jira notification emails in Gmail or Outlook on the web
+- GitHub pull requests, issues, commits, and release notes
+- Internal docs and wiki pages
+- QA checklists
+- Incident notes
+- Release dashboards
+
+The extension only looks for Jira issue keys on allowed pages. It does not scan every site you visit.
+
+### 5.2 Header: Reporter, Assignee, Summary, and Actions
+
+![Popup header and actions](screenshots/marketing-hidpi-light/popup-actions.png)
+
+The header is the top part of the popup. It keeps the most common actions close together.
+
+Header items:
+
+- Reporter avatar shows who reported the issue.
+- Assignee avatar shows who owns the issue. If Jira allows editing, you can click the edit control and search assignable users.
+- Summary link opens the full Jira issue in a new tab.
+- Summary edit lets you rename the issue when Jira allows the `summary` field to be changed.
+- Copy copies the issue link.
+- Pin keeps the popup open while you move the mouse.
+- Quick actions opens Jira-backed shortcuts.
+- Close hides the popup. `Esc` also closes it.
+
+Business logic and limitations:
+
+- Assignee search uses Jira assignable-user logic for the specific issue, so it should match who can actually be assigned.
+- Summary editing appears only when Jira edit metadata says the summary field supports `set`.
+- Quick actions appear only when at least one action is available.
+
+### 5.3 Quick Actions Menu
+
+![Quick actions menu](screenshots/marketing-hidpi-light/popup-actions.png)
+
+Quick actions are shortcuts for common Jira updates.
+
+Examples:
+
+- Assign the issue to yourself.
+- Move the issue to the next useful workflow state, such as starting progress.
+- Move the issue to an active or upcoming sprint when Jira exposes a valid sprint field.
+
+Business logic and limitations:
+
+- Quick actions are not hardcoded guesses. They are built from the current issue, current user, Jira transitions, and available sprint data.
+- `Assign to me` appears only when the current assignee is not already you and Jira can resolve your user identity.
+- Start-progress style actions appear only when Jira exposes a matching transition.
+- Sprint actions appear only when Jira exposes a sprint field and available active or future sprints.
+
+### 5.4 Row 1: Issue Type, Status, Priority, History, and Watchers
+
+![Row 1 with activity controls](screenshots/marketing-hidpi-light/popup-overview.png)
+
+Row 1 is the fastest read of the issue.
+
+Default fields:
+
+- Issue Type tells you whether this is a bug, task, story, sub-task, or another Jira type.
+- Status tells you the current workflow state.
+- Priority tells you the urgency or importance set in Jira.
+- History opens a timeline of issue changes.
+- Watchers shows how many people watch the issue and whether you are watching.
+
+Business logic and limitations:
+
+- Status edit options are Jira transitions from the current state, not a list of every possible project status.
+- The Watchers count comes from Jira's watcher data.
+- History data loads only when you open the history panel, which keeps the initial popup faster.
+
+### 5.5 History Panel
+
+![History panel](screenshots/marketing-hidpi-light/popup-history.png)
+
+The History panel shows recent issue changes without opening Jira's full history page.
+
+What you can see:
+
+- Who changed the issue
+- When the change happened
+- Field changes, such as status, assignee, labels, versions, or custom fields
+- Rich description or comment changes when available
+- Attachment references connected to history entries
+
+Business logic and limitations:
+
+- Jira QuickView formats Jira changelog data into grouped entries.
+- Rich text history may be summarized first, with expandable details for longer content.
+- History is a view of Jira's recorded changelog. If Jira does not record a detail, Jira QuickView cannot invent it.
+- Opening History closes Watchers if the Watchers panel is open, so the popup stays readable.
+
+### 5.6 Watchers Panel
+
+![Watcher count in popup](screenshots/marketing-hidpi-light/popup-overview.png)
+
+The Watchers control shows how many people are watching the issue. Clicking it opens the Watchers panel.
+
+What you can do:
+
+- See who is watching the issue.
+- Search for users to add as watchers.
+- Remove watchers when Jira allows it.
+- See whether you are currently watching the issue.
+
+Business logic and limitations:
+
+- Watcher search uses Jira user search and filters out people who are already watching.
+- Add and remove actions use Jira's watcher APIs and your Jira permissions.
+- If Jira blocks adding or removing a watcher, the panel shows an error and keeps the current list usable.
+- Opening Watchers closes History if History is open.
+
+### 5.7 Row 2: Epic, Parent, Sprint, Affects Version, and Fix Version
+
+![Popup metadata rows](screenshots/marketing-hidpi-light/popup-overview.png)
+
+Row 2 is usually where planning and release information lives.
+
+Common fields:
+
+- Epic or Parent links the issue to larger work.
+- Sprint shows the sprint or sprints associated with the issue.
+- Affects Version shows where the problem or request applies.
+- Fix Version shows the planned or delivered release.
+
+Business logic and limitations:
+
+- Parent editing depends on the hierarchy model Jira exposes for the issue.
+- Sprint values can come from Jira Agile fields that vary by company and project.
+- Version chips are most linkable when there is exactly one version.
+- These fields can be moved to other rows in the layout editor if your team wants a different visual priority.
+
+### 5.8 Row 3: Environment, Labels, and Custom Fields
+
+![Inline editing and lower rows](screenshots/marketing-hidpi-light/popup-inline-editor.png)
+
+Row 3 is good for context fields that are useful but usually less urgent than status or priority.
+
+Common fields:
+
+- Environment shows deployment, browser, device, customer, or test environment notes.
+- Labels show Jira labels and can link to label-filtered Jira searches.
+- Custom fields show team-specific data that you added in Options.
+
+Business logic and limitations:
+
+- Environment can be edited only when Jira says it is editable with the `set` operation.
+- Labels can be edited only when Jira allows label updates and label suggestions are supported.
+- Custom fields may show read-only values if their type is unsupported or Jira does not allow editing.
+
+### 5.9 Description Block
+
+![Description editor](screenshots/marketing-hidpi-light/popup-description-editor.png)
+
+The Description block shows the issue description. If Jira allows it, you can edit it directly in the popup.
+
+What you can do:
+
+- Read formatted issue details.
+- Edit or add a description.
+- Use simple formatting controls for bold, italic, underline, lists, and code blocks.
+- Paste or attach images while editing.
+
+Business logic and limitations:
+
+- The edit button appears only when Jira says the description field supports the `set` operation.
+- Save is disabled until something changes or uploads finish.
+- If you close or switch issues while editing, draft attachment cleanup may run so abandoned uploads do not linger.
+- Jira formatting support depends on how your Jira instance stores description content.
+
+### 5.10 Time Tracking Block
+
+![Popup overview with content blocks](screenshots/marketing-hidpi-light/popup-overview.png)
+
+The Time Tracking block lets you view estimates and log work from the popup when Jira exposes time tracking.
+
+What you can do:
+
+- View original estimate.
+- View remaining estimate.
+- View time spent.
+- Log new work with amount, description, and date.
+- Edit estimates when Jira allows it.
+
+Business logic and limitations:
+
+- Estimate inputs are disabled if Jira does not allow editing estimates on the current issue.
+- Logging work can still be available even when estimate editing is not.
+- Save is disabled until you change something.
+- Accepted time formats depend on Jira, but common examples include values like `30m`, `1h`, or `2h 30m`.
+
+### 5.11 Attachments Block
+
+![Attachments block](screenshots/marketing-hidpi-light/popup-attachments.png)
+
+The Attachments block helps you inspect visual evidence without opening Jira.
+
+What you can do:
+
+- Preview image attachments.
+- Open the full attachment in Jira.
+- Use screenshot evidence during QA, release checks, bug triage, or support work.
+
+Business logic and limitations:
+
+- The visual grid focuses on image attachments that can be previewed in the popup.
+- Non-image files may be linked or visible elsewhere, but they do not get the same image preview treatment.
+- Attachment visibility follows your Jira permissions.
+
+### 5.12 Pull Requests Block
+
+![Related pull requests](screenshots/marketing-hidpi-light/popup-pull-requests.png)
+
+The Pull Requests block shows development work connected to the Jira issue.
+
+What you can see:
+
+- Pull request title
+- Author
+- Branch
+- Status
+- Link to open the pull request
+
+Business logic and limitations:
+
+- Pull request data comes from Jira development-status APIs.
+- If Jira does not know about linked pull requests, the block will not show them.
+- The current browser page is filtered out when it is the same pull request you are already viewing, which avoids showing a redundant link.
+
+### 5.13 Comments and Reactions
+
+![Comment composer](screenshots/marketing-hidpi-light/popup-comment-compose.png)
+
+The Comments block lets you read and participate in Jira discussion from the popup.
+
+What you can do:
+
+- Read existing comments.
+- Add a new comment.
+- Type `@` to mention someone.
+- Copy a direct comment link.
+- Edit or delete your own comments when Jira allows it.
+- Add supported reactions to comments.
+
+Business logic and limitations:
+
+- Comment permissions come from Jira.
+- Mention search uses Jira user search around the current comment context.
+- Comment reactions are shown only when the Jira instance supports the reaction flow used by the extension.
+- Delete actions ask for confirmation inside the popup before applying the change.
+
+## 6. Why Edit Buttons or Options Appear Only Sometimes
+
+![Inline editing example](screenshots/marketing-hidpi-light/popup-inline-editor.png)
+
+Jira QuickView intentionally does not show edit controls unless Jira says the action is valid for the current issue.
+
+This depends on:
+
+- Your Jira permissions
+- The issue's project
+- The issue type
+- The current workflow status
+- Required fields and workflow validators
+- Jira edit metadata for the field
+- Available Jira transitions
+- Whether a field type is supported by Jira QuickView's inline editor
+
+Important examples:
+
+- Status choices are workflow transitions from the current status. They are not every possible status in the project.
+- Assignee choices are assignable users for the current issue, not every Jira user.
+- Sprint editing requires a valid sprint field and Jira Agile metadata.
+- Labels require label suggestion support.
+- Custom fields can be displayed even when their type cannot be edited inline.
+
+If an edit button is missing, it usually means one of two things: Jira does not allow the edit for that issue, or Jira QuickView can display the field but does not yet support editing that field type.
+
+## 7. Troubleshooting
+
+![Options page overview](screenshots/marketing-hidpi-light/options-basic-overview.png)
+
+### The popup does not appear
+
+![Options page overview](screenshots/marketing-hidpi-light/options-basic-overview.png)
+
+Check these first:
+
+- The current page is included in Allowed pages.
+- You saved the Options page after changing settings.
+- You are hovering an issue key in a recognizable format, such as `ABC-123`.
+- You are pressing the configured modifier key after hovering, if a modifier is configured.
+- You are signed in to Jira in the same browser.
+- Your Jira instance is reachable from the browser.
+
+### The popup appears but issue data does not load
+
+![Main popup overview](screenshots/marketing-hidpi-light/popup-overview.png)
+
+Likely causes:
+
+- Jira URL is wrong.
+- Jira session expired.
+- VPN or company network is disconnected.
+- The issue key does not exist in your Jira instance.
+- You do not have permission to view the issue.
+
+### A field cannot be edited
+
+![Inline editing example](screenshots/marketing-hidpi-light/popup-inline-editor.png)
+
+This is usually expected. Jira QuickView honors Jira permissions, workflow rules, edit metadata, and supported field types. Try opening the issue in Jira itself. If Jira also prevents the edit there, the popup will not be able to do it either.
+
+### A user is missing from Assignee search
+
+![Inline assignee search](screenshots/marketing-hidpi-light/popup-inline-editor.png)
+
+Assignee search is issue-specific. Jira may allow a person to watch an issue but not allow that person to be assigned to it. If Jira's own assignee picker shows the user and Jira QuickView does not, capture the exact Jira request URL from the browser Network tab and include it in a bug report. That URL helps compare Jira's own filtering with the popup's filtering.
+
+### Allowed page pattern does not match
+
+![Connection settings](screenshots/marketing-hidpi-light/options-basic-overview.png)
+
+Use simple values first:
+
+- `github.com`
+- `mail.google.com`
+- `outlook.office.com`
+
+Then move to specific patterns:
+
+- `https://*.your-company.com/*`
+- `https://docs.your-company.com/projects/*`
+
+Remember that wildcard patterns use `*`. Do not write raw regex syntax unless you have verified how Chrome permissions and Jira QuickView normalization will treat it.
+
+## 8. Suggested Daily Workflows
+
+![Quick actions workflow](screenshots/marketing-hidpi-light/popup-actions.png)
+
+### Triage from email
+
+![Quick actions workflow](screenshots/marketing-hidpi-light/popup-actions.png)
+
+1. Open a Jira notification in Gmail or Outlook.
+2. Hover the issue key.
+3. Check status, priority, assignee, description, comments, and watchers.
+4. Assign to yourself, comment, or transition the issue if needed.
+
+### Review a pull request
+
+![Related pull requests workflow](screenshots/marketing-hidpi-light/popup-pull-requests.png)
+
+1. Open a GitHub pull request that mentions a Jira key.
+2. Hover the key.
+3. Check Jira status, linked PRs, comments, attachments, and history.
+4. Update status or comment without leaving the pull request.
+
+### Prepare a release
+
+![Release review workflow](screenshots/marketing-hidpi-light/popup-history.png)
+
+1. Hover each issue key in a release checklist.
+2. Check fix version, status, linked PRs, attachments, and comments.
+3. Use History to verify recent changes.
+4. Update missing fields or comments before shipping.
+
+### Investigate a bug
+
+![Attachments and evidence workflow](screenshots/marketing-hidpi-light/popup-attachments.png)
+
+1. Hover the bug's issue key from a QA note or support page.
+2. Read the description, environment, labels, attachments, and comments.
+3. Use History to understand recent changes.
+4. Add findings as a comment or update the description if Jira allows it.
