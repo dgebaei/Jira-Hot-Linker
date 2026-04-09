@@ -30,6 +30,17 @@
   - Keep public screenshots and other homepage images under `docs/` with relative links from `README.md`; `scripts/build-pages-site.js` rewrites those paths for the generated site.
   - `docs/site.js` adds the lightbox behavior to local README images on the generated Pages site.
   - `pandoc` is required for local Pages builds; the GitHub Pages workflow installs it explicitly.
+- Refresh HiDPI marketing screenshots: `npm run screenshots:marketing:hidpi`
+  - Uses `scripts/playwright/capture-marketing-screenshots-hidpi.js`.
+  - Default output is `docs/screenshots/marketing-hidpi/` for dark-theme marketing screenshots.
+  - Pass `--theme light --output-dir marketing-hidpi-light --layout-mode legacy` when refreshing the checked-in light marketing screenshots used by the guide.
+- Refresh the user-guide screenshot set: `npm run screenshots:user-guide`
+  - Regenerates light marketing screenshots under `docs/screenshots/marketing-hidpi-light/` and focused guide crops under `docs/screenshots/user-guide/`.
+  - This script deliberately passes `--user-guide`; generic marketing runs must not wipe or replace `docs/screenshots/user-guide/`.
+  - The screenshot process starts local mock Jira and fixture servers on `127.0.0.1`. If a sandboxed run fails with `listen EPERM`, rerun with permission for the npm script instead of changing product code.
+  - Options-page marketing screenshots are captured from `.optionsPage`, not the whole viewport, to avoid extra blank space on the left, right, and bottom.
+  - User-guide screenshots are focused element crops. Before committing, visually confirm each screenshot actually shows the feature described by its section, especially row/edit-mode sections that can look similar.
+  - After changing `docs/user-guide.md`, screenshot references, or Pages styling, run `npm run build:pages` and verify the generated `.site-build/user-guide.html` contains the expected links/images.
 - Build the Chrome Web Store upload ZIP: `npm run release:zip`
   - Output: `jira-quickview-<version>-chrome-web-store.zip`
   - Requirement: `manifest.json` must be at the ZIP root.

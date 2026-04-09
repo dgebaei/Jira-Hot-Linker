@@ -4,6 +4,45 @@ Jira QuickView lets you work with Jira issues directly from the web pages where 
 
 The screenshots in this guide are examples. Your popup can look different depending on your Jira project, your permissions, your workflow, and the layout you choose in the Options page.
 
+<details class="user-guide-toc" open>
+<summary>Table of contents</summary>
+
+- [1. What Jira QuickView Helps You Do](#1-what-jira-quickview-helps-you-do)
+- [2. Before You Start](#2-before-you-start)
+- [3. First-Time Setup](#3-first-time-setup)
+- [4. Options Page](#4-options-page)
+- [4.1 Basic: Connection](#41-basic-connection)
+- [4.2 Basic: Appearance](#42-basic-appearance)
+- [4.3 Advanced: Show Advanced Settings](#43-advanced-show-advanced-settings)
+- [4.4 Advanced: Hover Behavior](#44-advanced-hover-behavior)
+- [4.5 Advanced: Tooltip Layout Overview](#45-advanced-tooltip-layout-overview)
+- [4.6 Advanced: Row 1 Fields](#46-advanced-row-1-fields)
+- [4.7 Advanced: Row 2 Fields](#47-advanced-row-2-fields)
+- [4.8 Advanced: Row 3 Fields](#48-advanced-row-3-fields)
+- [4.9 Advanced: Content Blocks](#49-advanced-content-blocks)
+- [4.10 Advanced: Custom Fields](#410-advanced-custom-fields)
+- [4.11 Advanced: Settings Sync](#411-advanced-settings-sync)
+- [4.12 Save and Discard](#412-save-and-discard)
+- [5. Using the Popup Every Day](#5-using-the-popup-every-day)
+- [5.1 Where the Popup Appears](#51-where-the-popup-appears)
+- [5.2 Header: Reporter, Assignee, Summary, and Actions](#52-header-reporter-assignee-summary-and-actions)
+- [5.3 Quick Actions Menu](#53-quick-actions-menu)
+- [5.4 Row 1: Issue Type, Status, Priority, History, and Watchers](#54-row-1-issue-type-status-priority-history-and-watchers)
+- [5.5 History Panel](#55-history-panel)
+- [5.6 Watchers Panel](#56-watchers-panel)
+- [5.7 Row 2: Epic, Parent, Sprint, Affects Version, and Fix Version](#57-row-2-epic-parent-sprint-affects-version-and-fix-version)
+- [5.8 Row 3: Environment, Labels, and Custom Fields](#58-row-3-environment-labels-and-custom-fields)
+- [5.9 Description Block](#59-description-block)
+- [5.10 Time Tracking Block](#510-time-tracking-block)
+- [5.11 Attachments Block](#511-attachments-block)
+- [5.12 Pull Requests Block](#512-pull-requests-block)
+- [5.13 Comments and Reactions](#513-comments-and-reactions)
+- [6. Why Edit Buttons or Options Appear Only Sometimes](#6-why-edit-buttons-or-options-appear-only-sometimes)
+- [7. Troubleshooting](#7-troubleshooting)
+- [8. Suggested Daily Workflows](#8-suggested-daily-workflows)
+
+</details>
+
 ## 1. What Jira QuickView Helps You Do
 
 ![Main popup overview](screenshots/marketing-hidpi-light/popup-overview.png)
@@ -20,7 +59,7 @@ With the extension, you can:
 
 ## 2. Before You Start
 
-![Options page overview](screenshots/marketing-hidpi-light/options-basic-overview.png)
+![Basic Options settings](screenshots/user-guide/options-basic-settings.png)
 
 Before Jira QuickView can show issue data, three things must be true:
 
@@ -32,7 +71,7 @@ Jira QuickView uses your existing browser session. It does not store a separate 
 
 ## 3. First-Time Setup
 
-![Options page overview](screenshots/marketing-hidpi-light/options-basic-overview.png)
+![Basic Options settings](screenshots/user-guide/options-basic-settings.png)
 
 1. Open the Jira QuickView Options page.
 2. Enter your Jira instance URL, for example `https://your-company.atlassian.net`.
@@ -51,7 +90,7 @@ The Options page controls where Jira QuickView runs and what the popup shows. Mo
 
 ### 4.1 Basic: Connection
 
-![Connection settings](screenshots/marketing-hidpi-light/options-basic-overview.png)
+![Connection and allowed pages settings](screenshots/user-guide/options-basic-settings.png)
 
 The Connection block tells Jira QuickView which Jira site to use and which websites can show the popup.
 
@@ -94,7 +133,7 @@ What to know:
 
 ### 4.2 Basic: Appearance
 
-![Appearance settings](screenshots/marketing-hidpi-light/options-basic-overview.png)
+![Appearance settings](screenshots/user-guide/options-basic-settings.png)
 
 The Appearance block controls the color mode for the Options page and popup.
 
@@ -108,7 +147,7 @@ Most users should keep `System`. Use `Light` or `Dark` only if you want Jira Qui
 
 ### 4.3 Advanced: Show Advanced Settings
 
-![Advanced settings overview](screenshots/marketing-hidpi-light/options-advanced-layout.png)
+![Show advanced settings toggle](screenshots/user-guide/options-advanced-toggle.png)
 
 The Advanced section is hidden by default so the setup page stays simple. Open it when you want to change how the popup is triggered, how its rows are arranged, which custom fields appear, or how to export/import settings.
 
@@ -116,7 +155,7 @@ Advanced settings are still safe to use, but they affect the day-to-day feel of 
 
 ### 4.4 Advanced: Hover Behavior
 
-![Advanced hover and layout settings](screenshots/marketing-hidpi-light/options-advanced-layout.png)
+![Hover behavior settings](screenshots/user-guide/options-hover-behavior.png)
 
 Hover Behavior controls when Jira QuickView opens the popup after your mouse is near a Jira issue key.
 
@@ -144,7 +183,7 @@ Modifier keys are useful on pages with many Jira keys, such as inboxes and pull 
 
 ### 4.5 Advanced: Tooltip Layout Overview
 
-![Advanced layout editor](screenshots/marketing-hidpi-light/options-advanced-layout.png)
+![Tooltip layout editor](screenshots/user-guide/options-tooltip-layout.png)
 
 Tooltip Layout controls the rows and content blocks inside the popup. The layout editor has two concepts:
 
@@ -163,7 +202,7 @@ What to know:
 
 ### 4.6 Advanced: Row 1 Fields
 
-![Popup row 1 overview](screenshots/marketing-hidpi-light/popup-overview.png)
+![Popup rows overview](screenshots/user-guide/popup-rows.png)
 
 Row 1 is the best place for the most important triage fields. By default it contains:
 
@@ -182,7 +221,7 @@ Business logic and limitations:
 
 ### 4.7 Advanced: Row 2 Fields
 
-![Popup metadata rows](screenshots/marketing-hidpi-light/popup-overview.png)
+![Popup rows overview](screenshots/user-guide/popup-rows.png)
 
 Row 2 is useful for planning and release metadata. By default it contains:
 
@@ -200,7 +239,7 @@ Business logic and limitations:
 
 ### 4.8 Advanced: Row 3 Fields
 
-![Popup inline editing](screenshots/marketing-hidpi-light/popup-inline-editor.png)
+![Popup lower metadata row](screenshots/user-guide/popup-rows.png)
 
 Row 3 is useful for supporting metadata that matters after initial triage. By default it contains:
 
@@ -217,7 +256,7 @@ Business logic and limitations:
 
 ### 4.9 Advanced: Content Blocks
 
-![Advanced layout editor](screenshots/marketing-hidpi-light/options-advanced-layout.png)
+![Content block layout editor](screenshots/user-guide/options-tooltip-layout.png)
 
 Content blocks are larger sections under the popup rows. They are where you read and work with issue content.
 
@@ -245,7 +284,7 @@ Business logic and limitations:
 
 ### 4.10 Advanced: Custom Fields
 
-![Custom fields in layout editor](screenshots/marketing-hidpi-light/options-custom-fields.png)
+![Custom fields in layout editor](screenshots/user-guide/options-custom-fields.png)
 
 Custom fields let you add team-specific Jira fields to Row 1, Row 2, or Row 3. This is useful for fields like Customer Impact, Reviewer, Tempo Account, Severity, Component Owner, Release Train, or any other Jira field your team relies on.
 
@@ -275,7 +314,7 @@ Custom field editing support:
 
 ### 4.11 Advanced: Settings Sync
 
-![Advanced settings sync](screenshots/marketing-agent-browser/options-advanced-sync.png)
+![Advanced settings sync](screenshots/user-guide/options-settings-sync.png)
 
 Settings Sync lets you move a Jira QuickView configuration between browsers or teammates.
 
@@ -289,7 +328,7 @@ Important: importing settings does not fully apply them until you click `Save`. 
 
 ### 4.12 Save and Discard
 
-![Options page overview](screenshots/marketing-hidpi-light/options-basic-overview.png)
+![Save and Discard controls](screenshots/user-guide/options-save-discard.png)
 
 The footer of the Options page applies or discards changes.
 
@@ -330,7 +369,9 @@ The extension only looks for Jira issue keys on allowed pages. It does not scan 
 
 ### 5.2 Header: Reporter, Assignee, Summary, and Actions
 
-![Popup header and actions](screenshots/marketing-hidpi-light/popup-actions.png)
+![Popup header](screenshots/user-guide/popup-header.png)
+
+![Popup quick actions in context](screenshots/marketing-hidpi-light/popup-actions.png)
 
 The header is the top part of the popup. It keeps the most common actions close together.
 
@@ -372,7 +413,7 @@ Business logic and limitations:
 
 ### 5.4 Row 1: Issue Type, Status, Priority, History, and Watchers
 
-![Row 1 with activity controls](screenshots/marketing-hidpi-light/popup-overview.png)
+![Popup rows and activity controls](screenshots/user-guide/popup-rows.png)
 
 Row 1 is the fastest read of the issue.
 
@@ -413,7 +454,7 @@ Business logic and limitations:
 
 ### 5.6 Watchers Panel
 
-![Watcher count in popup](screenshots/marketing-hidpi-light/popup-overview.png)
+![Watchers panel](screenshots/user-guide/popup-watchers-panel.png)
 
 The Watchers control shows how many people are watching the issue. Clicking it opens the Watchers panel.
 
@@ -433,7 +474,7 @@ Business logic and limitations:
 
 ### 5.7 Row 2: Epic, Parent, Sprint, Affects Version, and Fix Version
 
-![Popup metadata rows](screenshots/marketing-hidpi-light/popup-overview.png)
+![Popup planning metadata row](screenshots/user-guide/popup-rows.png)
 
 Row 2 is usually where planning and release information lives.
 
@@ -453,7 +494,7 @@ Business logic and limitations:
 
 ### 5.8 Row 3: Environment, Labels, and Custom Fields
 
-![Inline editing and lower rows](screenshots/marketing-hidpi-light/popup-inline-editor.png)
+![Popup environment, labels, and custom fields row](screenshots/user-guide/popup-rows.png)
 
 Row 3 is good for context fields that are useful but usually less urgent than status or priority.
 
@@ -491,7 +532,7 @@ Business logic and limitations:
 
 ### 5.10 Time Tracking Block
 
-![Popup overview with content blocks](screenshots/marketing-hidpi-light/popup-overview.png)
+![Time tracking block](screenshots/user-guide/popup-time-tracking.png)
 
 The Time Tracking block lets you view estimates and log work from the popup when Jira exposes time tracking.
 
@@ -603,7 +644,7 @@ If an edit button is missing, it usually means one of two things: Jira does not 
 
 ### The popup does not appear
 
-![Options page overview](screenshots/marketing-hidpi-light/options-basic-overview.png)
+![Basic Options settings](screenshots/user-guide/options-basic-settings.png)
 
 Check these first:
 
@@ -640,7 +681,7 @@ Assignee search is issue-specific. Jira may allow a person to watch an issue but
 
 ### Allowed page pattern does not match
 
-![Connection settings](screenshots/marketing-hidpi-light/options-basic-overview.png)
+![Connection and allowed pages settings](screenshots/user-guide/options-basic-settings.png)
 
 Use simple values first:
 

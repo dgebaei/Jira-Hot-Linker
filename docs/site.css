@@ -426,6 +426,30 @@ code {
   padding-left: 1.35rem;
 }
 
+.readme-render .user-guide-toc {
+  margin: 1.5rem 0 2rem;
+  padding: 1rem 1.1rem;
+  border: 1px solid rgba(20, 184, 166, 0.18);
+  border-radius: 18px;
+  background: rgba(240, 253, 250, 0.68);
+}
+
+.readme-render .user-guide-toc summary {
+  cursor: pointer;
+  color: var(--text);
+  font-weight: 800;
+}
+
+.readme-render .user-guide-toc ul {
+  margin-bottom: 0;
+  columns: 2;
+  column-gap: 2rem;
+}
+
+.readme-render .user-guide-toc li {
+  break-inside: avoid;
+}
+
 .readme-render pre {
   overflow-x: auto;
   padding: 1rem 1.1rem;
@@ -533,5 +557,9 @@ code {
 
   .lightbox-figure img {
     max-height: calc(100vh - 10rem);
+  }
+
+  .readme-render .user-guide-toc ul {
+    columns: 1;
   }
 }

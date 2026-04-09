@@ -14,6 +14,7 @@ function parseCliArgs(argv) {
   let theme = 'dark';
   let outputDirName = '';
   let layoutMode = 'tight-16x10';
+  let includeUserGuide = false;
 
   for (let index = 0; index < argv.length; index += 1) {
     const value = String(argv[index] || '');
@@ -30,6 +31,10 @@ function parseCliArgs(argv) {
     if (value === '--layout-mode') {
       layoutMode = String(argv[index + 1] || '').trim().toLowerCase();
       index += 1;
+      continue;
+    }
+    if (value === '--user-guide') {
+      includeUserGuide = true;
       continue;
     }
     throw new Error(`Unknown argument: ${value}`);
@@ -49,12 +54,14 @@ function parseCliArgs(argv) {
   return {
     theme,
     layoutMode,
+    includeUserGuide,
     screenshotDir: path.join(repoRoot, 'docs', 'screenshots', outputDirName),
   };
 }
 
 const cliOptions = parseCliArgs(process.argv.slice(2));
 const screenshotDir = cliOptions.screenshotDir;
+const userGuideScreenshotDir = path.join(repoRoot, 'docs', 'screenshots', 'user-guide');
 
 const FIXTURE_STORIES = {
   overview: {
@@ -670,11 +677,17 @@ async function saveOptionsShots(context, extensionId, config) {
 
   await setOptionsState(optionsPage, config, {showAdvanced: false, scrollY: 0, zoom: 1.16});
   await applyOptionsMarketingAdjustments(optionsPage);
-  await optionsPage.screenshot({path: path.join(screenshotDir, 'options-basic-overview.png')});
+  await saveOptionsPageScreenshot(optionsPage, path.join(screenshotDir, 'options-basic-overview.png'));
+  await saveUserGuideLocatorScreenshot(optionsPage.locator('.settingsGrid').first(), 'options-basic-settings.png');
+  await saveUserGuideLocatorScreenshot(optionsPage.locator('.advToggleCard'), 'options-advanced-toggle.png');
+  await saveUserGuideLocatorScreenshot(optionsPage.locator('.actionBar'), 'options-save-discard.png');
 
   await setOptionsState(optionsPage, config, {showAdvanced: true, scrollY: 460, zoom: 1.12});
   await applyOptionsMarketingAdjustments(optionsPage);
-  await optionsPage.screenshot({path: path.join(screenshotDir, 'options-advanced-layout.png')});
+  await saveOptionsPageScreenshot(optionsPage, path.join(screenshotDir, 'options-advanced-layout.png'));
+  await saveUserGuideLocatorScreenshot(optionsPage.locator('.settingsCard.settingsGridFull').nth(0), 'options-hover-behavior.png');
+  await saveUserGuideLocatorScreenshot(optionsPage.locator('.settingsCard.settingsGridFull').nth(1), 'options-tooltip-layout.png');
+  await saveUserGuideLocatorScreenshot(optionsPage.locator('.settingsCard.settingsGridFull').nth(2), 'options-settings-sync.png');
 
   await setOptionsState(optionsPage, config, {showAdvanced: true, scrollY: 460, zoom: 1.12});
   await applyOptionsMarketingAdjustments(optionsPage);
@@ -686,9 +699,30 @@ async function saveOptionsShots(context, extensionId, config) {
     window.__JHL_TEST_API__?.moveTooltipField?.('custom_customfield_67890', 'row3', 1);
   });
   await optionsPage.waitForTimeout(200);
-  await optionsPage.screenshot({path: path.join(screenshotDir, 'options-custom-fields.png')});
+  await saveOptionsPageScreenshot(optionsPage, path.join(screenshotDir, 'options-custom-fields.png'));
+  await saveUserGuideLocatorScreenshot(optionsPage.locator('.settingsCard.settingsGridFull').nth(1), 'options-custom-fields.png');
 
   await optionsPage.close();
+}
+
+async function saveOptionsPageScreenshot(page, outputPath) {
+  const root = page.locator('.optionsPage');
+  await root.scrollIntoViewIfNeeded();
+  await root.screenshot({
+    path: outputPath,
+    animations: 'disabled',
+  });
+}
+
+async function saveUserGuideLocatorScreenshot(locator, fileName) {
+  if (!cliOptions.includeUserGuide) {
+    return;
+  }
+  await locator.scrollIntoViewIfNeeded();
+  await locator.screenshot({
+    path: path.join(userGuideScreenshotDir, fileName),
+    animations: 'disabled',
+  });
 }
 
 async function capturePopupOverview(context, serviceWorker, fixtureOrigin) {
@@ -770,6 +804,22 @@ async function capturePopupHistory(context, serviceWorker, fixtureOrigin) {
   }
   await savePopupCompositionScreenshot(page, 'popup-history.png');
   await page.close();
+}
+
+async function captureUserGuidePopupShots(context, serviceWorker, fixtureOrigin) {
+  const overviewPage = await openStyledPopupPage(context, serviceWorker, fixtureOrigin, 'overview');
+  await saveUserGuideLocatorScreenshot(overviewPage.locator('._JX_title'), 'popup-header.png');
+  await saveUserGuideLocatorScreenshot(overviewPage.locator('._JX_status'), 'popup-rows.png');
+  await overviewPage.locator('._JX_watchers_trigger').click();
+  await overviewPage.locator('._JX_watchers_panel').waitFor();
+  await saveUserGuideLocatorScreenshot(overviewPage.locator('._JX_watchers_panel'), 'popup-watchers-panel.png');
+  await overviewPage.close();
+
+  const timeTrackingPage = await openStyledPopupPage(context, serviceWorker, fixtureOrigin, 'overview');
+  await scrollPopupContentBlock(timeTrackingPage, 'timeTracking');
+  await timeTrackingPage.locator('[data-content-block="timeTracking"]').waitFor();
+  await saveUserGuideLocatorScreenshot(timeTrackingPage.locator('[data-content-block="timeTracking"]'), 'popup-time-tracking.png');
+  await timeTrackingPage.close();
 }
 
 async function scrollPopupContentBlock(page, blockName) {
@@ -864,6 +914,10 @@ async function savePopupCompositionScreenshot(page, fileName) {
 async function main() {
   await fs.rm(screenshotDir, {recursive: true, force: true});
   await fs.mkdir(screenshotDir, {recursive: true});
+  if (cliOptions.includeUserGuide) {
+    await fs.rm(userGuideScreenshotDir, {recursive: true, force: true});
+    await fs.mkdir(userGuideScreenshotDir, {recursive: true});
+  }
 
   const executablePath = await findChromeExecutable();
   const jira = await createMockJiraServer();
@@ -875,11 +929,11 @@ async function main() {
       instanceUrl: jira.origin,
       domains: [`${fixture.origin}/`],
       themeMode: cliOptions.theme,
-      customFields: [{fieldId: 'customfield_12345', row: 2}],
+      customFields: [{fieldId: 'customfield_12345', row: 3}],
       tooltipLayout: {
         row1: ['issueType', 'status', 'priority', 'epicParent'],
-        row2: ['sprint', 'affects', 'fixVersions', 'custom_customfield_12345'],
-        row3: ['environment', 'labels'],
+        row2: ['sprint', 'affects', 'fixVersions'],
+        row3: ['environment', 'labels', 'custom_customfield_12345'],
         contentBlocks: ['pullRequests', 'attachments', 'comments', 'timeTracking'],
         people: ['reporter', 'assignee'],
       },
@@ -895,16 +949,24 @@ async function main() {
     await capturePopupPullRequests(context, serviceWorker, fixture.origin);
     await capturePopupAttachments(context, serviceWorker, fixture.origin);
     await capturePopupHistory(context, serviceWorker, fixture.origin);
+    if (cliOptions.includeUserGuide) {
+      await captureUserGuidePopupShots(context, serviceWorker, fixture.origin);
+    }
 
     const files = (await fs.readdir(screenshotDir)).filter(name => name.endsWith('.png')).sort();
-    console.log(JSON.stringify({
+    const result = {
       screenshotDir,
       files,
       viewport,
       deviceScaleFactor,
       themeMode: cliOptions.theme,
       layoutMode: cliOptions.layoutMode,
-    }, null, 2));
+    };
+    if (cliOptions.includeUserGuide) {
+      result.userGuideScreenshotDir = userGuideScreenshotDir;
+      result.userGuideFiles = (await fs.readdir(userGuideScreenshotDir)).filter(name => name.endsWith('.png')).sort();
+    }
+    console.log(JSON.stringify(result, null, 2));
   } finally {
     await context.close();
     await Promise.allSettled([
