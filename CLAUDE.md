@@ -4,6 +4,8 @@
 
 - **GitHub repo**: https://github.com/dgebaei/Jira-QuickView
 - **Upstream**: https://github.com/helmus/Jira-Hot-Linker
+- **Public homepage**: https://dgebaei.github.io/Jira-QuickView/
+- **Privacy policy**: https://dgebaei.github.io/Jira-QuickView/privacy-policy.html
 - PRs and issues go to `dgebaei/Jira-QuickView`, not upstream
 
 ## Git workflow
@@ -18,11 +20,32 @@
 - Shared agent workflow docs live under `.agents/skills/`; prefer those local project skills when available so different agents and harnesses reuse the same repo conventions.
 - The repo-root `CLAUDE.md` defines repo-wide workflow. Area-specific `CLAUDE.md` files may still contain local context when they are populated, so consult them when working in those areas instead of assuming they are irrelevant.
 
+## Common actions
+
+- Refresh the unpacked extension used for manual Chrome testing: `npm run build:active-extension`
+- Build the Pages homepage locally: `npm run build:pages`
+  - `README.md` is the source of truth for the public homepage at `https://dgebaei.github.io/Jira-QuickView/`.
+  - Do not recreate or edit `docs/index.html`; it was intentionally removed when the homepage switched to a README-driven build.
+  - Keep the privacy policy as `docs/privacy-policy.html`, and link to the public Pages URL from `README.md`.
+  - Keep public screenshots and other homepage images under `docs/` with relative links from `README.md`; `scripts/build-pages-site.js` rewrites those paths for the generated site.
+  - `docs/site.js` adds the lightbox behavior to local README images on the generated Pages site.
+  - `pandoc` is required for local Pages builds; the GitHub Pages workflow installs it explicitly.
+- Build the Chrome Web Store upload ZIP: `npm run release:zip`
+  - Output: `jira-quickview-<version>-chrome-web-store.zip`
+  - Requirement: `manifest.json` must be at the ZIP root.
+- Build the GitHub release download ZIP: `npm run release:asset`
+  - Output: `jira-plugin-build.zip`
+  - The archive extracts directly into the extension root, meaning the extracted folder itself contains `manifest.json`.
+- Validate the extension manifest quickly: `npm run validate:manifest`
+- Run release preflight checks: `npm run release:check`
+
 ## Build
 
 ```
 npm run build
 ```
+
+- `npm run build` currently maps to `npm run build:active-extension`, which rebuilds the unpacked extension and refreshes `.worktrees/_active-extension_/jira-plugin`.
 
 ## Repo tools
 
@@ -34,6 +57,7 @@ npm run build
 
 - For bugs that span optimistic UI state and persisted Jira data, verify all three states before calling the fix done:
   immediate interaction, same-page close/reopen, and full page reload.
+- When debugging a mismatch between Jira’s own UI and the popup, always ask the user for the exact example request URL captured in the browser Network tab before guessing about endpoint behavior, params, or payload shape.
 - Prefer a hybrid red-green workflow for behavior-heavy changes.
   - Write a failing test first when the change has a clear behavioral contract:
     bug fixes, regressions, state transitions, cache invalidation, persistence, save/cancel flows, keyboard interaction, or cross-reopen/reload behavior.
@@ -61,6 +85,8 @@ npm run build
 4. Before building or publishing, bump the extension version in both `jira-plugin/manifest.json` and `package.json`, and keep that version in sync with the GitHub release tag/title.
    In `jira-plugin/manifest.json`, `version` must stay Chrome-valid: digits and dots only, such as `2.3.0.0`.
    Use `version_name` for human-readable prerelease labels like `2.3.0-beta`; do not put `-beta` or other suffixes into `version`.
-5. Build: `npm run build`
-6. Package: `powershell -Command "Remove-Item -Force jira-plugin-build.zip -ErrorAction SilentlyContinue; Compress-Archive -Path jira-plugin/build, jira-plugin/resources, jira-plugin/options, jira-plugin/manifest.json -DestinationPath jira-plugin-build.zip"`
-7. Create release: `gh release create <version> jira-plugin-build.zip --repo dgebaei/Jira-QuickView --title "<version> - <title>" --notes "<release notes>"`
+5. Build the GitHub release asset: `npm run release:asset`
+6. Build the Chrome Web Store ZIP when needed: `npm run release:zip`
+7. Create a new GitHub release with the download ZIP: `gh release create <version> jira-plugin-build.zip --repo dgebaei/Jira-QuickView --title "<version> - <title>" --notes "<release notes>"`
+8. To refresh an existing release asset without touching the existing release description, use: `gh release upload <version> jira-plugin-build.zip --repo dgebaei/Jira-QuickView --clobber`
+9. Leave existing release notes and descriptions unchanged unless the user explicitly asks to edit them.

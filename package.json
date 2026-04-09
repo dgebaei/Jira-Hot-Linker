@@ -31,6 +31,7 @@
     "test:e2e:show-report": "npm exec -- playwright show-report tests/output/playwright/report",
     "test:e2e:reset-report-data": "node scripts/playwright/reset-reports.js",
     "release:check": "node scripts/release-check.js",
+    "release:asset": "node scripts/create-github-release-asset.js",
     "release:zip": "node scripts/create-release-zip.js",
     "tldr:setup": "node scripts/setup-llm-tldr.js",
     "tldr:code": "node scripts/llm-tldr.js"

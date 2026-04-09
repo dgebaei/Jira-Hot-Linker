@@ -42,7 +42,7 @@ Until then:
 2. Open `chrome://extensions`
 3. Enable `Developer mode`
 4. Click `Load unpacked`
-5. Select the unzipped `jira-plugin/` folder
+5. Select the extracted folder that contains `manifest.json`
 
 ### Initial setup
 
