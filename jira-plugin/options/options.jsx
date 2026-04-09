@@ -440,7 +440,10 @@ function ConfigPage(props) {
 
       {/* ── Advanced Toggle ──────────────────────────────── */}
       <div className='advToggleCard'>
-        <span className='advToggleIcon' aria-hidden='true'>&#9881;</span>
+        <svg className='advToggleIcon' viewBox='0 0 24 24' aria-hidden='true' focusable='false'>
+          <circle cx='12' cy='12' r='3.5' />
+          <path d='M12 3v3M12 18v3M4.9 4.9 7 7M17 17l2.1 2.1M3 12h3M18 12h3M4.9 19.1 7 17M17 7l2.1-2.1' />
+        </svg>
         <div className='advToggleText'>
           <h3>Show advanced settings</h3>
           <p>Hover trigger depth, modifier keys, field layout editor, custom fields, and settings sync.</p>

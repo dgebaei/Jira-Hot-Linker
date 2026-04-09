@@ -440,14 +440,30 @@ code {
   font-weight: 800;
 }
 
-.readme-render .user-guide-toc ul {
+.readme-render .user-guide-toc > ul {
   margin-bottom: 0;
   columns: 2;
   column-gap: 2rem;
 }
 
+.readme-render .user-guide-toc ul ul {
+  margin: 0.35rem 0 0.8rem;
+  padding-left: 1.45rem;
+  columns: 1;
+  column-gap: 0;
+}
+
 .readme-render .user-guide-toc li {
   break-inside: avoid;
+  margin-bottom: 0.25rem;
+}
+
+.readme-render .user-guide-toc > ul > li > a {
+  font-weight: 750;
+}
+
+.readme-render .user-guide-toc ul ul a {
+  font-size: 0.94em;
 }
 
 .readme-render pre {
@@ -559,7 +575,7 @@ code {
     max-height: calc(100vh - 10rem);
   }
 
-  .readme-render .user-guide-toc ul {
+  .readme-render .user-guide-toc > ul {
     columns: 1;
   }
 }

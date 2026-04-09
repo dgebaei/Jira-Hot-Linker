@@ -544,8 +544,15 @@ button:disabled {
 }
 
 .advToggleIcon {
-  font-size: 18px;
   color: var(--section-desc-color);
+  fill: none;
+  flex-shrink: 0;
+  height: 20px;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2;
+  width: 20px;
 }
 
 .advToggleText h3 {

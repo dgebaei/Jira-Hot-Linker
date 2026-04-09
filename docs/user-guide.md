@@ -11,35 +11,42 @@ The screenshots in this guide are examples. Your popup can look different depend
 - [2. Before You Start](#2-before-you-start)
 - [3. First-Time Setup](#3-first-time-setup)
 - [4. Options Page](#4-options-page)
-- [4.1 Basic: Connection](#41-basic-connection)
-- [4.2 Basic: Appearance](#42-basic-appearance)
-- [4.3 Advanced: Show Advanced Settings](#43-advanced-show-advanced-settings)
-- [4.4 Advanced: Hover Behavior](#44-advanced-hover-behavior)
-- [4.5 Advanced: Tooltip Layout Overview](#45-advanced-tooltip-layout-overview)
-- [4.6 Advanced: Row 1 Fields](#46-advanced-row-1-fields)
-- [4.7 Advanced: Row 2 Fields](#47-advanced-row-2-fields)
-- [4.8 Advanced: Row 3 Fields](#48-advanced-row-3-fields)
-- [4.9 Advanced: Content Blocks](#49-advanced-content-blocks)
-- [4.10 Advanced: Custom Fields](#410-advanced-custom-fields)
-- [4.11 Advanced: Settings Sync](#411-advanced-settings-sync)
-- [4.12 Save and Discard](#412-save-and-discard)
+    - [4.1 Basic: Connection](#41-basic-connection)
+    - [4.2 Basic: Appearance](#42-basic-appearance)
+    - [4.3 Advanced: Show Advanced Settings](#43-advanced-show-advanced-settings)
+    - [4.4 Advanced: Hover Behavior](#44-advanced-hover-behavior)
+    - [4.5 Advanced: Tooltip Layout Overview](#45-advanced-tooltip-layout-overview)
+    - [4.6 Advanced: Organizing Row Fields](#46-advanced-organizing-row-fields)
+        - [4.6.1 Custom Fields](#461-custom-fields)
+    - [4.7 Advanced: Content Blocks](#47-advanced-content-blocks)
+    - [4.8 Advanced: Settings Sync](#48-advanced-settings-sync)
+    - [4.9 Save and Discard](#49-save-and-discard)
 - [5. Using the Popup Every Day](#5-using-the-popup-every-day)
-- [5.1 Where the Popup Appears](#51-where-the-popup-appears)
-- [5.2 Header: Reporter, Assignee, Summary, and Actions](#52-header-reporter-assignee-summary-and-actions)
-- [5.3 Quick Actions Menu](#53-quick-actions-menu)
-- [5.4 Row 1: Issue Type, Status, Priority, History, and Watchers](#54-row-1-issue-type-status-priority-history-and-watchers)
-- [5.5 History Panel](#55-history-panel)
-- [5.6 Watchers Panel](#56-watchers-panel)
-- [5.7 Row 2: Epic, Parent, Sprint, Affects Version, and Fix Version](#57-row-2-epic-parent-sprint-affects-version-and-fix-version)
-- [5.8 Row 3: Environment, Labels, and Custom Fields](#58-row-3-environment-labels-and-custom-fields)
-- [5.9 Description Block](#59-description-block)
-- [5.10 Time Tracking Block](#510-time-tracking-block)
-- [5.11 Attachments Block](#511-attachments-block)
-- [5.12 Pull Requests Block](#512-pull-requests-block)
-- [5.13 Comments and Reactions](#513-comments-and-reactions)
+    - [5.1 Where the Popup Appears](#51-where-the-popup-appears)
+    - [5.2 Header: Reporter, Assignee, Summary, and Actions](#52-header-reporter-assignee-summary-and-actions)
+    - [5.3 Quick Actions Menu](#53-quick-actions-menu)
+    - [5.4 Row 1: Issue Type, Status, Priority, History, and Watchers](#54-row-1-issue-type-status-priority-history-and-watchers)
+        - [5.4.1 History Panel](#541-history-panel)
+        - [5.4.2 Watchers Panel](#542-watchers-panel)
+    - [5.5 Row 2: Epic, Parent, Sprint, Affects Version, and Fix Version](#55-row-2-epic-parent-sprint-affects-version-and-fix-version)
+    - [5.6 Row 3: Environment, Labels, and Custom Fields](#56-row-3-environment-labels-and-custom-fields)
+    - [5.7 Description Block](#57-description-block)
+    - [5.8 Time Tracking Block](#58-time-tracking-block)
+    - [5.9 Attachments Block](#59-attachments-block)
+    - [5.10 Pull Requests Block](#510-pull-requests-block)
+    - [5.11 Comments and Reactions](#511-comments-and-reactions)
 - [6. Why Edit Buttons or Options Appear Only Sometimes](#6-why-edit-buttons-or-options-appear-only-sometimes)
 - [7. Troubleshooting](#7-troubleshooting)
+    - [The popup does not appear](#the-popup-does-not-appear)
+    - [The popup appears but issue data does not load](#the-popup-appears-but-issue-data-does-not-load)
+    - [A field cannot be edited](#a-field-cannot-be-edited)
+    - [A user is missing from Assignee search](#a-user-is-missing-from-assignee-search)
+    - [Allowed page pattern does not match](#allowed-page-pattern-does-not-match)
 - [8. Suggested Daily Workflows](#8-suggested-daily-workflows)
+    - [Triage from email](#triage-from-email)
+    - [Review a pull request](#review-a-pull-request)
+    - [Prepare a release](#prepare-a-release)
+    - [Investigate a bug](#investigate-a-bug)
 
 </details>
 
@@ -200,89 +207,36 @@ What to know:
 - Description is treated as the core issue content and is always represented in the content area by the current layout editor.
 - Reporter, assignee, summary, copy, pin, quick actions, and close live in the popup header. They are explained in the popup section of this guide.
 
-### 4.6 Advanced: Row 1 Fields
+### 4.6 Advanced: Organizing Row Fields
 
 ![Popup rows overview](screenshots/user-guide/popup-rows.png)
 
-Row 1 is the best place for the most important triage fields. By default it contains:
+The three popup rows are for compact issue facts. Use them to decide what a user should understand before reading the larger content blocks.
 
-- Issue type
-- Status
-- Priority
+Suggested organization:
 
-In the current marketing layout, Epic/Parent can also be placed in Row 1, but many teams prefer it in Row 2. Use Row 1 for fields you want to see first before reading the description or comments.
+- Row 1 is for urgent triage data, such as Issue Type, Status, Priority, History, and Watchers.
+- Row 2 is for planning and release data, such as Epic or Parent, Sprint, Affects Version, and Fix Version.
+- Row 3 is for supporting context, such as Environment, Labels, and custom fields you add.
+
+Good layouts keep the first row short and high-signal. If a field is useful only after initial triage, put it in Row 2 or Row 3. If a field is rarely used, remove it from the popup entirely or keep it in Jira.
 
 Business logic and limitations:
 
 - Issue type editing appears only when Jira says the field is editable and there is more than one valid issue type available.
 - Status editing shows Jira workflow transitions, not every status in the project.
 - Priority editing appears only when Jira exposes priority as editable for that issue.
-- Row chips can link to filtered Jira searches when the field value can be expressed as a useful JQL filter.
-
-### 4.7 Advanced: Row 2 Fields
-
-![Popup rows overview](screenshots/user-guide/popup-rows.png)
-
-Row 2 is useful for planning and release metadata. By default it contains:
-
-- Epic or Parent
-- Sprint
-- Affects Version
-- Fix Version
-
-Business logic and limitations:
-
 - Epic/Parent depends on whether the issue uses Jira parent hierarchy or an Epic Link style field.
 - Sprint support depends on Jira Agile fields being visible to the extension.
 - Sprint editing appears only if Jira exposes a valid Sprint field and editable metadata for the issue.
 - Version chips can link to Jira filters when there is exactly one version value. When multiple versions are present, the chip is still informative but may not be linked as narrowly.
-
-### 4.8 Advanced: Row 3 Fields
-
-![Popup lower metadata row](screenshots/user-guide/popup-rows.png)
-
-Row 3 is useful for supporting metadata that matters after initial triage. By default it contains:
-
-- Environment
-- Labels
-- Custom fields you add
-
-Business logic and limitations:
-
 - Environment editing appears only when Jira allows the `set` operation for that field.
 - Labels editing requires both Jira edit permission and label suggestion support.
 - Custom fields can be displayed even when they cannot be edited.
 - Long text in chips can be truncated to keep the popup usable.
+- Row chips can link to filtered Jira searches when the field value can be expressed as a useful JQL filter.
 
-### 4.9 Advanced: Content Blocks
-
-![Content block layout editor](screenshots/user-guide/options-tooltip-layout.png)
-
-Content blocks are larger sections under the popup rows. They are where you read and work with issue content.
-
-Available blocks:
-
-- Description
-- Attachments
-- Comments
-- Pull Requests
-- Time Tracking
-
-How to use them:
-
-- Keep blocks you use every day near the top.
-- Remove blocks that create noise for your team.
-- If your team mostly triages from email, Description and Comments are usually the most important.
-- If your team reviews releases, Pull Requests, Attachments, and History are often more important.
-
-Business logic and limitations:
-
-- Attachments currently preview image attachments. Non-image files may still be linked from Jira or visible in history, but the visual attachment grid focuses on previewable images.
-- Pull Requests appear only when Jira returns development-status data for the issue.
-- Time Tracking appears when Jira exposes time tracking data or editable time tracking metadata.
-- Comments appear when the content block is enabled. The composer follows your Jira permissions.
-
-### 4.10 Advanced: Custom Fields
+#### 4.6.1 Custom Fields
 
 ![Custom fields in layout editor](screenshots/user-guide/options-custom-fields.png)
 
@@ -312,7 +266,35 @@ Custom field editing support:
 - Simple single-value text-like fields can be edited as text or textarea when supported.
 - Unsupported or permission-blocked fields are displayed as read-only chips.
 
-### 4.11 Advanced: Settings Sync
+### 4.7 Advanced: Content Blocks
+
+![Content block layout editor](screenshots/user-guide/options-tooltip-layout.png)
+
+Content blocks are larger sections under the popup rows. They are where you read and work with issue content.
+
+Available blocks:
+
+- Description
+- Attachments
+- Comments
+- Pull Requests
+- Time Tracking
+
+How to use them:
+
+- Keep blocks you use every day near the top.
+- Remove blocks that create noise for your team.
+- If your team mostly triages from email, Description and Comments are usually the most important.
+- If your team reviews releases, Pull Requests, Attachments, and History are often more important.
+
+Business logic and limitations:
+
+- Attachments currently preview image attachments. Non-image files may still be linked from Jira or visible in history, but the visual attachment grid focuses on previewable images.
+- Pull Requests appear only when Jira returns development-status data for the issue.
+- Time Tracking appears when Jira exposes time tracking data or editable time tracking metadata.
+- Comments appear when the content block is enabled. The composer follows your Jira permissions.
+
+### 4.8 Advanced: Settings Sync
 
 ![Advanced settings sync](screenshots/user-guide/options-settings-sync.png)
 
@@ -326,7 +308,7 @@ Available actions:
 
 Important: importing settings does not fully apply them until you click `Save`. This gives you a chance to review the Jira URL, allowed pages, layout, hover behavior, and custom fields before changing the active browser setup.
 
-### 4.12 Save and Discard
+### 4.9 Save and Discard
 
 ![Save and Discard controls](screenshots/user-guide/options-save-discard.png)
 
@@ -431,7 +413,7 @@ Business logic and limitations:
 - The Watchers count comes from Jira's watcher data.
 - History data loads only when you open the history panel, which keeps the initial popup faster.
 
-### 5.5 History Panel
+#### 5.4.1 History Panel
 
 ![History panel](screenshots/marketing-hidpi-light/popup-history.png)
 
@@ -452,7 +434,7 @@ Business logic and limitations:
 - History is a view of Jira's recorded changelog. If Jira does not record a detail, Jira QuickView cannot invent it.
 - Opening History closes Watchers if the Watchers panel is open, so the popup stays readable.
 
-### 5.6 Watchers Panel
+#### 5.4.2 Watchers Panel
 
 ![Watchers panel](screenshots/user-guide/popup-watchers-panel.png)
 
@@ -472,7 +454,7 @@ Business logic and limitations:
 - If Jira blocks adding or removing a watcher, the panel shows an error and keeps the current list usable.
 - Opening Watchers closes History if History is open.
 
-### 5.7 Row 2: Epic, Parent, Sprint, Affects Version, and Fix Version
+### 5.5 Row 2: Epic, Parent, Sprint, Affects Version, and Fix Version
 
 ![Popup planning metadata row](screenshots/user-guide/popup-rows.png)
 
@@ -492,7 +474,7 @@ Business logic and limitations:
 - Version chips are most linkable when there is exactly one version.
 - These fields can be moved to other rows in the layout editor if your team wants a different visual priority.
 
-### 5.8 Row 3: Environment, Labels, and Custom Fields
+### 5.6 Row 3: Environment, Labels, and Custom Fields
 
 ![Popup environment, labels, and custom fields row](screenshots/user-guide/popup-rows.png)
 
@@ -510,7 +492,7 @@ Business logic and limitations:
 - Labels can be edited only when Jira allows label updates and label suggestions are supported.
 - Custom fields may show read-only values if their type is unsupported or Jira does not allow editing.
 
-### 5.9 Description Block
+### 5.7 Description Block
 
 ![Description editor](screenshots/marketing-hidpi-light/popup-description-editor.png)
 
@@ -530,7 +512,7 @@ Business logic and limitations:
 - If you close or switch issues while editing, draft attachment cleanup may run so abandoned uploads do not linger.
 - Jira formatting support depends on how your Jira instance stores description content.
 
-### 5.10 Time Tracking Block
+### 5.8 Time Tracking Block
 
 ![Time tracking block](screenshots/user-guide/popup-time-tracking.png)
 
@@ -551,7 +533,7 @@ Business logic and limitations:
 - Save is disabled until you change something.
 - Accepted time formats depend on Jira, but common examples include values like `30m`, `1h`, or `2h 30m`.
 
-### 5.11 Attachments Block
+### 5.9 Attachments Block
 
 ![Attachments block](screenshots/marketing-hidpi-light/popup-attachments.png)
 
@@ -569,7 +551,7 @@ Business logic and limitations:
 - Non-image files may be linked or visible elsewhere, but they do not get the same image preview treatment.
 - Attachment visibility follows your Jira permissions.
 
-### 5.12 Pull Requests Block
+### 5.10 Pull Requests Block
 
 ![Related pull requests](screenshots/marketing-hidpi-light/popup-pull-requests.png)
 
@@ -589,7 +571,7 @@ Business logic and limitations:
 - If Jira does not know about linked pull requests, the block will not show them.
 - The current browser page is filtered out when it is the same pull request you are already viewing, which avoids showing a redundant link.
 
-### 5.13 Comments and Reactions
+### 5.11 Comments and Reactions
 
 ![Comment composer](screenshots/marketing-hidpi-light/popup-comment-compose.png)
 
