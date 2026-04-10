@@ -6,7 +6,7 @@
 ![Manifest V3](https://img.shields.io/badge/Manifest-V3-0f766e?style=for-the-badge)
 ![MIT License](https://img.shields.io/badge/License-MIT-f59e0b?style=for-the-badge)
 
-[Extension website](https://dgebaei.github.io/Jira-QuickView/) · [User guide](docs/user-guide.md) · [GitHub repository](https://github.com/dgebaei/Jira-QuickView) · [Issue tracker](https://github.com/dgebaei/Jira-QuickView/issues)
+[Download Extension](https://chromewebstore.google.com/detail/jira-quickview/oddgjhpfjkeckcppcldgjomlnablfkia) · [Extension website](https://dgebaei.github.io/Jira-QuickView/) · [User guide](docs/user-guide.md) · [GitHub repository](https://github.com/dgebaei/Jira-QuickView) · [Issue tracker](https://github.com/dgebaei/Jira-QuickView/issues)
 
 ## One hover, much more context
 
@@ -34,15 +34,10 @@ Open a Jira notification email in Gmail or Outlook, hover the issue key in the m
 
 ## Install and configure
 
-Chrome Web Store listing: coming soon
-
-Until then:
-
-1. [Download the latest build](https://github.com/dgebaei/Jira-QuickView/releases/latest/download/jira-plugin-build.zip)
-2. Open `chrome://extensions`
-3. Enable `Developer mode`
-4. Click `Load unpacked`
-5. Select the extracted folder that contains `manifest.json`
+1. Open the [Download Extension](https://chromewebstore.google.com/detail/jira-quickview/oddgjhpfjkeckcppcldgjomlnablfkia) page in the Chrome Web Store.
+2. Click `Add to Chrome`.
+3. Confirm the browser prompt.
+4. Open the Jira QuickView Options page after installation.
 
 ### Initial setup
 

@@ -4,6 +4,8 @@ Jira QuickView lets you work with Jira issues directly from the web pages where 
 
 The screenshots in this guide are examples. Your popup can look different depending on your Jira project, your permissions, your workflow, and the layout you choose in the Options page.
 
+[Download Extension](https://chromewebstore.google.com/detail/jira-quickview/oddgjhpfjkeckcppcldgjomlnablfkia)
+
 <details class="user-guide-toc" open>
 <summary>Table of contents</summary>
 
@@ -112,8 +114,9 @@ With the extension, you can:
 
 ![Basic Options settings](screenshots/user-guide/options-basic-settings.png)
 
-Before Jira QuickView can show issue data, three things must be true:
+Before Jira QuickView can show issue data, these things must be true:
 
+- Jira QuickView must be installed from the Chrome Web Store: [Download Extension](https://chromewebstore.google.com/detail/jira-quickview/oddgjhpfjkeckcppcldgjomlnablfkia).
 - You must be signed in to Jira in the same browser.
 - The extension must know your Jira instance URL.
 - The page where you want popups must be allowed in the Options page.
@@ -124,12 +127,13 @@ Jira QuickView uses your existing browser session. It does not store a separate 
 
 ![Basic Options settings](screenshots/user-guide/options-basic-settings.png)
 
-1. Open the Jira QuickView Options page.
-2. Enter your Jira instance URL, for example `https://your-company.atlassian.net`.
-3. Add the pages where you want Jira issue popups to appear.
-4. Choose your color mode, or keep `System`.
-5. Click `Save`.
-6. Open an allowed page and hover a Jira key.
+1. Install Jira QuickView from the Chrome Web Store: [Download Extension](https://chromewebstore.google.com/detail/jira-quickview/oddgjhpfjkeckcppcldgjomlnablfkia).
+2. Open the Jira QuickView Options page.
+3. Enter your Jira instance URL, for example `https://your-company.atlassian.net`.
+4. Add the pages where you want Jira issue popups to appear.
+5. Choose your color mode, or keep `System`.
+6. Click `Save`.
+7. Open an allowed page and hover a Jira key.
 
 If nothing happens after setup, check the troubleshooting section at the end of this guide. The most common causes are an unallowed page, a Jira URL typo, not being signed in to Jira, or using the hover modifier incorrectly.
 
