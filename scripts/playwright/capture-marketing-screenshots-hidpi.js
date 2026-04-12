@@ -392,6 +392,7 @@ async function injectContentScript(serviceWorker, page) {
 async function setOptionsState(page, config, {showAdvanced = false, scrollY = 0, zoom = 1.12} = {}) {
   await page.evaluate(async ({data, advanced, zoomLevel}) => {
     await chrome.storage.sync.set(data);
+    await chrome.storage.local.remove('jqv.simpleSync');
     sessionStorage.setItem('jhl_adv', advanced ? '1' : '0');
     document.documentElement.style.zoom = String(zoomLevel);
     document.body.style.zoom = String(zoomLevel);
@@ -677,20 +678,32 @@ async function saveOptionsShots(context, extensionId, config) {
 
   await setOptionsState(optionsPage, config, {showAdvanced: false, scrollY: 0, zoom: 1.16});
   await applyOptionsMarketingAdjustments(optionsPage);
+  await setActionBarVisibility(optionsPage, true);
   await saveOptionsPageScreenshot(optionsPage, path.join(screenshotDir, 'options-basic-overview.png'));
   await saveUserGuideLocatorScreenshot(optionsPage.locator('.settingsGrid').first(), 'options-basic-settings.png');
-  await saveUserGuideLocatorScreenshot(optionsPage.locator('.advToggleCard'), 'options-advanced-toggle.png');
+  await saveUserGuideLocatorScreenshot(optionsPage.locator('.advancedPanel'), 'options-advanced-toggle.png');
   await saveUserGuideLocatorScreenshot(optionsPage.locator('.actionBar'), 'options-save-discard.png');
 
   await setOptionsState(optionsPage, config, {showAdvanced: true, scrollY: 460, zoom: 1.12});
   await applyOptionsMarketingAdjustments(optionsPage);
+  await setActionBarVisibility(optionsPage, false);
   await saveOptionsPageScreenshot(optionsPage, path.join(screenshotDir, 'options-advanced-layout.png'));
   await saveUserGuideLocatorScreenshot(optionsPage.locator('.settingsCard.settingsGridFull').nth(0), 'options-hover-behavior.png');
   await saveUserGuideLocatorScreenshot(optionsPage.locator('.settingsCard.settingsGridFull').nth(1), 'options-tooltip-layout.png');
-  await saveUserGuideLocatorScreenshot(optionsPage.locator('.settingsCard.settingsGridFull').nth(2), 'options-settings-sync.png');
+  const teamSyncCard = optionsPage.locator('.settingsCard.settingsGridFull').nth(2);
+  await optionsPage.getByTestId('options-team-sync-source-type').selectOption('jiraAttachment');
+  await optionsPage.getByTestId('options-team-sync-issue-key').fill('OPS-123');
+  await optionsPage.getByTestId('options-team-sync-file-name').fill('jira-quickview-settings.json');
+  await saveUserGuideLocatorScreenshot(teamSyncCard, 'options-settings-sync.png');
+  await saveUserGuideLocatorScreenshot(teamSyncCard, 'options-settings-sync-jira-attachment.png');
+
+  await optionsPage.getByTestId('options-team-sync-source-type').selectOption('url');
+  await optionsPage.getByTestId('options-team-sync-url').fill('https://config.example.com/jira-quickview-settings.json');
+  await saveUserGuideLocatorScreenshot(teamSyncCard, 'options-settings-sync-url.png');
 
   await setOptionsState(optionsPage, config, {showAdvanced: true, scrollY: 460, zoom: 1.12});
   await applyOptionsMarketingAdjustments(optionsPage);
+  await setActionBarVisibility(optionsPage, false);
   await optionsPage.getByTestId('options-field-library-add').click();
   await optionsPage.getByTestId('options-field-library-input').fill('customfield_67890');
   await optionsPage.getByTestId('options-field-library-validation').waitFor();
@@ -839,6 +852,16 @@ async function applyOptionsMarketingAdjustments(page) {
       toggleDescription.textContent = 'Hover trigger depth, modifier keys, field layout editor, and Jira custom fields.';
     }
   });
+}
+
+async function setActionBarVisibility(page, visible) {
+  await page.evaluate((nextVisible) => {
+    const actionBar = document.querySelector('.actionBar');
+    if (!actionBar) {
+      return;
+    }
+    actionBar.style.visibility = nextVisible ? 'visible' : 'hidden';
+  }, visible);
 }
 
 async function savePopupCompositionScreenshot(page, fileName) {

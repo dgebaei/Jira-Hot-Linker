@@ -1,8 +1,20 @@
 /*global chrome */
 import regexEscape from 'escape-string-regexp';
 import defaultConfig from 'options/config.js';
-import {storageGet, storageSet, promisifyChrome} from 'src/chrome';
+import {storageGet, storageSet, storageLocalGet, storageLocalSet, permissionsContains, promisifyChrome} from 'src/chrome';
 import {contentScript, resetDeclarativeMapping, toMatchUrl} from 'options/declarative';
+import {
+  getConfigPermissionOrigins,
+  hashString,
+  isVersionAtLeast,
+  mergeSyncedConfig,
+  normalizeSettingsPayload,
+  normalizeSimpleSyncState,
+  SIMPLE_SYNC_ALARM_NAME,
+  SIMPLE_SYNC_POLL_MINUTES,
+  SIMPLE_SYNC_SOURCE_TYPES,
+  SIMPLE_SYNC_STORAGE_KEY,
+} from 'src/settings-sync';
 
 const executeScript = promisifyChrome(chrome.scripting, 'executeScript');
 const sendMessage = promisifyChrome(chrome.tabs, 'sendMessage');
@@ -16,6 +28,17 @@ const FETCH_TIMEOUT_MS = 10000;
 
 async function getInstanceOrigin() {
   const {instanceUrl} = await storageGet(defaultConfig);
+  if (!instanceUrl) {
+    return null;
+  }
+  try {
+    return new URL(instanceUrl).origin;
+  } catch (ex) {
+    return null;
+  }
+}
+
+function getOriginForInstanceUrl(instanceUrl) {
   if (!instanceUrl) {
     return null;
   }
@@ -43,6 +66,26 @@ async function assertAllowedRequestUrl(rawUrl, {allowExtension = false} = {}) {
   }
 
   const instanceOrigin = await getInstanceOrigin();
+  if (!instanceOrigin || parsed.origin !== instanceOrigin) {
+    throw new Error('URL is outside configured Jira instance');
+  }
+
+  return parsed.toString();
+}
+
+async function assertAllowedSimpleSyncRequestUrl(rawUrl, instanceUrlOverride = '') {
+  let parsed;
+  try {
+    parsed = new URL(rawUrl);
+  } catch (ex) {
+    throw new Error('Invalid request URL');
+  }
+
+  if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
+    throw new Error('Unsupported URL protocol');
+  }
+
+  const instanceOrigin = getOriginForInstanceUrl(instanceUrlOverride) || await getInstanceOrigin();
   if (!instanceOrigin || parsed.origin !== instanceOrigin) {
     throw new Error('URL is outside configured Jira instance');
   }
@@ -256,13 +299,13 @@ async function showActionFeedback(tabId, message) {
   }
 }
 
-async function fetchWithCredentials(url, init = {}) {
+async function fetchWithPolicy(url, init = {}, {credentials = 'include'} = {}) {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
 
   try {
     const response = await fetch(url, {
-      credentials: 'include',
+      credentials,
       ...init,
       signal: controller.signal
     });
@@ -278,6 +321,10 @@ async function fetchWithCredentials(url, init = {}) {
   } finally {
     clearTimeout(timeoutId);
   }
+}
+
+async function fetchWithCredentials(url, init = {}) {
+  return fetchWithPolicy(url, init, {credentials: 'include'});
 }
 
 async function blobToDataUrl(blob) {
@@ -301,6 +348,250 @@ function attachmentBytesToBlob(bytes, type = 'application/octet-stream') {
     return new Blob([bytes], {type});
   }
   throw new Error('Attachment payload must be a byte array');
+}
+
+async function getSimpleSyncState() {
+  const result = await storageLocalGet({[SIMPLE_SYNC_STORAGE_KEY]: {}});
+  return normalizeSimpleSyncState(result[SIMPLE_SYNC_STORAGE_KEY]);
+}
+
+async function setSimpleSyncState(nextState) {
+  await storageLocalSet({[SIMPLE_SYNC_STORAGE_KEY]: normalizeSimpleSyncState(nextState)});
+}
+
+async function fetchSimpleSyncUrl(state) {
+  const response = await fetchWithCredentials(state.source.url, {
+    headers: {'Accept': 'application/json, text/plain, */*'}
+  });
+  return response.text();
+}
+
+function isJiraDuplicateAttachmentFileName(actualFileName, expectedFileName) {
+  const actual = String(actualFileName || '').trim();
+  const expected = String(expectedFileName || '').trim();
+  if (!actual || !expected) {
+    return false;
+  }
+  if (actual === expected) {
+    return true;
+  }
+
+  const expectedMatch = expected.match(/^(.*?)(\.[^.]+)?$/);
+  const actualMatch = actual.match(/^(.*?)(\.[^.]+)?$/);
+  if (!expectedMatch || !actualMatch) {
+    return false;
+  }
+
+  const expectedBase = expectedMatch[1];
+  const expectedExt = expectedMatch[2] || '';
+  const actualBase = actualMatch[1];
+  const actualExt = actualMatch[2] || '';
+
+  if (actualExt !== expectedExt) {
+    return false;
+  }
+
+  return new RegExp(`^${regexEscape(expectedBase)} \\([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\\)$`, 'i')
+    .test(actualBase);
+}
+
+function selectLatestSettingsAttachment(attachments, fileName) {
+  const candidates = (Array.isArray(attachments) ? attachments : [])
+    .filter(attachment => isJiraDuplicateAttachmentFileName(attachment?.filename, fileName));
+  candidates.sort((left, right) => {
+    const leftTime = Date.parse(left.created || left.createdDate || '') || 0;
+    const rightTime = Date.parse(right.created || right.createdDate || '') || 0;
+    if (rightTime !== leftTime) {
+      return rightTime - leftTime;
+    }
+    return String(right.id || '').localeCompare(String(left.id || ''));
+  });
+  return candidates[0] || null;
+}
+
+function buildJiraAttachmentDownloadUrl(attachment, instanceUrl) {
+  if (attachment?.id) {
+    return `${instanceUrl}rest/api/2/attachment/content/${encodeURIComponent(String(attachment.id))}?redirect=false`;
+  }
+
+  const contentUrl = String(attachment?.content || '').trim();
+  if (!contentUrl) {
+    throw new Error('Settings attachment metadata did not include a download URL.');
+  }
+
+  let parsedUrl;
+  try {
+    parsedUrl = new URL(contentUrl);
+  } catch (ex) {
+    throw new Error('Settings attachment download URL is invalid.');
+  }
+  parsedUrl.searchParams.set('redirect', 'false');
+  return parsedUrl.toString();
+}
+
+async function fetchSimpleSyncJiraAttachment(state, currentConfig) {
+  if (!currentConfig.instanceUrl) {
+    throw new Error('Save your Jira instance URL before using Jira attachment sync.');
+  }
+  const issueKey = state.source.issueKey;
+  const fileName = state.source.fileName;
+  const instanceUrl = String(currentConfig.instanceUrl || '').endsWith('/')
+    ? currentConfig.instanceUrl
+    : currentConfig.instanceUrl + '/';
+  const issueUrl = instanceUrl + 'rest/api/2/issue/' + encodeURIComponent(issueKey) + '?fields=attachment';
+  let issueResponse;
+  try {
+    issueResponse = await fetchWithCredentials(await assertAllowedSimpleSyncRequestUrl(issueUrl, instanceUrl));
+  } catch (error) {
+    if (error?.message?.startsWith('HTTP 404')) {
+      throw new Error(`Could not find Jira issue ${issueKey}. Check the issue key and that you can access it.`);
+    }
+    if (error?.message?.startsWith('HTTP 403')) {
+      throw new Error(`Could not read Jira issue ${issueKey}. Check that you are signed in to Jira and have access to the issue.`);
+    }
+    throw error;
+  }
+  const issue = await issueResponse.json();
+  const attachment = selectLatestSettingsAttachment(issue?.fields?.attachment, fileName);
+  if (!attachment) {
+    throw new Error(`No settings attachment named ${fileName} was found on ${issueKey}.`);
+  }
+  const attachmentUrl = await assertAllowedSimpleSyncRequestUrl(buildJiraAttachmentDownloadUrl(attachment, instanceUrl), instanceUrl);
+  try {
+    const attachmentResponse = await fetchWithCredentials(attachmentUrl, {
+      headers: {'Accept': 'application/json, text/plain, */*'}
+    });
+    return attachmentResponse.text();
+  } catch (error) {
+    if (error?.message === 'Failed to fetch') {
+      throw new Error('Could not download the settings attachment from Jira. Check that you are signed in to Jira and that the attachment can be read.');
+    }
+    throw error;
+  }
+}
+
+async function fetchSimpleSyncSettingsText(state, currentConfig) {
+  if (state.sourceType === SIMPLE_SYNC_SOURCE_TYPES.URL) {
+    return fetchSimpleSyncUrl(state);
+  }
+  return fetchSimpleSyncJiraAttachment(state, currentConfig);
+}
+
+async function hasConfigPermissions(config) {
+  const origins = getConfigPermissionOrigins(config);
+  if (!origins.length) {
+    return true;
+  }
+  try {
+    return await permissionsContains({origins});
+  } catch (ex) {
+    return false;
+  }
+}
+
+async function runSimpleSettingsSync({stateOverride = null, configOverride = null, persistState = true} = {}) {
+  const storedState = await getSimpleSyncState();
+  const state = stateOverride ? normalizeSimpleSyncState(stateOverride) : storedState;
+  if (!state.enabled) {
+    return {
+      status: 'disabled',
+        message: 'Team Sync is not connected.'
+    };
+  }
+
+  const checkedAt = new Date().toISOString();
+  const currentConfig = await storageGet(defaultConfig);
+  const fetchConfig = {
+    ...currentConfig,
+    ...(configOverride || {}),
+  };
+
+  try {
+    const rawText = await fetchSimpleSyncSettingsText(state, fetchConfig);
+    const payload = normalizeSettingsPayload(JSON.parse(rawText));
+    if (!isVersionAtLeast(chrome.runtime.getManifest().version, payload.minimumExtensionVersion)) {
+      throw new Error(`Settings revision ${payload.settingsRevision} requires Jira QuickView ${payload.minimumExtensionVersion} or newer.`);
+    }
+    const nextHash = await hashString(rawText);
+
+    if (payload.settingsRevision <= state.lastRevision && nextHash === state.lastHash) {
+      const unchangedState = {
+        ...state,
+        lastSchemaVersion: payload.schemaVersion,
+        lastMinimumExtensionVersion: payload.minimumExtensionVersion,
+        lastPolicy: payload.policy,
+        lastCheckedAt: checkedAt,
+        status: 'synced',
+        message: `Already synced at revision ${state.lastRevision}.`,
+      };
+      if (persistState) {
+        await setSimpleSyncState(unchangedState);
+      }
+      return {
+        status: unchangedState.status,
+        message: unchangedState.message,
+        revision: unchangedState.lastRevision,
+        state: unchangedState,
+      };
+    }
+
+    const merged = mergeSyncedConfig(currentConfig, payload, state.lastAppliedSettings);
+    await storageSet(merged.config);
+    await resetDeclarativeMapping();
+
+    const hasPermissions = await hasConfigPermissions(merged.config);
+    const syncedState = {
+      ...state,
+      lastSchemaVersion: payload.schemaVersion,
+      lastRevision: payload.settingsRevision,
+      lastHash: nextHash,
+      lastCheckedAt: checkedAt,
+      lastAppliedAt: checkedAt,
+      lastMinimumExtensionVersion: payload.minimumExtensionVersion,
+      lastPolicy: payload.policy,
+      lastAppliedSettings: merged.lastAppliedSettings,
+      status: hasPermissions ? 'synced' : 'permissionsRequired',
+      message: hasPermissions
+        ? `Synced revision ${payload.settingsRevision}.`
+        : `Synced revision ${payload.settingsRevision}. Grant permissions for new pages before they activate.`,
+    };
+    if (persistState) {
+      await setSimpleSyncState(syncedState);
+    }
+
+    return {
+      status: syncedState.status,
+      message: syncedState.message,
+      revision: syncedState.lastRevision,
+      state: syncedState,
+    };
+  } catch (error) {
+    const failedState = {
+      ...state,
+      lastCheckedAt: checkedAt,
+      status: 'error',
+      message: error?.message || 'Team Sync failed.',
+    };
+    if (persistState) {
+      await setSimpleSyncState(failedState);
+    }
+    return {
+      status: failedState.status,
+      message: failedState.message,
+      revision: failedState.lastRevision,
+      state: failedState,
+    };
+  }
+}
+
+function scheduleSimpleSettingsSync() {
+  if (!chrome.alarms) {
+    return;
+  }
+  chrome.alarms.create(SIMPLE_SYNC_ALARM_NAME, {
+    delayInMinutes: SIMPLE_SYNC_POLL_MINUTES,
+    periodInMinutes: SIMPLE_SYNC_POLL_MINUTES,
+  });
 }
 
 chrome.runtime.onMessage.addListener(function (request, sender, sendResponse) {
@@ -439,6 +730,17 @@ chrome.runtime.onMessage.addListener(function (request, sender, sendResponse) {
     return false;
   }
 
+  if (request.action === 'runSimpleSettingsSync') {
+    runSimpleSettingsSync({
+      stateOverride: request.stateOverride || null,
+      configOverride: request.configOverride || null,
+      persistState: request.persistState !== false,
+    })
+      .then(result => sendResponse({result}))
+      .catch(error => sendResponse({error: error.message}));
+    return SEND_RESPONSE_IS_ASYNC;
+  }
+
   return false;
 });
 
@@ -504,12 +806,25 @@ async function browserOnClicked (tab) {
 
 (function () {
   chrome.runtime.onInstalled.addListener(async () => {
+    scheduleSimpleSettingsSync();
+    runSimpleSettingsSync().catch(() => {});
     const config = await storageGet(defaultConfig);
     if (!config.instanceUrl || !config.v15upgrade) {
       chrome.runtime.openOptionsPage();
       return;
     }
     resetDeclarativeMapping();
+  });
+
+  chrome.runtime.onStartup.addListener(() => {
+    scheduleSimpleSettingsSync();
+    runSimpleSettingsSync().catch(() => {});
+  });
+
+  chrome.alarms.onAlarm.addListener(alarm => {
+    if (alarm.name === SIMPLE_SYNC_ALARM_NAME) {
+      runSimpleSettingsSync().catch(() => {});
+    }
   });
 
   chrome.action.onClicked.addListener(tab => {

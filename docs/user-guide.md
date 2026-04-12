@@ -350,17 +350,63 @@ Business logic and limitations:
 
 ### 4.8 Advanced: Settings Sync
 
-![Advanced settings sync](screenshots/user-guide/options-settings-sync.png)
+![Settings Sync via Jira attachment](screenshots/user-guide/options-settings-sync-jira-attachment.png)
+
+![Settings Sync via settings file URL](screenshots/user-guide/options-settings-sync-url.png)
 
 Settings Sync lets you move a Jira QuickView configuration between browsers or teammates.
 
 Available actions:
 
-- `Export Settings (.json)` downloads the current configuration.
-- `Import Settings (.json)` loads a previously exported configuration into the Options page.
-- `Team Sync (Pro)` is shown as a future team-sync workflow and is not active in the current public setup.
+- `Export (.json)` downloads the current configuration as a versioned JSON file.
+- `Import (.json)` loads a previously exported file or Team Sync settings file into the Options page.
+- The global `Save` button stores the Team Sync source in this browser and runs the first sync check.
+- `Sync Now` runs a one-off sync against the current Team Sync fields without saving that source in the browser.
+- `Disconnect` removes the saved Team Sync source from this browser.
 
-Important: importing settings does not fully apply them until you click `Save`. This gives you a chance to review the Jira URL, allowed pages, layout, hover behavior, and custom fields before changing the active browser setup.
+Team Sync sources:
+
+- `Jira attachment`: point the extension at one Jira issue key and one attachment filename.
+- `Settings file URL`: point the extension at one HTTPS or HTTP URL that serves the JSON file.
+
+What goes in the shared file:
+
+- Team Sync reads a versioned JSON document like [jira-quickview-settings.json](https://github.com/dgebaei/Jira-QuickView/blob/master/docs/examples/jira-quickview-settings.json).
+- The file must include `schemaVersion`, a top-level `settingsRevision` number such as `1`, `2`, or `3`, and a `settings` object.
+- The current `Export (.json)` output already uses the Team Sync file format, so it is a good starting point for administrators publishing a shared file.
+- The Team Sync source itself is still stored locally in the browser, not inside the shared settings file. Importing a file does not automatically connect the browser to a shared Jira issue or URL.
+
+First-time setup for end users:
+
+1. Open the extension Options page.
+2. If your team uses `Jira attachment`, save your Jira instance URL first.
+3. Open `Advanced` and find `Team Sync`.
+4. Choose `Jira attachment` or `Settings file URL`.
+5. Enter the shared Jira issue key and filename, or paste the shared URL.
+6. Click the global `Save` button and accept the permission prompt if Chrome asks for it. Jira QuickView saves the Team Sync source in this browser and immediately runs the first sync check.
+
+What users need from an administrator:
+
+- For `Jira attachment`: the Jira issue key and the exact attachment filename.
+- For `Settings file URL`: the direct URL to the JSON file.
+
+Publishing updates:
+
+- Keep the shared location stable. For Jira attachment mode, keep the attachment filename stable. For URL mode, keep the shared URL stable.
+- Publish a new JSON file with a higher `settingsRevision`.
+- For Jira attachment sync, upload the new file to the same issue with the same filename. Jira QuickView picks the newest matching attachment automatically, including Jira's duplicate-upload rename pattern.
+- A sample file is available at [jira-quickview-settings.json](https://github.com/dgebaei/Jira-QuickView/blob/master/docs/examples/jira-quickview-settings.json).
+
+Failure handling:
+
+- If the source URL is wrong, the Jira issue key is invalid, the attachment is missing, or the JSON is invalid, the Team Sync panel shows an error.
+- The last successfully applied team configuration stays active.
+- When a later sync succeeds, the extension applies the newer revision automatically.
+
+Important:
+
+- Importing settings does not fully apply them until you click `Save`. This gives you a chance to review the Jira URL, allowed pages, layout, hover behavior, and custom fields before changing the active browser setup.
+- `Save` still succeeds even if the first Team Sync fetch fails. Your local settings and Team Sync source are saved, the last good synced team configuration stays active, and the sync error remains visible in the Team Sync panel.
 
 ### 4.9 Save and Discard
 
@@ -368,15 +414,14 @@ Important: importing settings does not fully apply them until you click `Save`. 
 
 The footer of the Options page applies or discards changes.
 
-- `Save` writes the configuration to Chrome storage, requests any needed host permissions, and refreshes the extension's page matching rules.
+- `Save` writes the configuration to Chrome storage, requests any needed host permissions, refreshes the extension's page matching rules, and runs the first Team Sync check when Team Sync is configured.
 - `Discard` reloads the Options page and drops unsaved changes.
-- The status pill tells you whether changes are local only, saving, saved, or blocked by validation.
+- The status pill at the top of the page tells you whether there are unsaved changes or whether the current form matches the last saved state.
+- Save notices in the footer report the save result. Team Sync errors stay in the Team Sync panel itself.
 
 If custom fields are invalid, saving is disabled until the issue is fixed. This prevents a broken field ID from being saved accidentally.
 
 ## 5. Using the Popup Every Day
-
-![Main popup overview](screenshots/marketing-hidpi-light/popup-overview.png)
 
 After setup, the normal flow is simple:
 
@@ -390,8 +435,6 @@ The popup uses your Jira permissions. If you can only view an issue in Jira, the
 
 ### 5.1 Where the Popup Appears
 
-![Main popup overview](screenshots/marketing-hidpi-light/popup-overview.png)
-
 The popup appears on pages matched by your Allowed pages settings. Common places include:
 
 - Jira notification emails in Gmail or Outlook on the web
@@ -404,8 +447,6 @@ The popup appears on pages matched by your Allowed pages settings. Common places
 The extension only looks for Jira issue keys on allowed pages. It does not scan every site you visit.
 
 ### 5.2 Header: Reporter, Assignee, Summary, and Actions
-
-![Popup header](screenshots/user-guide/popup-header.png)
 
 ![Popup quick actions in context](screenshots/marketing-hidpi-light/popup-actions.png)
 
@@ -449,8 +490,6 @@ Business logic and limitations:
 
 ### 5.4 Row 1: Issue Type, Status, Priority, History, and Watchers
 
-![Popup rows and activity controls](screenshots/user-guide/popup-rows.png)
-
 Row 1 is the fastest read of the issue.
 
 Default fields:
@@ -490,8 +529,6 @@ Business logic and limitations:
 
 #### 5.4.2 Watchers Panel
 
-![Watchers panel](screenshots/user-guide/popup-watchers-panel.png)
-
 The Watchers control shows how many people are watching the issue. Clicking it opens the Watchers panel.
 
 What you can do:
@@ -510,8 +547,6 @@ Business logic and limitations:
 
 ### 5.5 Row 2: Epic, Parent, Sprint, Affects Version, and Fix Version
 
-![Popup planning metadata row](screenshots/user-guide/popup-rows.png)
-
 Row 2 is usually where planning and release information lives.
 
 Common fields:
@@ -529,8 +564,6 @@ Business logic and limitations:
 - These fields can be moved to other rows in the layout editor if your team wants a different visual priority.
 
 ### 5.6 Row 3: Environment, Labels, and Custom Fields
-
-![Popup environment, labels, and custom fields row](screenshots/user-guide/popup-rows.png)
 
 Row 3 is good for context fields that are useful but usually less urgent than status or priority.
 
@@ -567,8 +600,6 @@ Business logic and limitations:
 - Jira formatting support depends on how your Jira instance stores description content.
 
 ### 5.8 Time Tracking Block
-
-![Time tracking block](screenshots/user-guide/popup-time-tracking.png)
 
 The Time Tracking block lets you view estimates and log work from the popup when Jira exposes time tracking.
 

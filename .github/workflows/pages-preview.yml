@@ -1,0 +1,51 @@
+name: Deploy PR Preview
+
+on:
+  pull_request:
+    branches:
+      - master
+    types:
+      - opened
+      - reopened
+      - synchronize
+      - closed
+    paths:
+      - README.md
+      - docs/**
+      - scripts/build-pages-site.js
+      - .github/workflows/pages.yml
+      - .github/workflows/pages-preview.yml
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: github-pages-preview-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  deploy-preview:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+
+      - name: Install pandoc
+        if: github.event_name != 'pull_request' || github.event.action != 'closed'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pandoc
+
+      - name: Build Pages site
+        if: github.event_name != 'pull_request' || github.event.action != 'closed'
+        run: node scripts/build-pages-site.js
+
+      - name: Deploy preview
+        id: preview
+        uses: rossjrw/pr-preview-action@v1
+        with:
+          source-dir: .site-build
+          preview-branch: gh-pages
+          umbrella-dir: pr-preview
