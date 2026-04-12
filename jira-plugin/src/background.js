@@ -38,6 +38,17 @@ async function getInstanceOrigin() {
   }
 }
 
+function getOriginForInstanceUrl(instanceUrl) {
+  if (!instanceUrl) {
+    return null;
+  }
+  try {
+    return new URL(instanceUrl).origin;
+  } catch (ex) {
+    return null;
+  }
+}
+
 async function assertAllowedRequestUrl(rawUrl, {allowExtension = false} = {}) {
   let parsed;
   try {
@@ -55,6 +66,26 @@ async function assertAllowedRequestUrl(rawUrl, {allowExtension = false} = {}) {
   }
 
   const instanceOrigin = await getInstanceOrigin();
+  if (!instanceOrigin || parsed.origin !== instanceOrigin) {
+    throw new Error('URL is outside configured Jira instance');
+  }
+
+  return parsed.toString();
+}
+
+async function assertAllowedSimpleSyncRequestUrl(rawUrl, instanceUrlOverride = '') {
+  let parsed;
+  try {
+    parsed = new URL(rawUrl);
+  } catch (ex) {
+    throw new Error('Invalid request URL');
+  }
+
+  if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
+    throw new Error('Unsupported URL protocol');
+  }
+
+  const instanceOrigin = getOriginForInstanceUrl(instanceUrlOverride) || await getInstanceOrigin();
   if (!instanceOrigin || parsed.origin !== instanceOrigin) {
     throw new Error('URL is outside configured Jira instance');
   }
@@ -410,7 +441,7 @@ async function fetchSimpleSyncJiraAttachment(state, currentConfig) {
   const issueUrl = instanceUrl + 'rest/api/2/issue/' + encodeURIComponent(issueKey) + '?fields=attachment';
   let issueResponse;
   try {
-    issueResponse = await fetchWithCredentials(await assertAllowedRequestUrl(issueUrl));
+    issueResponse = await fetchWithCredentials(await assertAllowedSimpleSyncRequestUrl(issueUrl, instanceUrl));
   } catch (error) {
     if (error?.message?.startsWith('HTTP 404')) {
       throw new Error(`Could not find Jira issue ${issueKey}. Check the issue key and that you can access it.`);
@@ -425,7 +456,7 @@ async function fetchSimpleSyncJiraAttachment(state, currentConfig) {
   if (!attachment) {
     throw new Error(`No settings attachment named ${fileName} was found on ${issueKey}.`);
   }
-  const attachmentUrl = await assertAllowedRequestUrl(buildJiraAttachmentDownloadUrl(attachment, instanceUrl));
+  const attachmentUrl = await assertAllowedSimpleSyncRequestUrl(buildJiraAttachmentDownloadUrl(attachment, instanceUrl), instanceUrl);
   try {
     const attachmentResponse = await fetchWithCredentials(attachmentUrl, {
       headers: {'Accept': 'application/json, text/plain, */*'}
@@ -458,20 +489,25 @@ async function hasConfigPermissions(config) {
   }
 }
 
-async function runSimpleSettingsSync() {
-  const state = await getSimpleSyncState();
+async function runSimpleSettingsSync({stateOverride = null, configOverride = null, persistState = true} = {}) {
+  const storedState = await getSimpleSyncState();
+  const state = stateOverride ? normalizeSimpleSyncState(stateOverride) : storedState;
   if (!state.enabled) {
     return {
       status: 'disabled',
-      message: 'Team Sync is not connected.'
+        message: 'Team Sync is not connected.'
     };
   }
 
   const checkedAt = new Date().toISOString();
   const currentConfig = await storageGet(defaultConfig);
+  const fetchConfig = {
+    ...currentConfig,
+    ...(configOverride || {}),
+  };
 
   try {
-    const rawText = await fetchSimpleSyncSettingsText(state, currentConfig);
+    const rawText = await fetchSimpleSyncSettingsText(state, fetchConfig);
     const payload = normalizeSettingsPayload(JSON.parse(rawText));
     if (!isVersionAtLeast(chrome.runtime.getManifest().version, payload.minimumExtensionVersion)) {
       throw new Error(`Settings revision ${payload.settingsRevision} requires Jira QuickView ${payload.minimumExtensionVersion} or newer.`);
@@ -488,11 +524,14 @@ async function runSimpleSettingsSync() {
         status: 'synced',
         message: `Already synced at revision ${state.lastRevision}.`,
       };
-      await setSimpleSyncState(unchangedState);
+      if (persistState) {
+        await setSimpleSyncState(unchangedState);
+      }
       return {
         status: unchangedState.status,
         message: unchangedState.message,
         revision: unchangedState.lastRevision,
+        state: unchangedState,
       };
     }
 
@@ -516,12 +555,15 @@ async function runSimpleSettingsSync() {
         ? `Synced revision ${payload.settingsRevision}.`
         : `Synced revision ${payload.settingsRevision}. Grant permissions for new pages before they activate.`,
     };
-    await setSimpleSyncState(syncedState);
+    if (persistState) {
+      await setSimpleSyncState(syncedState);
+    }
 
     return {
       status: syncedState.status,
       message: syncedState.message,
       revision: syncedState.lastRevision,
+      state: syncedState,
     };
   } catch (error) {
     const failedState = {
@@ -530,11 +572,14 @@ async function runSimpleSettingsSync() {
       status: 'error',
       message: error?.message || 'Team Sync failed.',
     };
-    await setSimpleSyncState(failedState);
+    if (persistState) {
+      await setSimpleSyncState(failedState);
+    }
     return {
       status: failedState.status,
       message: failedState.message,
       revision: failedState.lastRevision,
+      state: failedState,
     };
   }
 }
@@ -686,7 +731,11 @@ chrome.runtime.onMessage.addListener(function (request, sender, sendResponse) {
   }
 
   if (request.action === 'runSimpleSettingsSync') {
-    runSimpleSettingsSync()
+    runSimpleSettingsSync({
+      stateOverride: request.stateOverride || null,
+      configOverride: request.configOverride || null,
+      persistState: request.persistState !== false,
+    })
       .then(result => sendResponse({result}))
       .catch(error => sendResponse({error: error.message}));
     return SEND_RESPONSE_IS_ASYNC;

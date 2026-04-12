@@ -99,13 +99,13 @@ function ConfigPage(props) {
   const draftSyncFileName = String(syncFileName || SIMPLE_SYNC_DEFAULT_FILE_NAME).trim() || SIMPLE_SYNC_DEFAULT_FILE_NAME;
   const hasSimpleSyncDraftSource = isUrlSyncSource
     ? !!draftSyncUrl
-    : !!draftSyncIssueKey;
+    : !!draftSyncIssueKey && !!draftSyncFileName;
   const draftSimpleSyncMatchesStored = isUrlSyncSource
     ? simpleSyncState.sourceType === SIMPLE_SYNC_SOURCE_TYPES.URL && (simpleSyncState.source.url || '') === draftSyncUrl
     : simpleSyncState.sourceType === SIMPLE_SYNC_SOURCE_TYPES.JIRA_ATTACHMENT
       && (simpleSyncState.source.issueKey || '') === draftSyncIssueKey
       && (simpleSyncState.source.fileName || SIMPLE_SYNC_DEFAULT_FILE_NAME) === draftSyncFileName;
-  const canRunSimpleSyncNow = hasSimpleSyncDraftSource || (simpleSyncState.enabled && draftSimpleSyncMatchesStored);
+  const canRunSimpleSyncNow = hasSimpleSyncDraftSource;
 
   const toggleAdvanced = useCallback(() => {
     setShowAdvanced(prev => {
@@ -349,46 +349,62 @@ function ConfigPage(props) {
   const runSimpleSyncNow = async () => {
     setIsSyncing(true);
     try {
-      if (hasSimpleSyncDraftSource && (!simpleSyncState.enabled || !draftSimpleSyncMatchesStored)) {
-        const currentConfig = await storageGet(defaultConfig);
-        const savedInstanceUrl = normalizeInstanceUrl(currentConfig.instanceUrl || '');
-        const normalizedFormInstanceUrl = normalizeInstanceUrl(instanceUrl || '');
-        const nextSimpleSyncState = buildSimpleSyncState({
-          sourceType: syncSourceType,
-          url: draftSyncUrl,
-          issueKey: draftSyncIssueKey,
-          fileName: draftSyncFileName,
-        }, simpleSyncState);
+      const currentConfig = await storageGet(defaultConfig);
+      const savedInstanceUrl = normalizeInstanceUrl(currentConfig.instanceUrl || '');
+      const draftInstanceUrl = normalizeInstanceUrl(instanceUrl || '');
+      const effectiveInstanceUrl = draftInstanceUrl || savedInstanceUrl;
+      const nextSimpleSyncState = buildSimpleSyncState({
+        sourceType: syncSourceType,
+        url: draftSyncUrl,
+        issueKey: draftSyncIssueKey,
+        fileName: draftSyncFileName,
+      }, simpleSyncState);
 
-        if (nextSimpleSyncState.sourceType === SIMPLE_SYNC_SOURCE_TYPES.JIRA_ATTACHMENT) {
-          if (!savedInstanceUrl) {
-            throw new Error('Save your Jira instance URL before using Jira attachment sync.');
-          }
-          if (normalizedFormInstanceUrl && normalizedFormInstanceUrl !== savedInstanceUrl) {
-            throw new Error('Save your Jira instance URL before syncing from a Jira attachment.');
-          }
-        }
-
-        const permissionOrigins = getSimpleSyncSourcePermissionOrigins(nextSimpleSyncState, {
-          instanceUrl: savedInstanceUrl,
-        });
-        if (permissionOrigins.length) {
-          const granted = await permissionsRequest({origins: permissionOrigins.map(toMatchUrl)});
-          if (!granted) {
-            throw new Error('Team Sync source was not saved because permission was not granted.');
-          }
-        }
-
-        await storageLocalSet({[SIMPLE_SYNC_STORAGE_KEY]: nextSimpleSyncState});
-        applySimpleSyncStateToForm(nextSimpleSyncState);
+      if (nextSimpleSyncState.sourceType === SIMPLE_SYNC_SOURCE_TYPES.JIRA_ATTACHMENT && !effectiveInstanceUrl) {
+        throw new Error('Enter your Jira instance URL before syncing from a Jira attachment.');
       }
 
-      const response = await sendMessage({action: 'runSimpleSettingsSync'});
+      const permissionOrigins = getSimpleSyncSourcePermissionOrigins(nextSimpleSyncState, {
+        instanceUrl: effectiveInstanceUrl,
+      });
+      if (permissionOrigins.length) {
+        const granted = await permissionsRequest({origins: permissionOrigins.map(toMatchUrl)});
+        if (!granted) {
+          throw new Error('Team Sync was not run because permission was not granted.');
+        }
+      }
+
+      const shouldPersistSyncState = simpleSyncState.enabled && draftSimpleSyncMatchesStored;
+      const response = await sendMessage({
+        action: 'runSimpleSettingsSync',
+        stateOverride: nextSimpleSyncState,
+        configOverride: nextSimpleSyncState.sourceType === SIMPLE_SYNC_SOURCE_TYPES.JIRA_ATTACHMENT
+          ? {instanceUrl: effectiveInstanceUrl}
+          : null,
+        persistState: shouldPersistSyncState,
+      });
       if (response?.error) {
         throw new Error(response.error);
       }
       const result = response?.result || {};
-      await refreshSimpleSyncState();
+      if (shouldPersistSyncState) {
+        await refreshSimpleSyncState();
+      } else {
+        const transientState = normalizeSimpleSyncState({
+          ...simpleSyncState,
+          status: result.status || 'synced',
+          message: result.message || '',
+          lastRevision: result?.state?.lastRevision ?? simpleSyncState.lastRevision,
+          lastHash: result?.state?.lastHash ?? simpleSyncState.lastHash,
+          lastCheckedAt: result?.state?.lastCheckedAt ?? simpleSyncState.lastCheckedAt,
+          lastAppliedAt: result?.state?.lastAppliedAt ?? simpleSyncState.lastAppliedAt,
+          lastSchemaVersion: result?.state?.lastSchemaVersion ?? simpleSyncState.lastSchemaVersion,
+          lastMinimumExtensionVersion: result?.state?.lastMinimumExtensionVersion ?? simpleSyncState.lastMinimumExtensionVersion,
+          lastPolicy: result?.state?.lastPolicy ?? simpleSyncState.lastPolicy,
+          lastAppliedSettings: result?.state?.lastAppliedSettings ?? simpleSyncState.lastAppliedSettings,
+        });
+        setSimpleSyncState(transientState);
+      }
       const nextConfig = await storageGet(defaultConfig);
       applyConfigToForm(nextConfig);
     } catch (error) {

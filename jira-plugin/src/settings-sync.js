@@ -234,7 +234,7 @@ export function normalizeSettingsPayload(payload) {
 
   const settingsRevision = Number(payload.settingsRevision || 0);
   if (!Number.isInteger(settingsRevision) || settingsRevision <= 0) {
-    throw new Error('Settings file must include a positive settingsRevision.');
+    throw new Error('Settings file must include a top-level "settingsRevision" number such as 1, 2, or 3.');
   }
 
   const rawSettings = isObject(payload.settings) ? payload.settings : payload;

@@ -678,6 +678,7 @@ async function saveOptionsShots(context, extensionId, config) {
 
   await setOptionsState(optionsPage, config, {showAdvanced: false, scrollY: 0, zoom: 1.16});
   await applyOptionsMarketingAdjustments(optionsPage);
+  await setActionBarVisibility(optionsPage, true);
   await saveOptionsPageScreenshot(optionsPage, path.join(screenshotDir, 'options-basic-overview.png'));
   await saveUserGuideLocatorScreenshot(optionsPage.locator('.settingsGrid').first(), 'options-basic-settings.png');
   await saveUserGuideLocatorScreenshot(optionsPage.locator('.advancedPanel'), 'options-advanced-toggle.png');
@@ -685,6 +686,7 @@ async function saveOptionsShots(context, extensionId, config) {
 
   await setOptionsState(optionsPage, config, {showAdvanced: true, scrollY: 460, zoom: 1.12});
   await applyOptionsMarketingAdjustments(optionsPage);
+  await setActionBarVisibility(optionsPage, false);
   await saveOptionsPageScreenshot(optionsPage, path.join(screenshotDir, 'options-advanced-layout.png'));
   await saveUserGuideLocatorScreenshot(optionsPage.locator('.settingsCard.settingsGridFull').nth(0), 'options-hover-behavior.png');
   await saveUserGuideLocatorScreenshot(optionsPage.locator('.settingsCard.settingsGridFull').nth(1), 'options-tooltip-layout.png');
@@ -701,6 +703,7 @@ async function saveOptionsShots(context, extensionId, config) {
 
   await setOptionsState(optionsPage, config, {showAdvanced: true, scrollY: 460, zoom: 1.12});
   await applyOptionsMarketingAdjustments(optionsPage);
+  await setActionBarVisibility(optionsPage, false);
   await optionsPage.getByTestId('options-field-library-add').click();
   await optionsPage.getByTestId('options-field-library-input').fill('customfield_67890');
   await optionsPage.getByTestId('options-field-library-validation').waitFor();
@@ -849,6 +852,16 @@ async function applyOptionsMarketingAdjustments(page) {
       toggleDescription.textContent = 'Hover trigger depth, modifier keys, field layout editor, and Jira custom fields.';
     }
   });
+}
+
+async function setActionBarVisibility(page, visible) {
+  await page.evaluate((nextVisible) => {
+    const actionBar = document.querySelector('.actionBar');
+    if (!actionBar) {
+      return;
+    }
+    actionBar.style.visibility = nextVisible ? 'visible' : 'hidden';
+  }, visible);
 }
 
 async function savePopupCompositionScreenshot(page, fileName) {

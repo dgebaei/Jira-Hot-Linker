@@ -289,6 +289,49 @@ test('imports the Team Sync-compatible settings envelope', async ({optionsPage, 
   await expect(form.hoverModifierSelect).toHaveValue('shift');
 });
 
+test('runs Sync Now against draft Team Sync fields without saving the source', async ({optionsPage, servers}) => {
+  const target = requireJiraTestTarget(test, servers, {requireAuth: false});
+  const form = optionsPageModel(optionsPage);
+  const settingsUrl = `${String(target.instanceUrl).replace(/\/?$/, '/')}files/jira-quickview-settings.json`;
+  const syncedSettings = {
+    schemaVersion: 1,
+    settingsRevision: 3,
+    settings: {
+      instanceUrl: target.instanceUrl,
+      domains: target.domains,
+      hoverDepth: 'deep',
+      hoverModifierKey: 'shift',
+    },
+    policy: {
+      instanceUrl: 'locked',
+      domains: 'default',
+      hoverDepth: 'locked',
+      hoverModifierKey: 'locked',
+    },
+  };
+
+  await configureExtension(optionsPage, baseConfig(servers, target));
+  await optionsPage.context().route(settingsUrl, async route => {
+    await route.fulfill({
+      status: 200,
+      headers: {'content-type': 'application/json; charset=utf-8'},
+      body: JSON.stringify(syncedSettings),
+    });
+  });
+  await optionsPage.reload();
+  await openAdvancedSettings(optionsPage);
+
+  await form.teamSyncSourceTypeSelect.selectOption('url');
+  await form.teamSyncUrlInput.fill(settingsUrl);
+  await form.teamSyncNowButton.click();
+
+  await expect(form.hoverDepthSelect).toHaveValue('deep');
+  await expect(form.hoverModifierSelect).toHaveValue('shift');
+
+  const syncStorage = await readSimpleSyncStorage(optionsPage);
+  expect(syncStorage).toBeUndefined();
+});
+
 test('shows an error when optional host permissions are denied', async ({optionsPage, servers}) => {
   const target = requireJiraTestTarget(test, servers, {requireAuth: false});
   const form = optionsPageModel(optionsPage);
@@ -1006,7 +1049,7 @@ test('keeps the last synced config when the settings file is corrupted', async (
 
   await form.teamSyncNowButton.click();
 
-  await expect(form.teamSyncMessage).toContainText('positive settingsRevision');
+  await expect(form.teamSyncMessage).toContainText('top-level "settingsRevision" number such as 1, 2, or 3');
   await expect(form.hoverDepthSelect).toHaveValue('deep');
   await expect(form.hoverModifierSelect).toHaveValue('shift');
 
