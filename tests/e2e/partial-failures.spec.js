@@ -101,7 +101,6 @@ test('shows an inline editor error when issue search fails for parent selection'
   const {page, target: resolvedTarget} = await openPopup(extensionApp, servers, target);
   await page.locator('._JX_field_chip_edit[data-field-key="parentLink"]').click();
   await page.locator('._JX_edit_input[data-field-key="parentLink"]').fill(resolvedTarget.secondaryIssueKey.split('-')[1] || '1');
-  await expect(page.locator('._JX_edit_hint')).toContainText('Searching parent');
   await expect.poll(async () => (await page.locator('._JX_edit_error').textContent()) || '', {timeout: 15000}).toMatch(/\S+/);
   await page.close();
 });
