@@ -38,6 +38,9 @@
   <div class="user-guide-toc-entry">
     <a class="user-guide-toc-link" href="#3-first-time-setup">3. First-Time Setup</a>
   </div>
+  <div class="user-guide-toc-entry">
+    <a class="user-guide-toc-link" href="#31-browser-compatibility-and-installed-web-apps">3.1 Browser Compatibility and Installed Web Apps</a>
+  </div>
 
   <details class="user-guide-toc-section">
     <summary>4. Options Page</summary>
@@ -127,6 +130,7 @@
 <p>Before Jira QuickView can show issue data, these things must be true:</p>
 <ul>
 <li>Jira QuickView must be installed from the Chrome Web Store: <a href="https://chromewebstore.google.com/detail/jira-quickview/oddgjhpfjkeckcppcldgjomlnablfkia">Download Extension</a>.</li>
+<li>Best support today is on desktop Chromium browsers such as Chrome, Edge, and Brave.</li>
 <li>You must be signed in to Jira in the same browser.</li>
 <li>The extension must know your Jira instance URL.</li>
 <li>The page where you want popups must be allowed in the Options page.</li>
@@ -144,6 +148,110 @@
 <li>Open an allowed page and hover a Jira key.</li>
 </ol>
 <p>If nothing happens after setup, check the troubleshooting section at the end of this guide. The most common causes are an unallowed page, a Jira URL typo, not being signed in to Jira, or using the hover modifier incorrectly.</p>
+<h3 id="31-browser-compatibility-and-installed-web-apps">3.1 Browser Compatibility and Installed Web Apps</h3>
+<p>Jira QuickView is a Chrome Web Store extension, so the best-supported setup is a desktop Chromium browser.</p>
+<p>Recommended choices:</p>
+<ul>
+<li><code>Chrome</code>: fully supported.</li>
+<li><code>Microsoft Edge</code>: supported by installing the extension from the Chrome Web Store.</li>
+<li><code>Brave</code>: supported by installing the extension from the Chrome Web Store.</li>
+<li><code>Firefox</code>: not supported for Jira QuickView, even though recent Firefox for Windows builds can install sites as web apps.</li>
+<li><code>Safari</code>: not supported for Jira QuickView, even though Safari on macOS can turn sites into web apps and can run Safari-specific extensions.</li>
+</ul>
+<p>If your goal is Outlook or Gmail in an app-like window, use this order:</p>
+<ol type="1">
+<li>Install Jira QuickView in the browser.</li>
+<li>Open the mail site in a normal tab and make sure Jira QuickView works there first.</li>
+<li>Add the exact site domain to <code>Allowed pages</code>.</li>
+<li>Only then install that site as a web app or app window if your browser supports it.</li>
+</ol>
+<p>Useful allowed page examples for mail-based workflows:</p>
+<ul>
+<li><code>mail.google.com</code></li>
+<li><code>outlook.office.com</code></li>
+<li><code>outlook.office365.com</code></li>
+<li><code>outlook.live.com</code></li>
+</ul>
+<h4 id="chrome">Chrome</h4>
+<p>Use Chrome when you want the most direct setup and the clearest vendor documentation.</p>
+<ol type="1">
+<li>Open <a href="https://chromewebstore.google.com/detail/jira-quickview/oddgjhpfjkeckcppcldgjomlnablfkia">Download Extension</a> in Chrome.</li>
+<li>Click <code>Add to Chrome</code>, then confirm <code>Add extension</code>.</li>
+<li>Open Jira QuickView Options and configure your Jira URL plus allowed pages.</li>
+<li>Open Outlook or Gmail in a normal tab and verify that hovering a Jira key works.</li>
+<li>If you want an app-style window, open the site, then use <code>More</code> &gt; <code>Cast, save, and share</code> &gt; <code>Install page as app...</code>.</li>
+<li>If Chrome shows an install icon in the address bar for that site, you can use that shortcut instead.</li>
+</ol>
+<p>What to expect:</p>
+<ul>
+<li>The installed site opens in its own window.</li>
+<li>Your normal Chrome profile, cookies, and signed-in Jira session still matter.</li>
+<li>If the popup works in a regular tab but not in the app window, re-check the exact domain in <code>Allowed pages</code>.</li>
+</ul>
+<h4 id="microsoft-edge">Microsoft Edge</h4>
+<p>Edge works well when you want installed web apps, especially for Outlook and Microsoft 365 pages.</p>
+<ol type="1">
+<li>Open the Chrome Web Store listing for Jira QuickView in Edge.</li>
+<li>If Edge asks whether to allow extensions from other stores, click <code>Allow</code>.</li>
+<li>Click <code>Get extension</code> or <code>Get</code>, then confirm <code>Add extension</code>.</li>
+<li>Open Jira QuickView Options and configure your Jira URL plus allowed pages.</li>
+<li>Open Outlook in a normal Edge tab and verify that hovering a Jira key works.</li>
+<li>To install Outlook or another site as an app, open the site and use <code>Settings and more</code> &gt; <code>More tools</code> &gt; <code>Apps</code> &gt; <code>Install this site as an app</code>.</li>
+<li>You can manage installed apps later at <code>edge://apps</code>.</li>
+</ol>
+<p>What to expect:</p>
+<ul>
+<li>Edge can install both true PWAs and ordinary websites as app windows.</li>
+<li>This is usually the smoothest option if your daily flow centers on Outlook on the web.</li>
+</ul>
+<h4 id="brave">Brave</h4>
+<p>Brave supports nearly all Chromium-compatible extensions, so Jira QuickView can be installed from the Chrome Web Store there as well.</p>
+<ol type="1">
+<li>Open the Chrome Web Store listing for Jira QuickView in Brave.</li>
+<li>Click <code>Add to Brave</code>, then confirm the install prompt.</li>
+<li>Open Jira QuickView Options and configure your Jira URL plus allowed pages.</li>
+<li>Open Outlook or Gmail in a normal Brave tab and verify that hovering a Jira key works.</li>
+<li>If you want an app-like mail window, use Brave's site install, app shortcut, or open-as-window flow if your current Brave build exposes it.</li>
+</ol>
+<p>What to know:</p>
+<ul>
+<li>Brave's extension support is strong because it is Chromium-based.</li>
+<li>Brave's installed-site UI changes more often than Chrome or Edge, so menu labels may differ by version.</li>
+<li>If your Brave build does not clearly offer an app-style install flow, keep using the site in a normal tab. Jira QuickView still works there.</li>
+</ul>
+<h4 id="firefox">Firefox</h4>
+<p>Firefox is not a supported Jira QuickView browser today.</p>
+<p>What Firefox can do:</p>
+<ul>
+<li>Firefox for Windows can now install sites as web apps and pin them to the taskbar.</li>
+</ul>
+<p>What Firefox cannot do for this project:</p>
+<ul>
+<li>Jira QuickView is not published as a Firefox add-on.</li>
+<li>The Chrome Web Store install flow does not apply to Firefox.</li>
+</ul>
+<p>Practical guidance:</p>
+<ul>
+<li>If you only want Outlook as a web app window, Firefox may be acceptable on Windows.</li>
+<li>If you want Outlook or Gmail plus Jira QuickView, use Chrome, Edge, or Brave instead.</li>
+</ul>
+<h4 id="safari">Safari</h4>
+<p>Safari is also not a supported Jira QuickView browser today.</p>
+<p>What Safari can do:</p>
+<ul>
+<li>On macOS, Safari can turn a website into a web app with <code>Add to Dock</code>.</li>
+<li>Safari web apps can use Safari web extensions that are available through Apple's extension system.</li>
+</ul>
+<p>What Safari cannot do for this project:</p>
+<ul>
+<li>Jira QuickView is not published as a Safari extension in the App Store.</li>
+<li>Installing the Chrome Web Store version will not work in Safari.</li>
+</ul>
+<p>Practical guidance:</p>
+<ul>
+<li>If you want app-like Outlook or Gmail windows on macOS and also need Jira QuickView, use Chrome or Edge.</li>
+<li>Use Safari only if you are intentionally choosing Safari without Jira QuickView.</li>
+</ul>
 <h2 id="4-options-page">4. Options Page</h2>
 <p><img src="screenshots/marketing-hidpi-light/options-basic-overview.png" alt="Options page overview" /></p>
 <p>The Options page controls where Jira QuickView runs and what the popup shows. Most users only need the Basic settings. Advanced settings are useful when you want tighter hover behavior, a team-specific popup layout, custom Jira fields, or a shared configuration file.</p>
