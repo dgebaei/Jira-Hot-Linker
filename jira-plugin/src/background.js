@@ -410,23 +410,26 @@ function selectLatestSettingsAttachment(attachments, fileName) {
 }
 
 function buildJiraAttachmentDownloadUrl(attachment, instanceUrl) {
+  const contentUrl = String(attachment?.content || '').trim();
+  if (contentUrl) {
+    let parsedUrl;
+    try {
+      parsedUrl = new URL(contentUrl);
+    } catch (ex) {
+      throw new Error('Settings attachment download URL is invalid.');
+    }
+
+    if (/\/attachment\/content\/[^/]+$/i.test(parsedUrl.pathname)) {
+      parsedUrl.searchParams.set('redirect', 'false');
+    }
+    return parsedUrl.toString();
+  }
+
   if (attachment?.id) {
     return `${instanceUrl}rest/api/2/attachment/content/${encodeURIComponent(String(attachment.id))}?redirect=false`;
   }
 
-  const contentUrl = String(attachment?.content || '').trim();
-  if (!contentUrl) {
-    throw new Error('Settings attachment metadata did not include a download URL.');
-  }
-
-  let parsedUrl;
-  try {
-    parsedUrl = new URL(contentUrl);
-  } catch (ex) {
-    throw new Error('Settings attachment download URL is invalid.');
-  }
-  parsedUrl.searchParams.set('redirect', 'false');
-  return parsedUrl.toString();
+  throw new Error('Settings attachment metadata did not include a download URL.');
 }
 
 async function fetchSimpleSyncJiraAttachment(state, currentConfig) {

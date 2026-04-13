@@ -694,6 +694,77 @@ test('syncs settings from Jira attachment with redirect-free download', async ({
   expect(syncStorage.source.issueKey).toBe(target.primaryIssueKey);
 });
 
+test('syncs settings from Jira attachment using the metadata content URL', async ({optionsPage, servers}) => {
+  const target = requireJiraTestTarget(test, servers, {requireAuth: false});
+  test.skip(target.mode !== 'mock', 'Jira attachment metadata URL handling is covered against the mock Jira server.');
+
+  const form = optionsPageModel(optionsPage);
+  const settingsFileName = 'jira-quickview-settings.json';
+  const settingsAttachmentId = 'jqv-settings-server';
+  const settingsContentUrl = `${String(target.instanceUrl).replace(/\/$/, '')}/secure/attachment/${settingsAttachmentId}/${settingsFileName}`;
+  const syncedSettings = {
+    schemaVersion: 1,
+    settingsRevision: 4,
+    settings: {
+      instanceUrl: target.instanceUrl,
+      domains: target.domains,
+      hoverDepth: 'deep',
+      hoverModifierKey: 'shift',
+    },
+    policy: {
+      instanceUrl: 'locked',
+      domains: 'default',
+      hoverDepth: 'locked',
+      hoverModifierKey: 'locked',
+    },
+  };
+
+  await configureExtension(optionsPage, baseConfig(servers, target, {
+    hoverDepth: 'exact',
+    hoverModifierKey: 'none',
+  }));
+
+  await patchJsonResponse(optionsPage.context(), target.instanceUrl, `/rest/api/2/issue/${target.primaryIssueKey}(?:\\?.*)?$`, payload => ({
+    ...payload,
+    fields: {
+      ...(payload.fields || {}),
+      attachment: [
+        ...((payload.fields && payload.fields.attachment) || []),
+        {
+          id: settingsAttachmentId,
+          filename: settingsFileName,
+          created: '2026-04-10T12:35:00.000Z',
+          mimeType: 'application/json',
+          content: settingsContentUrl,
+        },
+      ],
+    },
+  }));
+
+  await optionsPage.context().route(settingsContentUrl, async route => {
+    await route.fulfill({
+      status: 200,
+      headers: {'content-type': 'application/json; charset=utf-8'},
+      body: JSON.stringify(syncedSettings),
+    });
+  });
+
+  await optionsPage.reload();
+  await openAdvancedSettings(optionsPage);
+
+  await form.teamSyncIssueKeyInput.fill(target.primaryIssueKey);
+  await form.teamSyncFileNameInput.fill(settingsFileName);
+  await form.saveButton.click();
+
+  await expect(form.saveNotice).toContainText('Options saved successfully.');
+  await expect(form.hoverDepthSelect).toHaveValue('deep');
+  await expect(form.hoverModifierSelect).toHaveValue('shift');
+
+  const syncStorage = await readSimpleSyncStorage(optionsPage);
+  expect(syncStorage.lastRevision).toBe(4);
+  expect(syncStorage.source.issueKey).toBe(target.primaryIssueKey);
+});
+
 test('shows a contextual error when the Jira attachment download fails', async ({optionsPage, servers}) => {
   const target = requireJiraTestTarget(test, servers, {requireAuth: false});
   test.skip(target.mode !== 'mock', 'Jira attachment redirect handling is covered against the mock Jira server.');
