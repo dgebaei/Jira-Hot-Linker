@@ -21,6 +21,7 @@ import {positionMentionMenuAtCaret} from 'src/mention-menu-positioning';
 import {createPopupEditing} from 'src/popup-editing';
 import {createPopupQuickActions} from 'src/popup-quick-actions';
 import {createPopupCommentComposer} from 'src/popup-comment-composer';
+import {isEpicLinkField, isSprintField} from 'src/jira-issue-helpers';
 import config from 'options/config.js';
 import {DEFAULT_THEME_MODE, syncDocumentTheme} from 'src/theme';
 const {
@@ -58,22 +59,11 @@ function getFieldIdsByFilter(instanceUrl, filterFn) {
 }
 
 function getSprintFieldIds(instanceUrl) {
-  return getFieldIdsByFilter(instanceUrl, field => {
-    const name = (field.name || '').toLowerCase();
-    const schemaCustom = ((field.schema && field.schema.custom) || '').toLowerCase();
-    const schemaType = ((field.schema && field.schema.type) || '').toLowerCase();
-    return name.includes('sprint') ||
-      schemaCustom.includes('gh-sprint') ||
-      schemaType === 'sprint';
-  });
+  return getFieldIdsByFilter(instanceUrl, isSprintField);
 }
 
 function getEpicLinkFieldIds(instanceUrl) {
-  return getFieldIdsByFilter(instanceUrl, field => {
-    const name = (field.name || '').toLowerCase();
-    const schemaCustom = ((field.schema && field.schema.custom) || '').toLowerCase();
-    return name === 'epic link' || name === 'epic' || schemaCustom.includes('gh-epic-link');
-  });
+  return getFieldIdsByFilter(instanceUrl, isEpicLinkField);
 }
 
 // ── Jira Key Matching ───────────────────────────────────────────
@@ -117,11 +107,14 @@ function buildFallbackJiraKeyMatcher() {
 
 // ── Tips & Notifications ────────────────────────────────────────
 
-chrome.runtime.onMessage.addListener(function (msg) {
-  if (msg.action === 'message') {
-    snackBar(msg.message);
-  }
-});
+if (!window.__JX_runtimeMessageListenerInstalled) {
+  chrome.runtime.onMessage.addListener(function (msg) {
+    if (msg.action === 'message') {
+      snackBar(msg.message);
+    }
+  });
+  window.__JX_runtimeMessageListenerInstalled = true;
+}
 
 let ui_tips_shown_local = [];
 const CONNECTION_ERROR_PATTERN = /(failed to fetch|networkerror|network request failed|load failed|err_|timed?\s*out)/i;
@@ -225,6 +218,29 @@ function notifyJiraConnectionFailure(instanceUrl, error) {
   return true;
 }
 
+function formatPageDiagnosticError(error) {
+  return error?.message || error?.inner || String(error || 'Unknown page diagnostic error');
+}
+
+async function checkLiveJiraReachability(instanceUrl) {
+  const myselfUrl = `${instanceUrl}rest/api/2/myself`;
+  try {
+    const myself = await get(myselfUrl);
+    return {
+      displayName: myself?.displayName || myself?.name || myself?.username || 'You',
+      requestUrl: myselfUrl
+    };
+  } catch (primaryError) {
+    const sessionUrl = `${instanceUrl}rest/auth/1/session`;
+    const session = await get(sessionUrl);
+    const user = session?.user || {};
+    return {
+      displayName: user.displayName || user.name || user.username || 'Jira session available',
+      requestUrl: sessionUrl
+    };
+  }
+}
+
 // ═══════════════════════════════════════════════════════════════
 // Main Content Script
 // ═══════════════════════════════════════════════════════════════
@@ -237,6 +253,29 @@ async function mainAsyncLocal() {
 
   const config = await getConfig();
   const INSTANCE_URL = config.instanceUrl;
+  if (window.top === window && !window.__JX_pageDiagnosticsLogged) {
+    window.__JX_pageDiagnosticsLogged = true;
+    console.info('[Jira QuickView] extension loaded', {
+      href: window.location.href
+    });
+    if (INSTANCE_URL) {
+      checkLiveJiraReachability(INSTANCE_URL)
+        .then(result => {
+          console.info('[Jira QuickView] Jira reachable', {
+            instanceUrl: INSTANCE_URL,
+            displayName: result.displayName,
+            requestUrl: result.requestUrl
+          });
+        })
+        .catch(error => {
+          console.error('[Jira QuickView] Jira unreachable', {
+            instanceUrl: INSTANCE_URL,
+            error: formatPageDiagnosticError(error),
+            requestUrl: `${INSTANCE_URL}rest/api/2/myself`
+          });
+        });
+    }
+  }
   const displayFields = {
     issueType: true,
     status: true,
@@ -4916,6 +4955,17 @@ async function mainAsyncLocal() {
     })).catch(() => {});
   }
 
+  function closeHistoryFlyout() {
+    if (!popupState?.historyOpen) {
+      return;
+    }
+    popupState = {
+      ...popupState,
+      historyOpen: false
+    };
+    renderIssuePopup(popupState).catch(() => {});
+  }
+
   function updateWatchersSearch(nextValue) {
     if (!popupState?.watchersState?.open) {
       return;
@@ -5812,6 +5862,12 @@ async function mainAsyncLocal() {
     }
   });
 
+  $(document.body).on('click', '._JX_history_close', function (e) {
+    e.preventDefault();
+    e.stopPropagation();
+    closeHistoryFlyout();
+  });
+
   $(document.body).on('click', function (e) {
     if (!popupState?.historyOpen) {
       return;
@@ -5819,11 +5875,7 @@ async function mainAsyncLocal() {
     if ($(e.target).closest('._JX_history_flyout').length || $(e.target).closest('._JX_history_toggle').length) {
       return;
     }
-    popupState = {
-      ...popupState,
-      historyOpen: false
-    };
-    renderIssuePopup(popupState).catch(() => {});
+    closeHistoryFlyout();
   });
 
   $(document.body).on('click', function (e) {

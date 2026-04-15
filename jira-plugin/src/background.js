@@ -3,6 +3,7 @@ import regexEscape from 'escape-string-regexp';
 import defaultConfig from 'options/config.js';
 import {storageGet, storageSet, storageLocalGet, storageLocalSet, permissionsContains, promisifyChrome} from 'src/chrome';
 import {contentScript, resetDeclarativeMapping, toMatchUrl} from 'options/declarative';
+import {buildJiraSearchRequestUrls, buildPopupIssueMetadataUrl, isEpicLinkField, isSprintField} from 'src/jira-issue-helpers';
 import {
   getConfigPermissionOrigins,
   hashString,
@@ -25,6 +26,8 @@ const setBadgeBackgroundColor = promisifyChrome(chrome.action, 'setBadgeBackgrou
 var SEND_RESPONSE_IS_ASYNC = true;
 const EXTENSION_ORIGIN = new URL(chrome.runtime.getURL('')).origin;
 const FETCH_TIMEOUT_MS = 10000;
+const STARTUP_LOG_PREFIX = '[Jira QuickView startup]';
+const STARTUP_SEARCH_JQL = 'updated IS NOT EMPTY ORDER BY updated DESC';
 
 async function getInstanceOrigin() {
   const {instanceUrl} = await storageGet(defaultConfig);
@@ -158,6 +161,13 @@ async function shouldInjectIntoUrl(rawUrl) {
   }
 
   const config = await storageGet(defaultConfig);
+  return shouldConfigInjectIntoUrl(rawUrl, config);
+}
+
+function shouldConfigInjectIntoUrl(rawUrl, config = {}) {
+  if (!rawUrl || !/^https?:\/\//i.test(rawUrl)) {
+    return false;
+  }
   return (config.domains || []).some(pattern => {
     try {
       return matchPatternToRegex(pattern).test(rawUrl);
@@ -181,23 +191,27 @@ async function ensureContentScriptReady(tabId) {
   });
 }
 
-async function notifyTab(tabId, message) {
+async function sendMessageToTab(tabId, payload) {
   const maxAttempts = 3;
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
     try {
       if (attempt > 0) {
         await ensureContentScriptReady(tabId);
       }
-      await sendMessage(tabId, {
-        action: 'message',
-        message
-      });
+      await sendMessage(tabId, payload);
       return true;
     } catch (ex) {
       await delay(80);
     }
   }
   return false;
+}
+
+async function notifyTab(tabId, message) {
+  return sendMessageToTab(tabId, {
+    action: 'message',
+    message
+  });
 }
 
 async function injectActionFeedback(tabId, message) {
@@ -325,6 +339,227 @@ async function fetchWithPolicy(url, init = {}, {credentials = 'include'} = {}) {
 
 async function fetchWithCredentials(url, init = {}) {
   return fetchWithPolicy(url, init, {credentials: 'include'});
+}
+
+function normalizeConfiguredInstanceUrl(instanceUrl) {
+  const normalized = String(instanceUrl || '').trim();
+  if (!normalized) {
+    return '';
+  }
+  return normalized.endsWith('/') ? normalized : `${normalized}/`;
+}
+
+function formatStartupError(error) {
+  return error?.message || error?.inner || String(error || 'Unknown startup error');
+}
+
+function getStartupStatusCode(error) {
+  const match = String(formatStartupError(error)).match(/HTTP\s+(\d+)/i);
+  return match ? Number(match[1]) : null;
+}
+
+function getStartupTriggerName(trigger) {
+  return trigger === 'onInstalled' ? 'onInstalled' : 'onStartup';
+}
+
+async function logStartupInfo(message, details = undefined) {
+  if (typeof details === 'undefined') {
+    console.info(`${STARTUP_LOG_PREFIX} ${message}`);
+  } else {
+    console.info(`${STARTUP_LOG_PREFIX} ${message}`, details);
+  }
+}
+
+async function logStartupError(message, details = undefined) {
+  if (typeof details === 'undefined') {
+    console.error(`${STARTUP_LOG_PREFIX} ${message}`);
+  } else {
+    console.error(`${STARTUP_LOG_PREFIX} ${message}`, details);
+  }
+}
+
+function buildStartupLogDetails(trigger, details = {}) {
+  return {
+    trigger: getStartupTriggerName(trigger),
+    ...details,
+  };
+}
+
+async function fetchAllowedJson(url) {
+  const response = await fetchWithCredentials(await assertAllowedRequestUrl(url));
+  return response.json();
+}
+
+async function hasJiraHostPermission(instanceUrl) {
+  try {
+    return await permissionsContains({origins: [toMatchUrl(instanceUrl)]});
+  } catch (error) {
+    return false;
+  }
+}
+
+async function getCurrentJiraUserForStartup(instanceUrl) {
+  const myselfUrl = `${instanceUrl}rest/api/2/myself`;
+  try {
+    const myself = await fetchAllowedJson(myselfUrl);
+    return {
+      displayName: myself?.displayName || myself?.name || myself?.username || 'You',
+      accountId: myself?.accountId || '',
+      requestUrl: myselfUrl,
+    };
+  } catch (primaryError) {
+    const sessionUrl = `${instanceUrl}rest/auth/1/session`;
+    const session = await fetchAllowedJson(sessionUrl);
+    const user = session?.user || {};
+    return {
+      displayName: user.displayName || user.name || user.username || 'Jira session available',
+      accountId: user.accountId || '',
+      requestUrl: sessionUrl,
+    };
+  }
+}
+
+async function fetchFieldCatalogForStartupSmoke(instanceUrl) {
+  try {
+    const fields = await fetchAllowedJson(`${instanceUrl}rest/api/2/field`);
+    return Array.isArray(fields) ? fields : [];
+  } catch (error) {
+    return [];
+  }
+}
+
+async function findStartupSmokeIssue(instanceUrl) {
+  const requestUrls = buildJiraSearchRequestUrls(instanceUrl, {
+    maxResults: 1,
+    fields: ['summary', 'issuetype', 'status'],
+    jql: STARTUP_SEARCH_JQL,
+  });
+  let lastError = null;
+
+  for (const requestUrl of requestUrls) {
+    try {
+      const searchResponse = await fetchAllowedJson(requestUrl);
+      return {
+        issue: Array.isArray(searchResponse?.issues) ? (searchResponse.issues[0] || null) : null,
+        requestUrl,
+        requestUrls,
+      };
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  if (lastError) {
+    lastError.requestUrls = requestUrls;
+    throw lastError;
+  }
+
+  throw new Error('Issue search failed.');
+}
+
+async function buildStartupSmokeIssueRequest(instanceUrl, issueKey, customFields = []) {
+  const fieldCatalog = await fetchFieldCatalogForStartupSmoke(instanceUrl);
+  const sprintFieldIds = fieldCatalog.filter(isSprintField).map(field => field.id);
+  const epicLinkFieldIds = fieldCatalog.filter(isEpicLinkField).map(field => field.id);
+  return buildPopupIssueMetadataUrl(instanceUrl, issueKey, {
+    sprintFieldIds,
+    epicLinkFieldIds,
+    customFields,
+  });
+}
+
+async function fetchPopupIssuePayloadForStartupSmoke(instanceUrl, issueKey, customFields = []) {
+  const issueUrl = await buildStartupSmokeIssueRequest(instanceUrl, issueKey, customFields);
+  return fetchAllowedJson(issueUrl);
+}
+
+async function runStartupSmokeDiagnostics({trigger, config}) {
+  const instanceUrl = normalizeConfiguredInstanceUrl(config?.instanceUrl);
+  if (!instanceUrl) {
+    await logStartupInfo('smoke test skipped: instanceUrl not configured', buildStartupLogDetails(trigger), config);
+    return;
+  }
+
+  const hasPermission = await hasJiraHostPermission(instanceUrl);
+  if (!hasPermission) {
+    await logStartupInfo('smoke test skipped: Jira host permission not granted', buildStartupLogDetails(trigger, {
+      instanceUrl,
+    }), config);
+    return;
+  }
+
+  try {
+    const currentUser = await getCurrentJiraUserForStartup(instanceUrl);
+    await logStartupInfo('Jira reachable', buildStartupLogDetails(trigger, {
+      instanceUrl,
+      displayName: currentUser.displayName,
+      requestUrl: currentUser.requestUrl,
+    }), config);
+  } catch (error) {
+    await logStartupError(`Jira reachability check failed: ${formatStartupError(error)}`, buildStartupLogDetails(trigger, {
+      instanceUrl,
+      phase: 'reachability',
+      statusCode: getStartupStatusCode(error),
+      error: formatStartupError(error),
+      requestUrl: `${instanceUrl}rest/api/2/myself`,
+    }), config);
+    return;
+  }
+
+  let issue = null;
+  let searchRequestUrl = buildJiraSearchRequestUrls(instanceUrl, {
+    maxResults: 1,
+    fields: ['summary', 'issuetype', 'status'],
+    jql: STARTUP_SEARCH_JQL,
+  })[0];
+  let attemptedSearchUrls = [searchRequestUrl];
+  try {
+    const searchResult = await findStartupSmokeIssue(instanceUrl);
+    issue = searchResult.issue;
+    searchRequestUrl = searchResult.requestUrl || searchRequestUrl;
+    attemptedSearchUrls = Array.isArray(searchResult.requestUrls) ? searchResult.requestUrls : attemptedSearchUrls;
+  } catch (error) {
+    await logStartupError(`smoke test failed: ${formatStartupError(error)}`, buildStartupLogDetails(trigger, {
+      instanceUrl,
+      phase: 'search',
+      statusCode: getStartupStatusCode(error),
+      error: formatStartupError(error),
+      requestUrl: searchRequestUrl,
+      requestUrls: Array.isArray(error?.requestUrls) ? error.requestUrls : attemptedSearchUrls,
+      jql: STARTUP_SEARCH_JQL,
+    }), config);
+    return;
+  }
+
+  const issueKey = String(issue?.key || '').trim();
+  if (!issueKey) {
+    await logStartupInfo('smoke test skipped: no accessible issues found', buildStartupLogDetails(trigger, {
+      instanceUrl,
+      requestUrl: searchRequestUrl,
+      requestUrls: attemptedSearchUrls,
+      jql: STARTUP_SEARCH_JQL,
+    }), config);
+    return;
+  }
+
+  const issueRequestUrl = await buildStartupSmokeIssueRequest(instanceUrl, issueKey, config?.customFields || []);
+  try {
+    await fetchPopupIssuePayloadForStartupSmoke(instanceUrl, issueKey, config?.customFields || []);
+    await logStartupInfo(`smoke test passed for ${issueKey}`, buildStartupLogDetails(trigger, {
+      instanceUrl,
+      issueKey,
+      requestUrl: issueRequestUrl,
+    }), config);
+  } catch (error) {
+    await logStartupError(`smoke test failed for ${issueKey}: ${formatStartupError(error)}`, buildStartupLogDetails(trigger, {
+      instanceUrl,
+      issueKey,
+      phase: 'issue-metadata',
+      statusCode: getStartupStatusCode(error),
+      error: formatStartupError(error),
+      requestUrl: issueRequestUrl,
+    }), config);
+  }
 }
 
 async function blobToDataUrl(blob) {
@@ -807,21 +1042,54 @@ async function browserOnClicked (tab) {
   }
 }
 
-(function () {
-  chrome.runtime.onInstalled.addListener(async () => {
-    scheduleSimpleSettingsSync();
-    runSimpleSettingsSync().catch(() => {});
-    const config = await storageGet(defaultConfig);
-    if (!config.instanceUrl || !config.v15upgrade) {
+async function handleExtensionStartup({trigger, openOptionsOnMissingConfig = false}) {
+  const config = await storageGet(defaultConfig);
+  await logStartupInfo(
+    `Jira QuickView v${chrome.runtime.getManifest().version} initialized via ${getStartupTriggerName(trigger)}`,
+    buildStartupLogDetails(trigger),
+    config
+  );
+  scheduleSimpleSettingsSync();
+  runSimpleSettingsSync().catch(() => {});
+
+  if (!config.instanceUrl || !config.v15upgrade) {
+    await logStartupInfo(
+      !config.instanceUrl
+        ? 'smoke test skipped: instanceUrl not configured'
+        : 'smoke test skipped: extension setup is not complete',
+      buildStartupLogDetails(trigger),
+      config
+    );
+    if (openOptionsOnMissingConfig) {
       chrome.runtime.openOptionsPage();
-      return;
     }
-    resetDeclarativeMapping();
+    return;
+  }
+
+  if (trigger === 'onInstalled') {
+    await resetDeclarativeMapping();
+  }
+
+  await runStartupSmokeDiagnostics({trigger, config});
+}
+
+(function () {
+  chrome.runtime.onInstalled.addListener(() => {
+    handleExtensionStartup({
+      trigger: 'onInstalled',
+      openOptionsOnMissingConfig: true,
+    }).catch(error => {
+      logStartupError(`startup handler failed: ${formatStartupError(error)}`, buildStartupLogDetails('onInstalled'));
+    });
   });
 
   chrome.runtime.onStartup.addListener(() => {
-    scheduleSimpleSettingsSync();
-    runSimpleSettingsSync().catch(() => {});
+    handleExtensionStartup({
+      trigger: 'onStartup',
+      openOptionsOnMissingConfig: false,
+    }).catch(error => {
+      logStartupError(`startup handler failed: ${formatStartupError(error)}`, buildStartupLogDetails('onStartup'));
+    });
   });
 
   chrome.alarms.onAlarm.addListener(alarm => {

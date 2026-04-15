@@ -1,3 +1,5 @@
+import {buildPopupIssueMetadataUrl} from 'src/jira-issue-helpers';
+
 export function createContentIssueDataHelpers(options) {
   const cacheTtlMs = Number(options?.cacheTtlMs) || 0;
   const changelogCache = options?.changelogCache;
@@ -45,30 +47,11 @@ export function createContentIssueDataHelpers(options) {
         getSprintFieldIds(instanceUrl),
         getEpicLinkFieldIds(instanceUrl)
       ]);
-      const fields = [
-        'description',
-        'id',
-        'project',
-        'reporter',
-        'assignee',
-        'summary',
-        'timetracking',
-        'attachment',
-        'comment',
-        'issuetype',
-        'status',
-        'priority',
-        'labels',
-        'environment',
-        'versions',
-        'parent',
-        'fixVersions',
-        'watches',
-        ...sprintFieldIds,
-        ...epicLinkFieldIds,
-        ...(customFields || []).map(({fieldId}) => fieldId)
-      ];
-      return get(`${instanceUrl}rest/api/2/issue/${issueKey}?fields=${fields.join(',')}&expand=renderedFields,names`);
+      return get(buildPopupIssueMetadataUrl(instanceUrl, issueKey, {
+        sprintFieldIds,
+        epicLinkFieldIds,
+        customFields,
+      }));
     });
   }
 

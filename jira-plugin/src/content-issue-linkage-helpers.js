@@ -1,3 +1,5 @@
+import {buildJiraSearchRequestUrls} from 'src/jira-issue-helpers';
+
 export function createContentIssueLinkageHelpers(options) {
   const encodeJqlValue = options?.encodeJqlValue;
   const get = options?.get;
@@ -202,15 +204,25 @@ export function createContentIssueLinkageHelpers(options) {
         jqlParts.push(`(${searchClauses.join(' OR ')})`);
       }
       const jql = `${jqlParts.join(' AND ')} ORDER BY updated DESC`;
-      let response;
-      try {
-        response = await get(`${instanceUrl}rest/api/2/search?maxResults=20&fields=summary,issuetype,status&jql=${encodeURIComponent(jql)}`);
-      } catch (error) {
-        const errorText = String(error?.message || error?.inner || error || '');
-        if (!errorText.includes('410')) {
-          throw error;
+      let response = null;
+      let lastError = null;
+      const requestUrls = buildJiraSearchRequestUrls(instanceUrl, {
+        maxResults: 20,
+        fields: ['summary', 'issuetype', 'status'],
+        jql,
+      });
+
+      for (const requestUrl of requestUrls) {
+        try {
+          response = await get(requestUrl);
+          break;
+        } catch (error) {
+          lastError = error;
         }
-        response = await get(`${instanceUrl}rest/api/3/search/jql?maxResults=20&fields=summary,issuetype,status&jql=${encodeURIComponent(jql)}`);
+      }
+
+      if (!response) {
+        throw lastError || new Error('Issue search failed.');
       }
       const issues = Array.isArray(response?.issues) ? response.issues : [];
       const options = issues
