@@ -1,0 +1,112 @@
+name: Publish Chrome Web Store
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Extension version to upload and submit
+        required: true
+        type: string
+      confirm:
+        description: Type submit-<version> to confirm manual store submission
+        required: true
+        type: string
+      upload_only:
+        description: Upload the ZIP without submitting it for review
+        required: true
+        default: false
+        type: boolean
+      publish_type:
+        description: Publish behavior after review
+        required: true
+        default: DEFAULT_PUBLISH
+        type: choice
+        options:
+          - DEFAULT_PUBLISH
+          - STAGED_PUBLISH
+
+permissions:
+  contents: read
+
+concurrency:
+  group: chrome-web-store-publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+      CHROME_WEB_STORE_EXTENSION_ID: oddgjhpfjkeckcppcldgjomlnablfkia
+      CHROME_WEB_STORE_PUBLISHER_ID: ${{ vars.CWS_PUBLISHER_ID }}
+      CHROME_WEB_STORE_SERVICE_ACCOUNT_JSON: ${{ secrets.CWS_SERVICE_ACCOUNT_JSON }}
+
+    steps:
+      - name: Ensure this runs from master
+        run: |
+          if [ "${GITHUB_REF}" != "refs/heads/master" ]; then
+            echo "Chrome Web Store submissions must run from master. Current ref: ${GITHUB_REF}"
+            exit 1
+          fi
+
+      - name: Verify manual confirmation
+        run: |
+          expected="submit-${{ inputs.version }}"
+          if [ "${{ inputs.confirm }}" != "${expected}" ]; then
+            echo "Confirmation input must exactly equal ${expected}."
+            exit 1
+          fi
+
+      - name: Check required Chrome Web Store secrets
+        run: |
+          if [ -z "${CHROME_WEB_STORE_PUBLISHER_ID}" ]; then
+            echo "Missing repository variable CWS_PUBLISHER_ID."
+            exit 1
+          fi
+          if [ -z "${CHROME_WEB_STORE_SERVICE_ACCOUNT_JSON}" ]; then
+            echo "Missing repository secret CWS_SERVICE_ACCOUNT_JSON."
+            exit 1
+          fi
+
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate manifest and version wiring
+        run: npm run validate:manifest
+
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Confirm extension startup
+        run: npm run test:e2e:startup-smoke
+
+      - name: Build Chrome Web Store ZIP
+        run: npm run release:zip
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: chrome-web-store-package-${{ inputs.version }}
+          path: jira-quickview-${{ inputs.version }}-chrome-web-store.zip
+          if-no-files-found: error
+
+      - name: Publish package to Chrome Web Store
+        run: |
+          args=(
+            scripts/publish-chrome-web-store.js
+            --expected-version "${{ inputs.version }}"
+            --publish-type "${{ inputs.publish_type }}"
+          )
+          if [ "${{ inputs.upload_only }}" = "true" ]; then
+            args+=(--upload-only)
+          fi
+          node "${args[@]}"

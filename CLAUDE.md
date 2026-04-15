@@ -19,6 +19,9 @@
 - Before handing work over for manual testing, always run `npm run build:active-extension` and say explicitly whether you ran it.
 - Shared agent workflow docs live under `.agents/skills/`; prefer those local project skills when available so different agents and harnesses reuse the same repo conventions.
 - The repo-root `CLAUDE.md` defines repo-wide workflow. Area-specific `CLAUDE.md` files may still contain local context when they are populated, so consult them when working in those areas instead of assuming they are irrelevant.
+- Whenever a change affects UI, layout, visual styling, or user-visible interaction states, capture fresh screenshots that validate the new behavior or UX before handing work back.
+- In the final handoff for UI-affecting changes, list the generated screenshots explicitly and prefer clickable markdown file links over plain-text paths so the user can inspect them quickly.
+- If screenshot capture is blocked by the environment, say so explicitly in the final handoff and describe what prevented it instead of silently omitting visual verification.
 
 ## Common actions
 
@@ -82,6 +85,7 @@ npm run build
 - When many Playwright suites fail while waiting for the extension service worker, treat it as an extension boot problem first. Inspect `jira-plugin/manifest.json`, extension build output, and the extension load path before changing product logic.
 - Before fixing CI, compare the last passing run and the first failing run so the suspected regression window is explicit.
 - Use `npm run validate:manifest` for fast manifest/version checks and `npm run test:e2e:startup-smoke` to confirm the Chromium extension boots before spending time on longer suites.
+- For UI refinements that do not justify new automated assertions, screenshots are still required as a verification artifact; do not treat visual-only changes as exempt from evidence.
 
 ## Jira API docs
 

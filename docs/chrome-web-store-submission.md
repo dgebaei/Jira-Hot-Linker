@@ -2,6 +2,47 @@
 
 This checklist is tailored to the current `jira-plugin/manifest.json` and current behavior in the repository as of 2026-04-12.
 
+## Manual Submission Workflow
+
+The repository now includes a dedicated GitHub Actions workflow for Chrome Web Store submissions:
+
+- Workflow file: `.github/workflows/chrome-web-store-publish.yml`
+- Trigger: `workflow_dispatch` only
+- Automatic pushes to `master` do **not** submit a package to the store
+
+Use this exact CLI pattern when you want to submit a version manually:
+
+```bash
+gh workflow run chrome-web-store-publish.yml \
+  --ref master \
+  -f version=2.4.1 \
+  -f confirm=submit-2.4.1 \
+  -f upload_only=false \
+  -f publish_type=DEFAULT_PUBLISH
+```
+
+The `confirm` input is intentionally strict. If it does not exactly match `submit-<version>`, the workflow stops before it builds or uploads anything.
+
+Repository configuration needed before the first run:
+
+- Add repository variable `CWS_PUBLISHER_ID` with the Chrome Web Store publisher ID shown in the Developer Dashboard Account section.
+- Add repository secret `CWS_SERVICE_ACCOUNT_JSON` with the full Google service account key JSON.
+- The workflow already defaults the extension ID to the current public item: `oddgjhpfjkeckcppcldgjomlnablfkia`.
+
+One-time service-account setup:
+
+1. Enable the Chrome Web Store API in a Google Cloud project.
+2. Create a Google Cloud service account.
+3. Create a JSON key for that service account.
+4. Add the service account email to the Chrome Web Store Developer Dashboard under `Account`.
+
+Operational behavior:
+
+- The workflow only runs on `master`.
+- It validates the manifest version, runs the startup smoke test, builds `jira-quickview-<version>-chrome-web-store.zip`, uploads that ZIP as a workflow artifact, and only then calls the Chrome Web Store API.
+- Set `upload_only=true` if you want to upload the ZIP without submitting it for review.
+- Set `publish_type=STAGED_PUBLISH` if you want approval to stage the build instead of publishing immediately after review.
+
 ## 1. Account And Publisher Setup
 
 - [ ] Create or sign in to the Chrome Web Store developer account.

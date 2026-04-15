@@ -29,6 +29,7 @@
     "test:e2e:auth:live": "node scripts/playwright/capture-live-auth.js",
     "screenshots:marketing": "node scripts/playwright/capture-marketing-screenshots.js",
     "screenshots:marketing:hidpi": "node scripts/playwright/capture-marketing-screenshots-hidpi.js",
+    "screenshots:popup-ui": "node scripts/playwright/capture-popup-ui.js",
     "screenshots:user-guide": "node scripts/playwright/capture-marketing-screenshots-hidpi.js --theme light --output-dir marketing-hidpi-light --layout-mode legacy --user-guide",
     "test:e2e:headed": "npm exec -- playwright test --headed",
     "test:e2e:ui": "npm exec -- playwright test --ui",
