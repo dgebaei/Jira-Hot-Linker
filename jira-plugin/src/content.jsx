@@ -255,7 +255,10 @@ async function mainAsyncLocal() {
   const INSTANCE_URL = config.instanceUrl;
   if (window.top === window && !window.__JX_pageDiagnosticsLogged) {
     window.__JX_pageDiagnosticsLogged = true;
-    console.info('[Jira QuickView] extension loaded', {
+    const extensionVersion = chrome.runtime?.getManifest?.()?.version || '';
+    const extensionLabel = extensionVersion ? `extension loaded v${extensionVersion}` : 'extension loaded';
+    console.info(`[Jira QuickView] ${extensionLabel}`, {
+      version: extensionVersion,
       href: window.location.href
     });
     if (INSTANCE_URL) {
