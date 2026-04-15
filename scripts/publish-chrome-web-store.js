@@ -81,7 +81,7 @@ function parseArgs(argv) {
 
 function printHelp() {
   console.log(`Usage:
-  node scripts/publish-chrome-web-store.js --expected-version 2.4.1 [options]
+  node scripts/publish-chrome-web-store.js --expected-version 2.4.2 [options]
 
 Required:
   --expected-version <version>       Version that must match jira-plugin/manifest.json

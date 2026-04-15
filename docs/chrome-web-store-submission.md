@@ -15,8 +15,8 @@ Use this exact CLI pattern when you want to submit a version manually:
 ```bash
 gh workflow run chrome-web-store-publish.yml \
   --ref master \
-  -f version=2.4.1 \
-  -f confirm=submit-2.4.1 \
+  -f version=2.4.2 \
+  -f confirm=submit-2.4.2 \
   -f upload_only=false \
   -f publish_type=DEFAULT_PUBLISH
 ```

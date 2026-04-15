@@ -349,7 +349,7 @@ test('startup smoke skips when the extension is not configured yet', async () =>
   await flushUntil(() => harness.infoLogs.some(entry => String(entry[0]).includes('smoke test skipped: instanceUrl not configured')));
 
   expect(harness.fetchCalls).toEqual([]);
-  expect(harness.infoLogs.some(entry => String(entry[0]).includes('Jira QuickView v2.4.1 initialized via onStartup'))).toBe(true);
+  expect(harness.infoLogs.some(entry => String(entry[0]).includes('Jira QuickView v2.4.2 initialized via onStartup'))).toBe(true);
 });
 
 test('startup smoke fetches the popup issue payload for the first accessible issue', async () => {
