@@ -224,7 +224,18 @@ export function createContentDisplayHelpers(options) {
     };
   }
 
-  function buildChildrenSortHeader(sort, column, label, sortLabel = label) {
+  function normalizePullRequestsSortState(sort) {
+    return {
+      column: ['title', 'author', 'branch', 'status'].includes(sort?.column)
+        ? sort.column
+        : 'title',
+      direction: sort?.direction === 'desc'
+        ? 'desc'
+        : 'asc'
+    };
+  }
+
+  function buildRelatedTableSortHeader(sort, column, label, sortLabel = label) {
     const isActive = sort.column === column;
     const isAscendingActive = isActive && sort.direction === 'asc';
     const isDescendingActive = isActive && sort.direction === 'desc';
@@ -265,6 +276,29 @@ export function createContentDisplayHelpers(options) {
     return compareNaturalText(left?.issueKey, right?.issueKey);
   }
 
+  function comparePullRequestRows(left, right, column, direction) {
+    let result = 0;
+    switch (column) {
+      case 'author':
+        result = compareNaturalText(left?.authorView?.displayName, right?.authorView?.displayName);
+        break;
+      case 'branch':
+        result = compareNaturalText(left?.branchText, right?.branchText);
+        break;
+      case 'status':
+        result = compareNaturalText(left?.statusText, right?.statusText);
+        break;
+      case 'title':
+      default:
+        result = compareNaturalText(left?.sortTitleText, right?.sortTitleText);
+        break;
+    }
+    if (result !== 0) {
+      return direction === 'desc' ? result * -1 : result;
+    }
+    return compareNaturalText(left?.title, right?.title);
+  }
+
   async function buildPopupDisplayData(state) {
     const {
       key,
@@ -273,6 +307,7 @@ export function createContentDisplayHelpers(options) {
       childrenError,
       childrenSort,
       pullRequests,
+      pullRequestsSort,
       actionLoadingKey,
       actionError,
       lastActionSuccess,
@@ -496,6 +531,7 @@ export function createContentDisplayHelpers(options) {
     const visibleCommentsTotal = showComments ? commentsTotal : 0;
     const visibleAttachments = showAttachments ? previewAttachments : [];
     const normalizedChildrenSort = normalizeChildrenSortState(childrenSort);
+    const normalizedPullRequestsSort = normalizePullRequestsSortState(pullRequestsSort);
     const childIssues = Array.isArray(children) ? children.filter(Boolean) : [];
     const childRows = childIssues
       .map(child => {
@@ -521,10 +557,16 @@ export function createContentDisplayHelpers(options) {
       .sort((left, right) => compareChildrenRows(left, right, normalizedChildrenSort.column, normalizedChildrenSort.direction));
     const childSectionError = String(childrenError || '').trim();
     const childrenSortHeaders = [
-      buildChildrenSortHeader(normalizedChildrenSort, 'type', 'Type'),
-      buildChildrenSortHeader(normalizedChildrenSort, 'key', 'Key / Summary', 'key'),
-      buildChildrenSortHeader(normalizedChildrenSort, 'status', 'Status'),
-      buildChildrenSortHeader(normalizedChildrenSort, 'assignee', 'Assignee')
+      buildRelatedTableSortHeader(normalizedChildrenSort, 'type', 'Type'),
+      buildRelatedTableSortHeader(normalizedChildrenSort, 'key', 'Key / Summary', 'key'),
+      buildRelatedTableSortHeader(normalizedChildrenSort, 'status', 'Status'),
+      buildRelatedTableSortHeader(normalizedChildrenSort, 'assignee', 'Assignee')
+    ];
+    const prSortHeaders = [
+      buildRelatedTableSortHeader(normalizedPullRequestsSort, 'title', 'Title'),
+      buildRelatedTableSortHeader(normalizedPullRequestsSort, 'author', 'Author'),
+      buildRelatedTableSortHeader(normalizedPullRequestsSort, 'branch', 'Branch'),
+      buildRelatedTableSortHeader(normalizedPullRequestsSort, 'status', 'Status')
     ];
     const quickActionData = buildQuickActionViewData(actionsOpen, actionLoadingKey, quickActions);
     const reporterView = displayFields.reporter && issueData.fields.reporter
@@ -598,6 +640,7 @@ export function createContentDisplayHelpers(options) {
       hasChildrenRows: childRows.length > 0,
       showChildrenSection: showChildren && (childRows.length > 0 || !!childSectionError),
       prs: [],
+      prSortHeaders,
       description: showDescription ? normalizedDescription : '',
       descriptionSection,
       hasBodyContent: true,
@@ -659,16 +702,20 @@ export function createContentDisplayHelpers(options) {
     }
     if (showPullRequests && Array.isArray(pullRequests) && pullRequests.length) {
       const filteredPullRequests = pullRequests.filter(pr => pr && pr.url !== location.href);
-      displayData.prs = filteredPullRequests.map(pr => ({
-        id: pr.id,
-        url: pr.url,
-        linkUrl: pr.url,
-        linkTitle: buildLinkHoverTitle('Open pull request', formatPullRequestTitle(pr), pr.url),
-        title: formatPullRequestTitle(pr),
-        status: pr.status,
-        authorView: buildRelatedUserCellView(pr?.author, 'Author', formatPullRequestAuthor(pr)),
-        branchText: formatPullRequestBranch(pr)
-      }));
+      displayData.prs = filteredPullRequests
+        .map(pr => ({
+          id: pr.id,
+          url: pr.url,
+          linkUrl: pr.url,
+          linkTitle: buildLinkHoverTitle('Open pull request', formatPullRequestTitle(pr), pr.url),
+          title: formatPullRequestTitle(pr),
+          sortTitleText: pr?.name || pr?.title || formatPullRequestTitle(pr),
+          status: pr.status,
+          statusText: pr.status || '--',
+          authorView: buildRelatedUserCellView(pr?.author, 'Author', formatPullRequestAuthor(pr)),
+          branchText: formatPullRequestBranch(pr)
+        }))
+        .sort((left, right) => comparePullRequestRows(left, right, normalizedPullRequestsSort.column, normalizedPullRequestsSort.direction));
     }
     displayData.activityIndicators = buildActivityIndicators();
     displayData.hasRow1Meta = !!displayData.watchersTrigger || displayData.activityIndicators.length > 0;

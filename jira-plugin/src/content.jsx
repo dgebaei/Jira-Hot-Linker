@@ -75,6 +75,11 @@ const DEFAULT_CHILDREN_SORT = Object.freeze({
   direction: 'asc'
 });
 
+const DEFAULT_PULL_REQUESTS_SORT = Object.freeze({
+  column: 'title',
+  direction: 'asc'
+});
+
 function normalizeChildrenSort(sort) {
   const column = ['type', 'key', 'status', 'assignee'].includes(sort?.column)
     ? sort.column
@@ -87,6 +92,30 @@ function normalizeChildrenSort(sort) {
 
 function toggleChildrenSort(sort, column) {
   const currentSort = normalizeChildrenSort(sort);
+  if (currentSort.column === column) {
+    return {
+      column,
+      direction: currentSort.direction === 'asc' ? 'desc' : 'asc'
+    };
+  }
+  return {
+    column,
+    direction: 'asc'
+  };
+}
+
+function normalizePullRequestsSort(sort) {
+  const column = ['title', 'author', 'branch', 'status'].includes(sort?.column)
+    ? sort.column
+    : DEFAULT_PULL_REQUESTS_SORT.column;
+  const direction = sort?.direction === 'desc'
+    ? 'desc'
+    : DEFAULT_PULL_REQUESTS_SORT.direction;
+  return {column, direction};
+}
+
+function togglePullRequestsSort(sort, column) {
+  const currentSort = normalizePullRequestsSort(sort);
   if (currentSort.column === column) {
     return {
       column,
@@ -5945,6 +5974,20 @@ async function mainAsyncLocal() {
     renderIssuePopup(popupState).catch(() => {});
   });
 
+  $(document.body).on('click', '._JX_pr_sort', function (e) {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!popupState) {
+      return;
+    }
+    const column = e.currentTarget.getAttribute('data-sort-column') || '';
+    popupState = {
+      ...popupState,
+      pullRequestsSort: togglePullRequestsSort(popupState.pullRequestsSort, column)
+    };
+    renderIssuePopup(popupState).catch(() => {});
+  });
+
   $(document.body).on('click', '._JX_watchers_trigger', function (e) {
     e.preventDefault();
     e.stopPropagation();
@@ -6963,6 +7006,7 @@ async function mainAsyncLocal() {
         children,
         childrenError,
         childrenSort: DEFAULT_CHILDREN_SORT,
+        pullRequestsSort: DEFAULT_PULL_REQUESTS_SORT,
         pullRequests,
         pointerX,
         pointerY,

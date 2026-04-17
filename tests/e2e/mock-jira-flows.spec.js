@@ -172,6 +172,39 @@ test('shows the Children block above pull requests and sorts it from the column 
   await page.close();
 });
 
+test('sorts the Pull Requests block from the column headers @mock-only', async ({extensionApp, optionsPage, servers}) => {
+  const target = requireJiraTestTarget(test, servers, {requireAuth: process.env.MOCK === 'false'});
+  test.skip(target.mode !== 'mock', 'Pull request table sorting is deterministic in mocked mode only.');
+
+  await servers.jira.setScenario('editable');
+  await configureExtension(optionsPage, baseConfig(servers, target));
+
+  const {page} = await openPopup(extensionApp, servers, target);
+  const prLinks = page.locator('[data-content-block="pullRequests"] tbody tr td:nth-child(1) a');
+
+  await expect(prLinks).toHaveText([
+    '[pr-2] Add inline custom field editing',
+    '[pr-1] Fix slash command cursor behavior',
+    '[pr-3] Prototype release evidence gallery',
+  ]);
+
+  await page.locator('button._JX_pr_sort[data-sort-column="author"]').click();
+  await expect(prLinks).toHaveText([
+    '[pr-2] Add inline custom field editing',
+    '[pr-3] Prototype release evidence gallery',
+    '[pr-1] Fix slash command cursor behavior',
+  ]);
+
+  await page.locator('button._JX_pr_sort[data-sort-column="author"]').click();
+  await expect(prLinks).toHaveText([
+    '[pr-1] Fix slash command cursor behavior',
+    '[pr-3] Prototype release evidence gallery',
+    '[pr-2] Add inline custom field editing',
+  ]);
+
+  await page.close();
+});
+
 test('hides the Children block when the current issue has no immediate children @mock-only', async ({extensionApp, optionsPage, servers}) => {
   const target = requireJiraTestTarget(test, servers, {requireAuth: process.env.MOCK === 'false'});
   test.skip(target.mode !== 'mock', 'Empty child coverage is deterministic in mocked mode only.');

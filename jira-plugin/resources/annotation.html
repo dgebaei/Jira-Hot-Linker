@@ -667,10 +667,17 @@
             <table>
                 <thead>
                 <tr>
-                    <th scope="col">Title</th>
-                    <th scope="col">Author</th>
-                    <th scope="col">Branch</th>
-                    <th scope="col">Status</th>
+                    {{#prSortHeaders}}
+                    <th scope="col" aria-sort="{{ariaSort}}">
+                        <button class="_JX_related_table_sort _JX_pr_sort{{#isActive}} is-active{{/isActive}}" type="button" data-sort-column="{{column}}" title="{{title}}">
+                            <span class="_JX_related_table_sort_label">{{label}}</span>
+                            <svg class="_JX_related_table_sort_icon" width="8" height="10" viewBox="0 0 10 12" focusable="false" role="presentation" aria-hidden="true">
+                                <path class="_JX_related_table_sort_path{{#isAscendingActive}} is-active{{/isAscendingActive}}" d="M2 4 5 1l3 3"></path>
+                                <path class="_JX_related_table_sort_path{{#isDescendingActive}} is-active{{/isDescendingActive}}" d="M2 8 5 11l3-3"></path>
+                            </svg>
+                        </button>
+                    </th>
+                    {{/prSortHeaders}}
                 </tr>
                 </thead>
                 <tbody>
