@@ -2,8 +2,10 @@ const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
 const {test, expect} = require('@playwright/test');
+const extensionManifest = require('../../jira-plugin/manifest.json');
 
 const backgroundBundlePath = path.resolve(__dirname, '../../jira-plugin/build/background.js');
+const CURRENT_EXTENSION_VERSION = String(extensionManifest.version || '');
 
 function createJsonResponse(payload, {status = 200, statusText = 'OK'} = {}) {
   return {
@@ -77,7 +79,7 @@ function createBackgroundHarness(options = {}) {
       lastError: null,
       getURL: value => `chrome-extension://test-extension-id/${value || ''}`,
       getManifest: () => ({
-        version: '2.4.1'
+        version: CURRENT_EXTENSION_VERSION
       }),
       openOptionsPage: () => {
         order.push('runtime.openOptionsPage');
@@ -349,7 +351,9 @@ test('startup smoke skips when the extension is not configured yet', async () =>
   await flushUntil(() => harness.infoLogs.some(entry => String(entry[0]).includes('smoke test skipped: instanceUrl not configured')));
 
   expect(harness.fetchCalls).toEqual([]);
-  expect(harness.infoLogs.some(entry => String(entry[0]).includes('Jira QuickView v2.4.2 initialized via onStartup'))).toBe(true);
+  expect(
+    harness.infoLogs.some(entry => String(entry[0]).includes(`Jira QuickView v${CURRENT_EXTENSION_VERSION} initialized via onStartup`))
+  ).toBe(true);
 });
 
 test('startup smoke fetches the popup issue payload for the first accessible issue', async () => {

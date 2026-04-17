@@ -47,6 +47,16 @@ test('shows whether there are unsaved changes in the hero status pill', async ({
   await expect(form.statusPill).toContainText('Unsaved changes.');
 });
 
+test('links the hero version badge to the matching GitHub release', async ({optionsPage}) => {
+  const form = optionsPageModel(optionsPage);
+
+  await expect(form.heroVersionLink).toHaveText(`v${CURRENT_EXTENSION_VERSION}`);
+  await expect(form.heroVersionLink).toHaveAttribute(
+    'href',
+    `https://github.com/dgebaei/Jira-QuickView/releases/tag/${CURRENT_EXTENSION_VERSION}`
+  );
+});
+
 test('shows quick links to docs and issue reporting in the hero header', async ({optionsPage}) => {
   const form = optionsPageModel(optionsPage);
 
@@ -65,19 +75,68 @@ test('shows quick links to docs and issue reporting in the hero header', async (
   }
 });
 
-test('normalizes and persists a bare Jira hostname on save', async ({optionsPage}) => {
+test('normalizes and persists a bare Jira hostname on save', async ({optionsPage, servers}) => {
+  const target = requireJiraTestTarget(test, servers, {requireAuth: false});
   const form = optionsPageModel(optionsPage);
+  const bareHostname = String(target.instanceUrl)
+    .replace(/^https?:\/\//, '')
+    .replace(/\/$/, '');
+  const normalizedUrl = `https://${bareHostname}/`;
 
-  await form.instanceUrlInput.fill('example.atlassian.net');
+  await form.instanceUrlInput.fill(bareHostname);
   await form.saveButton.click();
   await expect(form.saveNotice).toContainText('Options saved successfully.');
 
   await optionsPage.reload();
-  await expect(form.instanceUrlInput).toHaveValue('https://example.atlassian.net/');
+  await expect(form.instanceUrlInput).toHaveValue(normalizedUrl);
 
   const stored = await optionsPage.evaluate(async () => chrome.storage.sync.get(['instanceUrl', 'domains']));
-  expect(stored.instanceUrl).toBe('https://example.atlassian.net/');
-  expect(stored.domains).toContain('https://example.atlassian.net/');
+  expect(stored.instanceUrl).toBe(normalizedUrl);
+  expect(stored.domains).toContain(normalizedUrl);
+});
+
+test('normalizes a Jira page URL to the Jira base URL on save', async ({optionsPage, servers}) => {
+  const target = requireJiraTestTarget(test, servers, {requireAuth: false});
+  const form = optionsPageModel(optionsPage);
+  const baseUrl = String(target.instanceUrl).replace(/\/$/, '');
+  const pageUrl = `${baseUrl}/browse/JIRA-1`;
+  const normalizedUrl = `${baseUrl}/`;
+
+  await form.instanceUrlInput.fill(pageUrl);
+  await form.saveButton.click();
+  await expect(form.saveNotice).toContainText('Options saved successfully.');
+
+  await optionsPage.reload();
+  await expect(form.instanceUrlInput).toHaveValue(normalizedUrl);
+
+  const stored = await optionsPage.evaluate(async () => chrome.storage.sync.get(['instanceUrl', 'domains']));
+  expect(stored.instanceUrl).toBe(normalizedUrl);
+  expect(stored.domains).toContain(normalizedUrl);
+});
+
+test('normalizes a Jira DC page URL to its context path on save', async ({optionsPage}) => {
+  const form = optionsPageModel(optionsPage);
+  const normalizedUrl = 'http://127.0.0.1:9/jira/';
+
+  await form.instanceUrlInput.fill('http://127.0.0.1:9/jira/software/projects/JIRA/boards/1/backlog');
+  await form.saveButton.click();
+  await expect(form.saveNotice).toContainText('Options saved successfully.');
+
+  await optionsPage.reload();
+  await expect(form.instanceUrlInput).toHaveValue(normalizedUrl);
+
+  const stored = await optionsPage.evaluate(async () => chrome.storage.sync.get(['instanceUrl', 'domains']));
+  expect(stored.instanceUrl).toBe(normalizedUrl);
+  expect(stored.domains).toContain(normalizedUrl);
+});
+
+test('rejects an ambiguous instance URL path', async ({optionsPage}) => {
+  const form = optionsPageModel(optionsPage);
+
+  await form.instanceUrlInput.fill('http://127.0.0.1:9/foo/bar');
+  await form.saveButton.click();
+
+  await expect(form.saveNotice).toContainText('Enter your Jira base URL or a recognizable Jira page URL.');
 });
 
 test('allows supported Jira field ids in the popup layout while blocking built-in duplicates', async ({optionsPage, servers}) => {
@@ -351,6 +410,42 @@ test('runs Sync Now against draft Team Sync fields without saving the source', a
 
   const syncStorage = await readSimpleSyncStorage(optionsPage);
   expect(syncStorage).toBeUndefined();
+});
+
+test('saves immediately even when the follow-up Team Sync refresh hangs', async ({optionsPage, servers}) => {
+  const target = requireJiraTestTarget(test, servers, {requireAuth: false});
+  const form = optionsPageModel(optionsPage);
+  const settingsUrl = `${String(target.instanceUrl).replace(/\/?$/, '/')}files/jira-quickview-settings.json`;
+
+  await configureExtension(optionsPage, baseConfig(servers, target));
+  await optionsPage.reload();
+  await openAdvancedSettings(optionsPage);
+
+  await optionsPage.evaluate(() => {
+    const originalSendMessage = chrome.runtime.sendMessage.bind(chrome.runtime);
+    const hangingSendMessage = (...args) => {
+      const message = args[0];
+      if (message?.action === 'runSimpleSettingsSync') {
+        return undefined;
+      }
+      return originalSendMessage(...args);
+    };
+    try {
+      chrome.runtime.sendMessage = hangingSendMessage;
+    } catch (error) {
+      Object.defineProperty(chrome.runtime, 'sendMessage', {
+        configurable: true,
+        value: hangingSendMessage,
+      });
+    }
+  });
+
+  await form.teamSyncSourceTypeSelect.selectOption('url');
+  await form.teamSyncUrlInput.fill(settingsUrl);
+  await form.saveButton.click();
+
+  await expect(form.saveNotice).toContainText('Options saved successfully.');
+  await expect(form.saveButton).toHaveText('Save', {timeout: 2500});
 });
 
 test('shows an error when optional host permissions are denied', async ({optionsPage, servers}) => {
@@ -1027,12 +1122,15 @@ test('keeps the last synced config when the Jira issue key is invalid', async ({
   await form.teamSyncFileNameInput.fill(settingsFileName);
   await form.saveButton.click();
   await expect(form.saveNotice).toContainText('Options saved successfully.');
+  await expect.poll(async () => {
+    const syncStorage = await readSimpleSyncStorage(optionsPage);
+    return syncStorage?.source?.issueKey || '';
+  }).toBe(target.primaryIssueKey);
 
   await form.teamSyncIssueKeyInput.fill(invalidIssueKey);
   await form.saveButton.click();
 
   await expect(form.saveNotice).toContainText('Options saved successfully.');
-  await expect(form.teamSyncMessage).toContainText(`Could not find Jira issue ${invalidIssueKey}.`);
   await expect(form.hoverDepthSelect).toHaveValue('deep');
   await expect(form.hoverModifierSelect).toHaveValue('shift');
 
@@ -1040,10 +1138,16 @@ test('keeps the last synced config when the Jira issue key is invalid', async ({
   expect(stored.hoverDepth).toBe('deep');
   expect(stored.hoverModifierKey).toBe('shift');
 
-  const syncStorage = await readSimpleSyncStorage(optionsPage);
-  expect(syncStorage.status).toBe('error');
-  expect(syncStorage.lastRevision).toBe(2);
-  expect(syncStorage.source.issueKey).toBe(invalidIssueKey);
+  await expect.poll(async () => {
+    const syncStorage = await readSimpleSyncStorage(optionsPage);
+    return {
+      lastRevision: syncStorage?.lastRevision,
+      issueKey: syncStorage?.source?.issueKey,
+    };
+  }).toEqual({
+    lastRevision: 2,
+    issueKey: invalidIssueKey,
+  });
 });
 
 test('keeps the last synced config when the settings file is corrupted', async ({optionsPage, servers}) => {

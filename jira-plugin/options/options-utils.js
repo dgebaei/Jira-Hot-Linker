@@ -1,5 +1,3 @@
-import {hasPathSlash} from 'options/declarative';
-
 export const BUILT_IN_FIELD_IDS = new Set([
   'issuetype', 'status', 'priority', 'labels', 'environment',
   'versions', 'fixVersions', 'parent', 'assignee', 'reporter',
@@ -12,13 +10,88 @@ export function normalizeInstanceUrl(instanceUrl) {
   if (!normalized) {
     return '';
   }
-  if (!hasPathSlash.test(normalized)) {
-    normalized += '/';
-  }
   if (normalized.indexOf('://') === -1) {
     normalized = 'https://' + normalized;
   }
-  return normalized;
+  try {
+    const parsed = new URL(normalized);
+    if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
+      return '';
+    }
+    parsed.hash = '';
+    parsed.search = '';
+    if (!parsed.pathname) {
+      parsed.pathname = '/';
+    }
+    if (!parsed.pathname.endsWith('/')) {
+      parsed.pathname += '/';
+    }
+    return parsed.toString();
+  } catch (error) {
+    return '';
+  }
+}
+
+const ROOT_LEVEL_JIRA_SEGMENTS = new Set([
+  'browse',
+  'issues',
+  'login',
+  'logout',
+  'plugins',
+  'projects',
+  'rest',
+  'secure',
+  'servicedesk',
+]);
+
+const CONTEXT_LEVEL_JIRA_SEGMENTS = new Set([
+  ...ROOT_LEVEL_JIRA_SEGMENTS,
+  'software',
+]);
+
+function isAtlassianCloudHost(hostname) {
+  return String(hostname || '').toLowerCase().endsWith('.atlassian.net');
+}
+
+export function resolveInstanceUrl(instanceUrl) {
+  const normalized = normalizeInstanceUrl(instanceUrl);
+  if (!normalized) {
+    return '';
+  }
+
+  try {
+    const parsed = new URL(normalized);
+    const segments = String(parsed.pathname || '')
+      .split('/')
+      .filter(Boolean);
+    const loweredSegments = segments.map(segment => String(segment || '').toLowerCase());
+
+    if (!segments.length || isAtlassianCloudHost(parsed.hostname)) {
+      parsed.pathname = '/';
+      return parsed.toString();
+    }
+
+    if (segments.length === 1) {
+      parsed.pathname = ROOT_LEVEL_JIRA_SEGMENTS.has(loweredSegments[0])
+        ? '/'
+        : `/${segments[0]}/`;
+      return parsed.toString();
+    }
+
+    if (ROOT_LEVEL_JIRA_SEGMENTS.has(loweredSegments[0])) {
+      parsed.pathname = '/';
+      return parsed.toString();
+    }
+
+    if (CONTEXT_LEVEL_JIRA_SEGMENTS.has(loweredSegments[1])) {
+      parsed.pathname = `/${segments[0]}/`;
+      return parsed.toString();
+    }
+
+    return '';
+  } catch (error) {
+    return '';
+  }
 }
 
 export function getCustomFieldLayoutKey(field) {

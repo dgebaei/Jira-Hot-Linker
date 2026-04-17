@@ -1,6 +1,7 @@
 /*global chrome */
 import regexEscape from 'escape-string-regexp';
 import defaultConfig from 'options/config.js';
+import {normalizeInstanceUrl, resolveInstanceUrl} from 'options/options-utils';
 import {storageGet, storageSet, storageLocalGet, storageLocalSet, permissionsContains, promisifyChrome} from 'src/chrome';
 import {contentScript, resetDeclarativeMapping, toMatchUrl} from 'options/declarative';
 import {buildJiraSearchRequestUrls, buildPopupIssueMetadataUrl, isEpicLinkField, isSprintField} from 'src/jira-issue-helpers';
@@ -25,12 +26,38 @@ const setBadgeBackgroundColor = promisifyChrome(chrome.action, 'setBadgeBackgrou
 
 var SEND_RESPONSE_IS_ASYNC = true;
 const EXTENSION_ORIGIN = new URL(chrome.runtime.getURL('')).origin;
-const FETCH_TIMEOUT_MS = 10000;
+const FETCH_TIMEOUT_MS = 5000;
 const STARTUP_LOG_PREFIX = '[Jira QuickView startup]';
 const STARTUP_SEARCH_JQL = 'updated IS NOT EMPTY ORDER BY updated DESC';
+let resolvedInstanceUrlCache = {
+  raw: '',
+  resolved: '',
+};
+
+async function getResolvedInstanceUrl(instanceUrl = undefined) {
+  const rawInstanceUrl = typeof instanceUrl === 'undefined'
+    ? (await storageGet(defaultConfig)).instanceUrl
+    : instanceUrl;
+  const normalizedInstanceUrl = normalizeInstanceUrl(rawInstanceUrl);
+  if (!normalizedInstanceUrl) {
+    return '';
+  }
+
+  if (resolvedInstanceUrlCache.raw === normalizedInstanceUrl) {
+    return resolvedInstanceUrlCache.resolved;
+  }
+
+  const resolvedInstanceUrl = resolveInstanceUrl(rawInstanceUrl);
+
+  resolvedInstanceUrlCache = {
+    raw: normalizedInstanceUrl,
+    resolved: resolvedInstanceUrl,
+  };
+  return resolvedInstanceUrl;
+}
 
 async function getInstanceOrigin() {
-  const {instanceUrl} = await storageGet(defaultConfig);
+  const instanceUrl = await getResolvedInstanceUrl();
   if (!instanceUrl) {
     return null;
   }
@@ -41,12 +68,13 @@ async function getInstanceOrigin() {
   }
 }
 
-function getOriginForInstanceUrl(instanceUrl) {
-  if (!instanceUrl) {
+async function getOriginForInstanceUrl(instanceUrl) {
+  const resolvedInstanceUrl = await getResolvedInstanceUrl(instanceUrl);
+  if (!resolvedInstanceUrl) {
     return null;
   }
   try {
-    return new URL(instanceUrl).origin;
+    return new URL(resolvedInstanceUrl).origin;
   } catch (ex) {
     return null;
   }
@@ -88,7 +116,7 @@ async function assertAllowedSimpleSyncRequestUrl(rawUrl, instanceUrlOverride = '
     throw new Error('Unsupported URL protocol');
   }
 
-  const instanceOrigin = getOriginForInstanceUrl(instanceUrlOverride) || await getInstanceOrigin();
+  const instanceOrigin = await getOriginForInstanceUrl(instanceUrlOverride) || await getInstanceOrigin();
   if (!instanceOrigin || parsed.origin !== instanceOrigin) {
     throw new Error('URL is outside configured Jira instance');
   }

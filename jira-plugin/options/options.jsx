@@ -12,6 +12,7 @@ import {
   extractSettingsConfig,
   getConfigPermissionOrigins,
   getSimpleSyncSourcePermissionOrigins,
+  mergeSyncedConfig,
   normalizeSimpleSyncState,
   SIMPLE_SYNC_DEFAULT_FILE_NAME,
   SIMPLE_SYNC_SOURCE_TYPES,
@@ -19,6 +20,7 @@ import {
 } from 'src/settings-sync';
 import {
   normalizeInstanceUrl,
+  resolveInstanceUrl,
   normalizeCustomFields,
   updateCustomFieldRow,
   buildOptionsSnapshot,
@@ -29,6 +31,8 @@ import {
 import 'options/options.scss';
 
 const TOOLTIP_LAYOUT_ZONES = ['row1', 'row2', 'row3'];
+const EXTENSION_VERSION = chrome.runtime.getManifest().version || '';
+const EXTENSION_RELEASE_URL = `https://github.com/dgebaei/Jira-QuickView/releases/tag/${EXTENSION_VERSION}`;
 const HERO_LINKS = [
   {
     key: 'download',
@@ -200,6 +204,25 @@ function ConfigPage(props) {
     applySimpleSyncStateToForm(normalized);
     return normalized;
   }, [applySimpleSyncStateToForm]);
+
+  const runSavedSimpleSyncInBackground = useCallback((savedSimpleSyncState) => {
+    if (!savedSimpleSyncState?.enabled) {
+      return;
+    }
+
+    void sendMessage({action: 'runSimpleSettingsSync'})
+      .then(async response => {
+        if (response?.error) {
+          throw new Error(response.error);
+        }
+        await refreshSimpleSyncState();
+        const nextConfig = await storageGet(defaultConfig);
+        applyConfigToForm(nextConfig);
+      })
+      .catch(async () => {
+        await refreshSimpleSyncState();
+      });
+  }, [applyConfigToForm, refreshSimpleSyncState]);
 
   useEffect(() => {
     let cancelled = false;
@@ -382,8 +405,8 @@ function ConfigPage(props) {
     setIsSyncing(true);
     try {
       const currentConfig = await storageGet(defaultConfig);
-      const savedInstanceUrl = normalizeInstanceUrl(currentConfig.instanceUrl || '');
-      const draftInstanceUrl = normalizeInstanceUrl(instanceUrl || '');
+      const savedInstanceUrl = resolveInstanceUrl(currentConfig.instanceUrl || '') || normalizeInstanceUrl(currentConfig.instanceUrl || '');
+      const draftInstanceUrl = resolveInstanceUrl(instanceUrl || '') || normalizeInstanceUrl(instanceUrl || '');
       const effectiveInstanceUrl = draftInstanceUrl || savedInstanceUrl;
       const nextSimpleSyncState = buildSimpleSyncState({
         sourceType: syncSourceType,
@@ -492,7 +515,8 @@ function ConfigPage(props) {
       .split(',')
       .map(x => x.trim())
       .filter(x => !!x);
-    const normalizedInstanceUrl = normalizeInstanceUrl(instanceUrl);
+    const rawInstanceUrl = String(instanceUrl || '').trim();
+    const normalizedInstanceUrl = normalizeInstanceUrl(rawInstanceUrl);
 
     if (!normalizedInstanceUrl) {
       setStatusTone('error');
@@ -500,32 +524,44 @@ function ConfigPage(props) {
       return;
     }
 
-    setInstanceUrl(normalizedInstanceUrl);
+    const resolvedInstanceUrl = resolveInstanceUrl(rawInstanceUrl);
+    if (!resolvedInstanceUrl) {
+      setStatusTone('error');
+      setStatus('Enter your Jira base URL or a recognizable Jira page URL.');
+      return;
+    }
+
+    setInstanceUrl(resolvedInstanceUrl);
 
     const shouldPersistSimpleSyncSource = simpleSyncState.enabled || (isUrlSyncSource
       ? !!String(syncUrl || '').trim()
       : !!String(syncIssueKey || '').trim());
 
+    const shouldReuseSavedSimpleSyncState = simpleSyncState.enabled && draftSimpleSyncMatchesStored;
     let nextSimpleSyncState = null;
     if (shouldPersistSimpleSyncSource) {
-      try {
-        nextSimpleSyncState = buildSimpleSyncState({
-          sourceType: syncSourceType,
-          url: syncUrl,
-          issueKey: syncIssueKey,
-          fileName: syncFileName,
-        }, simpleSyncState);
-      } catch (error) {
-        setStatusTone('error');
-        setStatus(error.message || 'Team Sync source could not be saved.');
-        return;
+      if (shouldReuseSavedSimpleSyncState) {
+        nextSimpleSyncState = normalizeSimpleSyncState(simpleSyncState);
+      } else {
+        try {
+          nextSimpleSyncState = buildSimpleSyncState({
+            sourceType: syncSourceType,
+            url: syncUrl,
+            issueKey: syncIssueKey,
+            fileName: syncFileName,
+          }, simpleSyncState);
+        } catch (error) {
+          setStatusTone('error');
+          setStatus(error.message || 'Team Sync source could not be saved.');
+          return;
+        }
       }
     }
 
-    const permissionDomains = domains.concat([normalizedInstanceUrl]);
+    const permissionDomains = domains.concat([resolvedInstanceUrl]);
     const currentInstanceUrl = await storageGet(defaultConfig);
     if (!currentInstanceUrl.instanceUrl) {
-      domains.push(normalizedInstanceUrl);
+      domains.push(resolvedInstanceUrl);
     }
 
     setIsSaving(true);
@@ -552,7 +588,7 @@ function ConfigPage(props) {
     if (nextSimpleSyncState) {
       try {
         const permissionOrigins = getSimpleSyncSourcePermissionOrigins(nextSimpleSyncState, {
-          instanceUrl: normalizedInstanceUrl,
+          instanceUrl: resolvedInstanceUrl,
         });
         if (permissionOrigins.length) {
           const sourceGranted = await permissionsRequest({origins: permissionOrigins.map(toMatchUrl)});
@@ -572,8 +608,8 @@ function ConfigPage(props) {
     }
 
     try {
-      await storageSet({
-        instanceUrl: normalizedInstanceUrl,
+      let nextConfig = {
+        instanceUrl: resolvedInstanceUrl,
         domains,
         themeMode: normalizeThemeMode(themeMode),
         v15upgrade: true,
@@ -582,7 +618,18 @@ function ConfigPage(props) {
         displayFields,
         tooltipLayout,
         customFields: normalizeCustomFields(customFields, tooltipLayout)
-      });
+      };
+
+      // Reapply the last synced policy locally so connected team settings stay authoritative
+      // without forcing the save button to wait on a remote sync request.
+      if (shouldReuseSavedSimpleSyncState && Object.keys(simpleSyncState.lastAppliedSettings || {}).length) {
+        nextConfig = mergeSyncedConfig(nextConfig, {
+          policy: simpleSyncState.lastPolicy,
+          settings: simpleSyncState.lastAppliedSettings,
+        }, simpleSyncState.lastAppliedSettings).config;
+      }
+
+      await storageSet(nextConfig);
       resetDeclarativeMapping();
 
       if (nextSimpleSyncState) {
@@ -590,43 +637,15 @@ function ConfigPage(props) {
         applySimpleSyncStateToForm(nextSimpleSyncState);
       }
 
-      setDomainsText(domains.join(', '));
-      savedJsonRef.current = buildOptionsSnapshot({
-        instanceUrl: normalizedInstanceUrl,
-        domainsText: domains.join(', '),
-        themeMode: normalizeThemeMode(themeMode),
-        hoverDepth,
-        hoverModifierKey,
-        tooltipLayout,
-        customFields,
-      });
+      applyConfigToForm(nextConfig);
+      runSavedSimpleSyncInBackground(nextSimpleSyncState);
 
-      if (nextSimpleSyncState?.enabled) {
-        try {
-          const response = await sendMessage({action: 'runSimpleSettingsSync'});
-          if (response?.error) {
-            throw new Error(response.error);
-          }
-          await refreshSimpleSyncState();
-          const nextConfig = await storageGet(defaultConfig);
-          applyConfigToForm(nextConfig);
-        } catch (error) {
-          await refreshSimpleSyncState();
-        }
-        setStatusTone('success');
-        setStatus('Options saved successfully.');
-        setTimeout(() => {
-          setStatusTone('neutral');
-          setStatus('');
-        }, 2500);
-      } else {
-        setStatusTone('success');
-        setStatus('Options saved successfully.');
-        setTimeout(() => {
-          setStatusTone('neutral');
-          setStatus('');
-        }, 2500);
-      }
+      setStatusTone('success');
+      setStatus('Options saved successfully.');
+      setTimeout(() => {
+        setStatusTone('neutral');
+        setStatus('');
+      }, 2500);
     } catch (error) {
       setStatusTone('error');
       setStatus(error.message || 'Options could not be saved.');
@@ -653,7 +672,20 @@ function ConfigPage(props) {
       <header className='heroCard'>
         <div className='heroLeft'>
           <div className='heroEyebrow'>Jira QuickView</div>
-          <h1 className='heroTitle'>Extension Options</h1>
+          <div className='heroTitleRow'>
+            <h1 className='heroTitle'>Extension Options</h1>
+            <a
+              className='heroVersionLink'
+              data-testid='options-hero-version-link'
+              href={EXTENSION_RELEASE_URL}
+              target='_blank'
+              rel='noopener noreferrer'
+              aria-label={`Open Jira QuickView version ${EXTENSION_VERSION} release on GitHub`}
+              title={`Open Jira QuickView version ${EXTENSION_VERSION} release on GitHub`}
+            >
+              v{EXTENSION_VERSION}
+            </a>
+          </div>
           <p className='heroCopy'>
             Configure your Jira connection, theme, and which fields appear in the hover popup.
           </p>
