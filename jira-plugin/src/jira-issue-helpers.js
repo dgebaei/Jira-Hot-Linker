@@ -17,6 +17,11 @@ export function isEpicLinkField(field) {
   return name === 'epic link' || name === 'epic' || schemaCustom.includes('gh-epic-link');
 }
 
+export function isParentLinkField(field) {
+  const name = String(field?.name || '').toLowerCase();
+  return name === 'parent link';
+}
+
 export function buildPopupIssueFieldList({sprintFieldIds = [], epicLinkFieldIds = [], customFields = []} = {}) {
   return uniqueStrings([
     'description',

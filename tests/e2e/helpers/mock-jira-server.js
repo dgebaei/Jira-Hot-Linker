@@ -461,6 +461,74 @@ function createState(origin) {
         },
       },
     ],
+    childIssues: [
+      {
+        id: '10011',
+        key: 'JRACLOUD-97847',
+        fields: {
+          summary: 'Stabilize slash command parsing in multiline editor fields',
+          issuetype: {
+            id: '2',
+            name: 'Task',
+            iconUrl: `${origin}/assets/issuetype-task.png`,
+          },
+          status: {
+            id: '3',
+            name: 'In Progress',
+            iconUrl: `${origin}/assets/status-in-progress.png`,
+          },
+          assignee: {
+            accountId: 'user-me',
+            name: 'me',
+            key: 'me',
+            displayName: 'Morgan Agent',
+            avatarUrls: {'48x48': `${origin}/assets/avatar-me.png`},
+          },
+        },
+      },
+      {
+        id: '10012',
+        key: 'JRACLOUD-97848',
+        fields: {
+          summary: 'Handle caret edge cases for slash commands inside nested blocks',
+          issuetype: {
+            id: '4',
+            name: 'Sub-task',
+            iconUrl: `${origin}/assets/issuetype-subtask.png`,
+          },
+          status: {
+            id: '10000',
+            name: 'To Do',
+            iconUrl: `${origin}/assets/status-todo.png`,
+          },
+          assignee: null,
+        },
+      },
+      {
+        id: '10013',
+        key: 'JRACLOUD-97849',
+        fields: {
+          summary: 'Audit mention command interactions around END key handling',
+          issuetype: {
+            id: '1',
+            name: 'Bug',
+            iconUrl: `${origin}/assets/issuetype-bug.png`,
+          },
+          status: {
+            id: '5',
+            name: 'Done',
+            iconUrl: `${origin}/assets/status-done.png`,
+          },
+          assignee: {
+            accountId: 'user-alex',
+            name: 'alex',
+            key: 'alex',
+            displayName: 'Alex Reviewer',
+            avatarUrls: {'48x48': `${origin}/assets/avatar-alex.png`},
+          },
+        },
+      },
+    ],
     transitions: [
       {
         id: '31',
@@ -696,6 +764,9 @@ async function createMockJiraServer() {
       state.issue.parent = null;
       state.labels = [];
       state.issueSearchCatalog = [];
+    }
+    if (state.scenario === 'child-issues-empty') {
+      state.childIssues = [];
     }
     if (state.scenario === 'empty-user-field' || state.scenario === 'empty-user-field-missing-editmeta' || state.scenario === 'empty-user-field-empty-picker-defaults') {
       state.issue.customFields.customfield_67890 = null;
@@ -1110,12 +1181,18 @@ async function createMockJiraServer() {
       return;
     }
 
-    if (pathname === '/rest/api/2/search' && req.method === 'GET') {
+    if ((pathname === '/rest/api/2/search' || pathname === '/rest/api/3/search/jql' || pathname === '/rest/api/latest/search') && req.method === 'GET') {
       if (scenarioIn('issue-search-fails')) {
         json(res, 500, {errorMessages: ['Could not search issues']});
         return;
       }
-      json(res, 200, {issues: state.issueSearchCatalog});
+      const jql = String(url.searchParams.get('jql') || '');
+      const isChildSearch = /\bparent\s*=/.test(jql) || /cf\[\d+\]\s*=/.test(jql);
+      if (isChildSearch && scenarioIn('child-issues-fail')) {
+        json(res, 500, {errorMessages: ['Could not load child issues']});
+        return;
+      }
+      json(res, 200, {issues: isChildSearch ? state.childIssues : state.issueSearchCatalog});
       return;
     }
 
@@ -1154,21 +1231,30 @@ async function createMockJiraServer() {
             id: 'pr-1',
             url: 'https://github.com/dgebaei/Jira-QuickView/pull/1',
             name: 'Fix slash command cursor behavior',
-            author: {name: 'Morgan Agent'},
+            author: {
+              name: 'Morgan Agent',
+              avatarUrl: `${origin}/assets/avatar-me.png`,
+            },
             source: {branch: 'fix/slash-command-end-key'},
             status: 'OPEN',
           }, {
             id: 'pr-2',
             url: 'https://github.com/dgebaei/Jira-QuickView/pull/2',
             name: 'Add inline custom field editing',
-            author: {name: 'Alex Reviewer'},
+            author: {
+              name: 'Alex Reviewer',
+              avatarUrl: `${origin}/assets/avatar-alex.png`,
+            },
             source: {branch: 'feat/custom-field-inline-editing'},
             status: 'MERGED',
           }, {
             id: 'pr-3',
             url: 'https://github.com/dgebaei/Jira-QuickView/pull/3',
             name: 'Prototype release evidence gallery',
-            author: {name: 'Casey Commenter'},
+            author: {
+              name: 'Casey Commenter',
+              avatarUrl: `${origin}/assets/avatar-commenter.png`,
+            },
             source: {branch: 'spike/release-evidence-gallery'},
             status: 'DECLINED',
           }],

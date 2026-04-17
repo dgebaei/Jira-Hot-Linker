@@ -1572,33 +1572,10 @@ body ._JX {
     padding: 0 10px;
   }
 
-  &_related_pr {
+  &_related_table {
     min-width: 0;
     font-size: 12px;
     line-height: 1.35;
-
-    table {
-      table-layout: fixed;
-      width: 100%;
-    }
-
-    a {
-      font-size: 12px;
-    }
-
-    td:nth-child(1) { width: 30%; }
-    td:nth-child(2) { width: 20%; }
-    td:nth-child(3) { width: 35%; }
-    td:nth-child(4) { width: 15%; }
-
-    td {
-      padding: 8px 0px;
-      border-bottom: 1px solid #dde4e6;
-      min-width: 0;
-      overflow-wrap: anywhere;
-      word-break: break-word;
-      vertical-align: top;
-    }
 
     table {
       width: 100%;
@@ -1606,7 +1583,22 @@ body ._JX {
       border-collapse: collapse;
     }
 
-    thead td {
+    a {
+      font-size: 12px;
+    }
+
+    th,
+    td {
+      padding: 8px 0px;
+      border-bottom: 1px solid #dde4e6;
+      min-width: 0;
+      overflow-wrap: anywhere;
+      word-break: break-word;
+      vertical-align: top;
+      text-align: left;
+    }
+
+    thead th {
       border-bottom: 1px solid #dde4e6;
       color: #5e6c84;
       font-size: 11px;
@@ -1615,24 +1607,167 @@ body ._JX {
       text-transform: uppercase;
     }
 
-    tbody td:first-child {
-      width: 42%;
+    tbody tr:last-child td {
+      border-bottom: none;
+    }
+  }
+
+  &_related_table_error {
+    background: #fff3f1;
+    border: 1px solid #f3c7c2;
+    border-radius: 8px;
+    color: #ae2e24;
+    font-size: 11px;
+    margin-bottom: 8px;
+    padding: 8px 10px;
+  }
+
+  &_related_table_sort {
+    align-items: center;
+    appearance: none;
+    background: transparent;
+    border: none;
+    color: inherit;
+    cursor: pointer;
+    display: inline-flex;
+    font: inherit;
+    gap: 6px;
+    letter-spacing: inherit;
+    line-height: 1;
+    padding: 0;
+    text-transform: inherit;
+
+    &:hover {
+      color: #0052cc;
     }
 
+    &.is-active {
+      color: #172b4d;
+    }
+  }
+
+  &_related_table_sort_label {
+    display: inline-block;
+    line-height: 1;
+  }
+
+  &_related_table_sort_icon {
+    display: block;
+    flex: 0 0 auto;
+    height: 10px;
+    width: 8px;
+  }
+
+  &_related_table_sort_path {
+    fill: none;
+    stroke: #7a869a;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    stroke-width: 1.25;
+
+    &.is-active {
+      stroke: #4c9aff;
+    }
+  }
+
+  &_related_table_sort:hover &_related_table_sort_path:not(.is-active) {
+    stroke: #97a0af;
+  }
+
+  &_related_table_type_cell {
+    width: 40px;
+  }
+
+  &_related_table_type_icon,
+  &_related_table_type_placeholder {
+    display: inline-flex;
+    height: 18px;
+    width: 18px;
+  }
+
+  &_related_table_type_icon {
+    display: block;
+  }
+
+  &_related_table_type_placeholder {
+    align-items: center;
+    color: #7a869a;
+    justify-content: center;
+  }
+
+  &_related_table_user {
+    align-items: center;
+    display: flex;
+    gap: 6px;
+    max-width: 100%;
+    min-width: 0;
+  }
+
+  &_related_table_user_avatar {
+    border-radius: 999px;
+    flex: 0 0 auto;
+    height: 18px;
+    object-fit: cover;
+    width: 18px;
+  }
+
+  &_related_table_user_avatar_placeholder {
+    align-items: center;
+    background: #dfe1e6;
+    color: #42526e;
+    display: inline-flex;
+    font-size: 10px;
+    font-weight: 700;
+    justify-content: center;
+  }
+
+  &_related_table_user_name {
+    min-width: 0;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+
+  &_related_table_pr {
+    thead th:nth-child(1),
+    tbody td:nth-child(1) {
+      width: 38%;
+    }
+
+    thead th:nth-child(2),
     tbody td:nth-child(2) {
-      width: 18%;
+      width: 20%;
     }
 
+    thead th:nth-child(3),
     tbody td:nth-child(3) {
-      width: 24%;
+      width: 26%;
     }
 
+    thead th:nth-child(4),
     tbody td:nth-child(4) {
       width: 16%;
     }
+  }
 
-    tbody tr:last-child td {
-      border-bottom: none;
+  &_related_table_children {
+    thead th:nth-child(1),
+    tbody td:nth-child(1) {
+      width: 10%;
+    }
+
+    thead th:nth-child(2),
+    tbody td:nth-child(2) {
+      width: 45%;
+    }
+
+    thead th:nth-child(3),
+    tbody td:nth-child(3) {
+      width: 20%;
+    }
+
+    thead th:nth-child(4),
+    tbody td:nth-child(4) {
+      width: 25%;
     }
   }
 

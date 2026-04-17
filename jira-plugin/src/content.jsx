@@ -21,7 +21,7 @@ import {positionMentionMenuAtCaret} from 'src/mention-menu-positioning';
 import {createPopupEditing} from 'src/popup-editing';
 import {createPopupQuickActions} from 'src/popup-quick-actions';
 import {createPopupCommentComposer} from 'src/popup-comment-composer';
-import {isEpicLinkField, isSprintField} from 'src/jira-issue-helpers';
+import {buildJiraSearchRequestUrls, isEpicLinkField, isParentLinkField, isSprintField} from 'src/jira-issue-helpers';
 import config from 'options/config.js';
 import {DEFAULT_THEME_MODE, syncDocumentTheme} from 'src/theme';
 const {
@@ -66,6 +66,39 @@ function getEpicLinkFieldIds(instanceUrl) {
   return getFieldIdsByFilter(instanceUrl, isEpicLinkField);
 }
 
+function getParentLinkFieldIds(instanceUrl) {
+  return getFieldIdsByFilter(instanceUrl, isParentLinkField);
+}
+
+const DEFAULT_CHILDREN_SORT = Object.freeze({
+  column: 'key',
+  direction: 'asc'
+});
+
+function normalizeChildrenSort(sort) {
+  const column = ['type', 'key', 'status', 'assignee'].includes(sort?.column)
+    ? sort.column
+    : DEFAULT_CHILDREN_SORT.column;
+  const direction = sort?.direction === 'desc'
+    ? 'desc'
+    : DEFAULT_CHILDREN_SORT.direction;
+  return {column, direction};
+}
+
+function toggleChildrenSort(sort, column) {
+  const currentSort = normalizeChildrenSort(sort);
+  if (currentSort.column === column) {
+    return {
+      column,
+      direction: currentSort.direction === 'asc' ? 'desc' : 'asc'
+    };
+  }
+  return {
+    column,
+    direction: 'asc'
+  };
+}
+
 // ── Jira Key Matching ───────────────────────────────────────────
 
 function buildRegexMatcher(regex) {
@@ -103,6 +136,16 @@ function buildJiraKeyMatcher(projectKeys) {
 
 function buildFallbackJiraKeyMatcher() {
   return buildRegexMatcher(new RegExp(FALLBACK_JIRA_KEY_PATTERN, 'g'));
+}
+
+function normalizeJiraProjectsResponse(response) {
+  if (Array.isArray(response)) {
+    return response;
+  }
+  if (Array.isArray(response?.values)) {
+    return response.values;
+  }
+  return [];
 }
 
 // ── Tips & Notifications ────────────────────────────────────────
@@ -292,6 +335,7 @@ async function mainAsyncLocal() {
     attachments: false,
     comments: true,
     description: true,
+    children: true,
     reporter: true,
     assignee: true,
     pullRequests: true,
@@ -302,15 +346,16 @@ async function mainAsyncLocal() {
     row1: ['issueType', 'status', 'priority'],
     row2: ['epicParent', 'sprint', 'affects', 'fixVersions'],
     row3: ['environment', 'labels'],
-    contentBlocks: ['description', 'timeTracking', 'pullRequests', 'comments'],
+    contentBlocks: ['description', 'timeTracking', 'children', 'pullRequests', 'comments'],
     people: ['reporter', 'assignee']
   };
-  const defaultContentBlocks = ['description', 'timeTracking', 'pullRequests', 'comments'];
+  const defaultContentBlocks = ['description', 'timeTracking', 'children', 'pullRequests', 'comments'];
   const layoutContentBlocks = (tooltipLayout.contentBlocks || defaultContentBlocks)
     .filter(k => displayFields[k] !== false);
   if (displayFields.description !== false && !layoutContentBlocks.includes('description')) {
     layoutContentBlocks.unshift('description');
   }
+  const showChildren = layoutContentBlocks.includes('children');
   const showPullRequests = layoutContentBlocks.includes('pullRequests');
   const hoverDepth = config.hoverDepth || 'exact';
   const hoverModifierKey = config.hoverModifierKey || 'any';
@@ -329,7 +374,7 @@ async function mainAsyncLocal() {
   });
 
   try {
-    jiraProjects = await get(await getInstanceUrl() + 'rest/api/2/project');
+    jiraProjects = normalizeJiraProjectsResponse(await get(await getInstanceUrl() + 'rest/api/2/project'));
   } catch (ex) {
     // Keep hover support alive offline; only notify on explicit hover fetch failures.
   }
@@ -345,6 +390,7 @@ async function mainAsyncLocal() {
   const imageProxyCache = {};
   const cacheTtlMs = 60 * 1000;
   const issueCache = new Map();
+  const childIssueCache = new Map();
   const pullRequestCache = new Map();
   const changelogCache = new Map();
   const fieldOptionsCache = new Map();
@@ -568,6 +614,7 @@ async function mainAsyncLocal() {
     normalizeIssueAttachmentImage,
     normalizeIssueImages,
     normalizePullRequests,
+    normalizePullRequestImages,
     pullRequestCache,
     renderIssuePopup,
     resolveQuickActions,
@@ -865,39 +912,46 @@ async function mainAsyncLocal() {
     return attachment;
   }
 
+  function queueAvatarNormalization(imageLoads, field) {
+    const avatarUrl = field?.avatarUrls?.['48x48'] || field?.avatarUrl || '';
+    if (!avatarUrl) {
+      return;
+    }
+    imageLoads.push(
+      getDisplayImageUrl(avatarUrl).then(src => {
+        if (!field || typeof field !== 'object') {
+          return;
+        }
+        field.avatarUrls = field.avatarUrls || {};
+        field.avatarUrls['48x48'] = src;
+        field.avatarUrl = src;
+      })
+    );
+  }
+
+  function queueIconNormalization(imageLoads, field) {
+    if (!field?.iconUrl) {
+      return;
+    }
+    imageLoads.push(
+      getDisplayImageUrl(field.iconUrl).then(src => {
+        field.iconUrl = src;
+      })
+    );
+  }
+
   async function normalizeIssueImages(issueData) {
     const imageLoads = [];
 
-    const maybeNormalizeAvatar = field => {
-      const avatarUrl = field && field.avatarUrls && field.avatarUrls['48x48'];
-      if (avatarUrl) {
-        imageLoads.push(
-          getDisplayImageUrl(avatarUrl).then(src => {
-            field.avatarUrls['48x48'] = src;
-          })
-        );
-      }
-    };
-
-    const maybeNormalizeIcon = field => {
-      if (field && field.iconUrl) {
-        imageLoads.push(
-          getDisplayImageUrl(field.iconUrl).then(src => {
-            field.iconUrl = src;
-          })
-        );
-      }
-    };
-
-    maybeNormalizeAvatar(issueData.fields.reporter);
-    maybeNormalizeAvatar(issueData.fields.assignee);
-    maybeNormalizeIcon(issueData.fields.issuetype);
-    maybeNormalizeIcon(issueData.fields.status);
-    maybeNormalizeIcon(issueData.fields.priority);
+    queueAvatarNormalization(imageLoads, issueData.fields.reporter);
+    queueAvatarNormalization(imageLoads, issueData.fields.assignee);
+    queueIconNormalization(imageLoads, issueData.fields.issuetype);
+    queueIconNormalization(imageLoads, issueData.fields.status);
+    queueIconNormalization(imageLoads, issueData.fields.priority);
 
     // Normalize comment author avatars
     (issueData.fields.comment?.comments || []).forEach(comment => {
-      maybeNormalizeAvatar(comment.author);
+      queueAvatarNormalization(imageLoads, comment.author);
     });
 
     // Normalize custom field user avatars
@@ -907,12 +961,12 @@ async function mainAsyncLocal() {
       }
       const fieldValue = issueData.fields[fieldKey];
       if (fieldValue && typeof fieldValue === 'object' && fieldValue.avatarUrls) {
-        maybeNormalizeAvatar(fieldValue);
+        queueAvatarNormalization(imageLoads, fieldValue);
       }
       if (Array.isArray(fieldValue)) {
         fieldValue.forEach(entry => {
           if (entry && typeof entry === 'object' && entry.avatarUrls) {
-            maybeNormalizeAvatar(entry);
+            queueAvatarNormalization(imageLoads, entry);
           }
         });
       }
@@ -922,6 +976,23 @@ async function mainAsyncLocal() {
       imageLoads.push(normalizeIssueAttachmentImage(attachment));
     });
 
+    await Promise.all(imageLoads);
+  }
+
+  async function normalizeChildIssueImages(childIssues) {
+    const imageLoads = [];
+    (Array.isArray(childIssues) ? childIssues : []).forEach(issue => {
+      queueIconNormalization(imageLoads, issue?.fields?.issuetype);
+      queueAvatarNormalization(imageLoads, issue?.fields?.assignee);
+    });
+    await Promise.all(imageLoads);
+  }
+
+  async function normalizePullRequestImages(pullRequests) {
+    const imageLoads = [];
+    (Array.isArray(pullRequests) ? pullRequests : []).forEach(pr => {
+      queueAvatarNormalization(imageLoads, pr?.author);
+    });
     await Promise.all(imageLoads);
   }
 
@@ -2665,6 +2736,116 @@ async function mainAsyncLocal() {
 
   function getPullRequestSummaryData(issueId) {
     return get(`${INSTANCE_URL}rest/dev-status/1.0/issue/summary?issueId=${issueId}`);
+  }
+
+  function encodeChildIssueJqlValue(value) {
+    return `"${String(value || '').replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
+  }
+
+  function buildCustomFieldIssueSearchClause(fieldId, issueKey) {
+    const match = String(fieldId || '').match(/^customfield_(\d+)$/i);
+    if (!match?.[1]) {
+      return '';
+    }
+    return `cf[${match[1]}] = ${encodeChildIssueJqlValue(issueKey)}`;
+  }
+
+  async function searchIssuesByJql(jql, fields = []) {
+    let response = null;
+    let lastError = null;
+    const requestUrls = buildJiraSearchRequestUrls(INSTANCE_URL, {
+      maxResults: 100,
+      fields,
+      jql,
+    });
+
+    for (const requestUrl of requestUrls) {
+      try {
+        response = await get(requestUrl);
+        break;
+      } catch (error) {
+        lastError = error;
+      }
+    }
+
+    if (!response) {
+      throw lastError || new Error('Issue search failed');
+    }
+
+    return Array.isArray(response?.issues)
+      ? response.issues.filter(Boolean)
+      : [];
+  }
+
+  function dedupeIssuesByKey(issues) {
+    const seenKeys = new Set();
+    return (Array.isArray(issues) ? issues : []).filter(issue => {
+      const issueKey = String(issue?.key || '').trim();
+      if (!issueKey || seenKeys.has(issueKey)) {
+        return false;
+      }
+      seenKeys.add(issueKey);
+      return true;
+    });
+  }
+
+  async function getChildIssues(issueData) {
+    const issueKey = String(issueData?.key || '').trim();
+    if (!issueKey) {
+      return [];
+    }
+
+    return getCachedValue(childIssueCache, issueKey, async () => {
+      const searchFields = ['summary', 'issuetype', 'status', 'assignee'];
+      let directSearchError = null;
+      let directChildren = [];
+
+      try {
+        directChildren = await searchIssuesByJql(`parent = ${encodeChildIssueJqlValue(issueKey)}`, searchFields);
+      } catch (error) {
+        directSearchError = error;
+      }
+
+      if (directChildren.length) {
+        return dedupeIssuesByKey(directChildren);
+      }
+
+      const [epicLinkFieldIds, parentLinkFieldIds] = await Promise.all([
+        getEpicLinkFieldIds(INSTANCE_URL).catch(() => []),
+        getParentLinkFieldIds(INSTANCE_URL).catch(() => []),
+      ]);
+      const fallbackJqls = [...epicLinkFieldIds, ...parentLinkFieldIds]
+        .map(fieldId => buildCustomFieldIssueSearchClause(fieldId, issueKey))
+        .filter(Boolean);
+
+      if (!fallbackJqls.length) {
+        if (directSearchError) {
+          throw directSearchError;
+        }
+        return [];
+      }
+
+      const fallbackChildren = [];
+      let fallbackSearchError = null;
+      let fallbackSucceeded = false;
+      for (const jql of fallbackJqls) {
+        try {
+          fallbackChildren.push(...(await searchIssuesByJql(jql, searchFields)));
+          fallbackSucceeded = true;
+        } catch (error) {
+          fallbackSearchError = error;
+        }
+      }
+
+      if (!fallbackSucceeded && directSearchError) {
+        throw directSearchError;
+      }
+      if (!fallbackSucceeded && fallbackSearchError) {
+        throw fallbackSearchError;
+      }
+
+      return dedupeIssuesByKey(fallbackChildren);
+    });
   }
 
   async function probeDevStatusEndpoints(issueId) {
@@ -5557,6 +5738,7 @@ async function mainAsyncLocal() {
           try {
             const pullRequestResponse = await getPullRequestDataCached(refreshedIssueData.id);
             refreshedPullRequests = normalizePullRequests(pullRequestResponse);
+            await normalizePullRequestImages(refreshedPullRequests).catch(() => {});
           } catch (ex) {
             refreshedPullRequests = [];
           }
@@ -5625,7 +5807,7 @@ async function mainAsyncLocal() {
   }
   new draggable({
     handle: '._JX_title, ._JX_status',
-    cancel: 'a, button, input, textarea, img, ._JX_description, ._JX_comments, ._JX_comment_body, ._JX_description_text, ._JX_related_pr, ._JX_history_flyout, ._JX_watchers_panel'
+    cancel: 'a, button, input, textarea, img, ._JX_description, ._JX_comments, ._JX_comment_body, ._JX_description_text, ._JX_related_table, ._JX_history_flyout, ._JX_watchers_panel'
   }, container);
   
   // ── Clipboard & Copy ──────────────────────────────────────
@@ -5745,6 +5927,20 @@ async function mainAsyncLocal() {
     popupState = {
       ...popupState,
       actionsOpen: !popupState.actionsOpen
+    };
+    renderIssuePopup(popupState).catch(() => {});
+  });
+
+  $(document.body).on('click', '._JX_children_sort', function (e) {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!popupState) {
+      return;
+    }
+    const column = e.currentTarget.getAttribute('data-sort-column') || '';
+    popupState = {
+      ...popupState,
+      childrenSort: toggleChildrenSort(popupState.childrenSort, column)
     };
     renderIssuePopup(popupState).catch(() => {});
   });
@@ -6709,11 +6905,26 @@ async function mainAsyncLocal() {
     (async function (cancelToken) {
       const issueData = await getIssueMetaData(key);
       await normalizeIssueImages(issueData);
+      let children = [];
+      let childrenError = '';
+      if (showChildren) {
+        try {
+          children = await getChildIssues(issueData);
+          await normalizeChildIssueImages(children).catch(() => {});
+        } catch (ex) {
+          console.log('[Jira QuickView] Child issue fetch failed', {
+            issueKey: key,
+            error: ex?.message || String(ex)
+          });
+          childrenError = buildEditFieldError(ex);
+        }
+      }
       let pullRequests = [];
       if (showPullRequests) {
         try {
           const pullRequestResponse = await getPullRequestDataCached(issueData.id);
           pullRequests = normalizePullRequests(pullRequestResponse);
+          await normalizePullRequestImages(pullRequests).catch(() => {});
         } catch (ex) {
           console.log('[Jira QuickView] Pull request fetch failed', {
             issueKey: key,
@@ -6749,6 +6960,9 @@ async function mainAsyncLocal() {
       await renderUpdatedPopupState({
         key,
         issueData,
+        children,
+        childrenError,
+        childrenSort: DEFAULT_CHILDREN_SORT,
         pullRequests,
         pointerX,
         pointerY,

@@ -18,6 +18,7 @@ export function createContentPopupStateHelpers(options) {
   const normalizeIssueAttachmentImage = options?.normalizeIssueAttachmentImage;
   const normalizeIssueImages = options?.normalizeIssueImages;
   const normalizePullRequests = options?.normalizePullRequests;
+  const normalizePullRequestImages = options?.normalizePullRequestImages;
   const pullRequestCache = options?.pullRequestCache;
   const renderIssuePopup = options?.renderIssuePopup;
   const resolveQuickActions = options?.resolveQuickActions;
@@ -130,6 +131,9 @@ export function createContentPopupStateHelpers(options) {
       try {
         const pullRequestResponse = await getPullRequestDataCached(refreshedIssueData.id);
         refreshedPullRequests = normalizePullRequests(pullRequestResponse);
+        if (typeof normalizePullRequestImages === 'function') {
+          await normalizePullRequestImages(refreshedPullRequests).catch(() => {});
+        }
       } catch (error) {
         refreshedPullRequests = [];
       }

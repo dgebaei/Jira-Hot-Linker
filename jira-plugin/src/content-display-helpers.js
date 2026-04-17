@@ -187,10 +187,91 @@ export function createContentDisplayHelpers(options) {
     };
   }
 
+  function compareNaturalText(left, right) {
+    return String(left || '').localeCompare(String(right || ''), undefined, {
+      numeric: true,
+      sensitivity: 'base'
+    });
+  }
+
+  function buildRelatedUserCellView(user, titlePrefix, emptyLabel = '--') {
+    if (user) {
+      const view = buildUserAvatarView(user, titlePrefix, '--');
+      const displayName = view.displayName || emptyLabel;
+      return {
+        avatarUrl: view.avatarUrl,
+        initials: view.initials || '--',
+        displayName,
+        titleText: `${titlePrefix}: ${displayName}`
+      };
+    }
+    return {
+      avatarUrl: '',
+      initials: '--',
+      displayName: emptyLabel,
+      titleText: `${titlePrefix}: ${emptyLabel}`
+    };
+  }
+
+  function normalizeChildrenSortState(sort) {
+    return {
+      column: ['type', 'key', 'status', 'assignee'].includes(sort?.column)
+        ? sort.column
+        : 'key',
+      direction: sort?.direction === 'desc'
+        ? 'desc'
+        : 'asc'
+    };
+  }
+
+  function buildChildrenSortHeader(sort, column, label, sortLabel = label) {
+    const isActive = sort.column === column;
+    const isAscendingActive = isActive && sort.direction === 'asc';
+    const isDescendingActive = isActive && sort.direction === 'desc';
+    const nextDirection = isActive && sort.direction === 'asc' ? 'desc' : 'asc';
+    return {
+      column,
+      label,
+      ariaSort: isActive
+        ? (sort.direction === 'asc' ? 'ascending' : 'descending')
+        : 'none',
+      isActive,
+      isAscendingActive,
+      isDescendingActive,
+      title: `Sort by ${String(sortLabel || label).toLowerCase()} ${nextDirection === 'asc' ? 'ascending' : 'descending'}`
+    };
+  }
+
+  function compareChildrenRows(left, right, column, direction) {
+    let result = 0;
+    switch (column) {
+      case 'type':
+        result = compareNaturalText(left?.issueTypeName, right?.issueTypeName);
+        break;
+      case 'status':
+        result = compareNaturalText(left?.statusText, right?.statusText);
+        break;
+      case 'assignee':
+        result = compareNaturalText(left?.assigneeView?.displayName, right?.assigneeView?.displayName);
+        break;
+      case 'key':
+      default:
+        result = compareNaturalText(left?.issueKey, right?.issueKey);
+        break;
+    }
+    if (result !== 0) {
+      return direction === 'desc' ? result * -1 : result;
+    }
+    return compareNaturalText(left?.issueKey, right?.issueKey);
+  }
+
   async function buildPopupDisplayData(state) {
     const {
       key,
       issueData,
+      children,
+      childrenError,
+      childrenSort,
       pullRequests,
       actionLoadingKey,
       actionError,
@@ -409,10 +490,42 @@ export function createContentDisplayHelpers(options) {
     const issueUrl = instanceUrl + 'browse/' + key;
     const showDescription = displayFields.description !== false;
     const showAttachments = layoutContentBlocks.includes('attachments');
+    const showChildren = layoutContentBlocks.includes('children');
     const showComments = layoutContentBlocks.includes('comments');
     const showTimeTracking = layoutContentBlocks.includes('timeTracking');
     const visibleCommentsTotal = showComments ? commentsTotal : 0;
     const visibleAttachments = showAttachments ? previewAttachments : [];
+    const normalizedChildrenSort = normalizeChildrenSortState(childrenSort);
+    const childIssues = Array.isArray(children) ? children.filter(Boolean) : [];
+    const childRows = childIssues
+      .map(child => {
+        const issueKey = String(child?.key || '').trim();
+        const summary = String(child?.fields?.summary || issueKey || '');
+        const url = issueKey ? `${instanceUrl}browse/${issueKey}` : '';
+        return {
+          id: child?.id || issueKey,
+          issueKey,
+          summary,
+          issueUrl: url,
+          issueLinkTitle: issueKey
+            ? buildLinkHoverTitle('Open issue in Jira', `[${issueKey}] ${summary}`, url)
+            : '',
+          issueTypeIconUrl: child?.fields?.issuetype?.iconUrl || '',
+          issueTypeName: child?.fields?.issuetype?.name || '--',
+          issueTypeTitle: `Issue type: ${child?.fields?.issuetype?.name || '--'}`,
+          statusText: child?.fields?.status?.name || '--',
+          assigneeView: buildRelatedUserCellView(child?.fields?.assignee, 'Assignee', 'Unassigned')
+        };
+      })
+      .filter(row => row.issueKey)
+      .sort((left, right) => compareChildrenRows(left, right, normalizedChildrenSort.column, normalizedChildrenSort.direction));
+    const childSectionError = String(childrenError || '').trim();
+    const childrenSortHeaders = [
+      buildChildrenSortHeader(normalizedChildrenSort, 'type', 'Type'),
+      buildChildrenSortHeader(normalizedChildrenSort, 'key', 'Key / Summary', 'key'),
+      buildChildrenSortHeader(normalizedChildrenSort, 'status', 'Status'),
+      buildChildrenSortHeader(normalizedChildrenSort, 'assignee', 'Assignee')
+    ];
     const quickActionData = buildQuickActionViewData(actionsOpen, actionLoadingKey, quickActions);
     const reporterView = displayFields.reporter && issueData.fields.reporter
       ? buildUserAvatarView(issueData.fields.reporter, 'Reporter', '--')
@@ -478,6 +591,12 @@ export function createContentDisplayHelpers(options) {
       copyUrl: issueUrl,
       copyTicket: key,
       copyTitle: issueData.fields.summary,
+      childrenRows: [],
+      childrenSortHeaders,
+      childrenErrorText: childSectionError,
+      hasChildrenError: !!childSectionError,
+      hasChildrenRows: childRows.length > 0,
+      showChildrenSection: showChildren && (childRows.length > 0 || !!childSectionError),
       prs: [],
       description: showDescription ? normalizedDescription : '',
       descriptionSection,
@@ -535,6 +654,9 @@ export function createContentDisplayHelpers(options) {
     if (issueData.fields.comment?.comments?.[0]?.id) {
       displayData.commentUrl = `${displayData.url}#comment-${issueData.fields.comment.comments[0].id}`;
     }
+    if (displayData.showChildrenSection) {
+      displayData.childrenRows = childRows;
+    }
     if (showPullRequests && Array.isArray(pullRequests) && pullRequests.length) {
       const filteredPullRequests = pullRequests.filter(pr => pr && pr.url !== location.href);
       displayData.prs = filteredPullRequests.map(pr => ({
@@ -544,7 +666,7 @@ export function createContentDisplayHelpers(options) {
         linkTitle: buildLinkHoverTitle('Open pull request', formatPullRequestTitle(pr), pr.url),
         title: formatPullRequestTitle(pr),
         status: pr.status,
-        authorName: formatPullRequestAuthor(pr),
+        authorView: buildRelatedUserCellView(pr?.author, 'Author', formatPullRequestAuthor(pr)),
         branchText: formatPullRequestBranch(pr)
       }));
     }
