@@ -64,7 +64,7 @@ async function expectMentionMenuNearTextareaCaret(inputLocator, menuLocator) {
   expect(menuBox.y).toBeLessThan(inputBox.y + inputBox.height - 8);
 }
 
-test('renders Jira metadata, comments, attachments, pull requests, and custom fields', async ({extensionApp, optionsPage, servers}) => {
+test('renders Jira metadata, children, comments, attachments, pull requests, and custom fields', async ({extensionApp, optionsPage, servers}) => {
   const target = requireJiraTestTarget(test, servers, {requireAuth: process.env.MOCK === 'false'});
   if (target.mode === 'mock') {
     await servers.jira.setScenario('editable');
@@ -79,8 +79,11 @@ test('renders Jira metadata, comments, attachments, pull requests, and custom fi
     await expect(popup).toContainText('Medium');
     await expect(popup).toContainText('Sprint 42');
     await expect(popup).toContainText('Customer impact: High');
+    await expect(page.locator('[data-content-block="children"]')).toContainText('JRACLOUD-97847');
     await expect(popup).toContainText('Initial comment with a link');
     await expect(popup).toContainText('Fix slash command cursor behavior');
+    await expect(page.locator('[data-content-block="children"] ._JX_related_table_user_avatar').first()).toBeVisible();
+    await expect(page.locator('[data-content-block="pullRequests"] ._JX_related_table_user_avatar').first()).toBeVisible();
     await expect(page.locator('._JX_thumb').first()).toBeVisible();
   } else {
     const issue = await getLiveIssue(resolvedTarget.primaryIssueKey, resolvedTarget);
@@ -95,6 +98,166 @@ test('renders Jira metadata, comments, attachments, pull requests, and custom fi
       await expect(page.locator('._JX_attachment, ._JX_thumb').first()).toBeVisible();
     }
   }
+  await page.close();
+});
+
+test('accepts paginated Jira project responses during popup startup @mock-only', async ({extensionApp, optionsPage, servers}) => {
+  const target = requireJiraTestTarget(test, servers, {requireAuth: process.env.MOCK === 'false'});
+  test.skip(target.mode !== 'mock', 'Project list response-shape coverage is deterministic in mocked mode only.');
+
+  await servers.jira.setScenario('editable');
+  await patchJsonResponse(optionsPage.context(), target.instanceUrl, '/rest/api/2/project(?:\\?.*)?$', payload => ({
+    isLast: true,
+    maxResults: Array.isArray(payload) ? payload.length : 0,
+    startAt: 0,
+    total: Array.isArray(payload) ? payload.length : 0,
+    values: payload,
+  }));
+  await configureExtension(optionsPage, baseConfig(servers, target));
+
+  const resolvedTarget = await resolveTargetIssueKeys(target);
+  const page = await extensionApp.context.newPage();
+  const pageErrors = [];
+  page.on('pageerror', error => {
+    pageErrors.push(error?.message || String(error));
+  });
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write'], {origin: servers.allowedPage.origin});
+  await page.goto(`${servers.allowedPage.origin}/popup-actions`);
+  await replaceIssueKeysOnPage(page, [
+    {from: 'JRACLOUD-97846', to: resolvedTarget.primaryIssueKey},
+    {from: 'JRACLOUD-98123', to: resolvedTarget.secondaryIssueKey},
+  ]);
+  await injectContentScript(extensionApp, page);
+  await expect.poll(async () => page.locator('._JX_container').count()).toBe(1);
+  await hoverIssueKey(page, '#popup-key');
+  await expect(page.locator('._JX_container')).toContainText(resolvedTarget.primaryIssueKey);
+  expect(pageErrors).toEqual([]);
+  await page.close();
+});
+
+test('shows the Children block above pull requests and sorts it from the column headers @mock-only', async ({extensionApp, optionsPage, servers}) => {
+  const target = requireJiraTestTarget(test, servers, {requireAuth: process.env.MOCK === 'false'});
+  test.skip(target.mode !== 'mock', 'Child table ordering and sorting are deterministic in mocked mode only.');
+
+  await servers.jira.setScenario('editable');
+  await configureExtension(optionsPage, baseConfig(servers, target));
+
+  const {page} = await openPopup(extensionApp, servers, target);
+  const blockOrder = await page.locator('._JX_content_blocks [data-content-block]').evaluateAll(nodes => nodes.map(node => node.getAttribute('data-content-block')));
+  expect(blockOrder.indexOf('children')).toBeGreaterThanOrEqual(0);
+  expect(blockOrder.indexOf('pullRequests')).toBeGreaterThanOrEqual(0);
+  expect(blockOrder.indexOf('children')).toBeLessThan(blockOrder.indexOf('pullRequests'));
+
+  const childLinks = page.locator('[data-content-block="children"] tbody tr td:nth-child(2) a');
+  await expect(childLinks).toHaveText([
+    '[JRACLOUD-97847] Stabilize slash command parsing in multiline editor fields',
+    '[JRACLOUD-97848] Handle caret edge cases for slash commands inside nested blocks',
+    '[JRACLOUD-97849] Audit mention command interactions around END key handling',
+  ]);
+
+  await page.locator('button._JX_children_sort[data-sort-column="status"]').click();
+  await expect(childLinks).toHaveText([
+    '[JRACLOUD-97849] Audit mention command interactions around END key handling',
+    '[JRACLOUD-97847] Stabilize slash command parsing in multiline editor fields',
+    '[JRACLOUD-97848] Handle caret edge cases for slash commands inside nested blocks',
+  ]);
+
+  await page.locator('button._JX_children_sort[data-sort-column="status"]').click();
+  await expect(childLinks).toHaveText([
+    '[JRACLOUD-97848] Handle caret edge cases for slash commands inside nested blocks',
+    '[JRACLOUD-97847] Stabilize slash command parsing in multiline editor fields',
+    '[JRACLOUD-97849] Audit mention command interactions around END key handling',
+  ]);
+
+  await page.close();
+});
+
+test('sorts the Pull Requests block from the column headers @mock-only', async ({extensionApp, optionsPage, servers}) => {
+  const target = requireJiraTestTarget(test, servers, {requireAuth: process.env.MOCK === 'false'});
+  test.skip(target.mode !== 'mock', 'Pull request table sorting is deterministic in mocked mode only.');
+
+  await servers.jira.setScenario('editable');
+  await configureExtension(optionsPage, baseConfig(servers, target));
+
+  const {page} = await openPopup(extensionApp, servers, target);
+  const prLinks = page.locator('[data-content-block="pullRequests"] tbody tr td:nth-child(1) a');
+
+  await expect(prLinks).toHaveText([
+    '[pr-2] Add inline custom field editing',
+    '[pr-1] Fix slash command cursor behavior',
+    '[pr-3] Prototype release evidence gallery',
+  ]);
+
+  await page.locator('button._JX_pr_sort[data-sort-column="author"]').click();
+  await expect(prLinks).toHaveText([
+    '[pr-2] Add inline custom field editing',
+    '[pr-3] Prototype release evidence gallery',
+    '[pr-1] Fix slash command cursor behavior',
+  ]);
+
+  await page.locator('button._JX_pr_sort[data-sort-column="author"]').click();
+  await expect(prLinks).toHaveText([
+    '[pr-1] Fix slash command cursor behavior',
+    '[pr-3] Prototype release evidence gallery',
+    '[pr-2] Add inline custom field editing',
+  ]);
+
+  await page.close();
+});
+
+test('sorts comments from the popup header and persists the preference across popup sessions @mock-only', async ({extensionApp, optionsPage, servers}) => {
+  const target = requireJiraTestTarget(test, servers, {requireAuth: process.env.MOCK === 'false'});
+  test.skip(target.mode !== 'mock', 'Comment sorting is deterministic in mocked mode only.');
+
+  await servers.jira.setScenario('editable');
+  await configureExtension(optionsPage, baseConfig(servers, target));
+
+  const {page} = await openPopup(extensionApp, servers, target);
+  const commentAuthors = page.locator('[data-content-block="comments"] ._JX_comment_author');
+  const commentSortToggle = page.getByTestId('jira-popup-comment-sort-toggle');
+
+  await expect(commentSortToggle).toContainText('Oldest first');
+  await expect(commentAuthors).toHaveText([
+    'Alex Reviewer',
+    'Casey Commenter',
+  ]);
+
+  await commentSortToggle.click();
+
+  await expect(commentSortToggle).toContainText('Newest first');
+  await expect(commentAuthors).toHaveText([
+    'Casey Commenter',
+    'Alex Reviewer',
+  ]);
+
+  const storedSortOrder = await optionsPage.evaluate(async () => {
+    const result = await chrome.storage.local.get(['jqv.commentSortOrder']);
+    return result['jqv.commentSortOrder'];
+  });
+  expect(storedSortOrder).toBe('newest');
+
+  await page.close();
+
+  const reopened = await openPopup(extensionApp, servers, target);
+  await expect(reopened.page.getByTestId('jira-popup-comment-sort-toggle')).toContainText('Newest first');
+  await expect(reopened.page.locator('[data-content-block="comments"] ._JX_comment_author')).toHaveText([
+    'Casey Commenter',
+    'Alex Reviewer',
+  ]);
+
+  await reopened.page.close();
+});
+
+test('hides the Children block when the current issue has no immediate children @mock-only', async ({extensionApp, optionsPage, servers}) => {
+  const target = requireJiraTestTarget(test, servers, {requireAuth: process.env.MOCK === 'false'});
+  test.skip(target.mode !== 'mock', 'Empty child coverage is deterministic in mocked mode only.');
+
+  await servers.jira.setScenario('child-issues-empty');
+  await configureExtension(optionsPage, baseConfig(servers, target));
+
+  const {page} = await openPopup(extensionApp, servers, target);
+  await expect(page.locator('[data-content-block="children"]')).toHaveCount(0);
+  await expect(page.locator('[data-content-block="pullRequests"]')).toHaveCount(1);
   await page.close();
 });
 

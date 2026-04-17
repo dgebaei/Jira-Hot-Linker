@@ -26,6 +26,7 @@ export function createContentDisplayHelpers(options) {
   const layoutContentBlocks = options?.layoutContentBlocks || [];
   const loaderGifUrl = options?.loaderGifUrl || '';
   const normalizeIssueTypeOptions = options?.normalizeIssueTypeOptions;
+  const normalizeCommentSortOrder = options?.normalizeCommentSortOrder || (value => value === 'newest' ? 'newest' : 'oldest');
   const normalizeRichHtml = options?.normalizeRichHtml;
   const readSprintsFromIssue = options?.readSprintsFromIssue;
   const resolveIssueLinkage = options?.resolveIssueLinkage;
@@ -187,11 +188,128 @@ export function createContentDisplayHelpers(options) {
     };
   }
 
+  function compareNaturalText(left, right) {
+    return String(left || '').localeCompare(String(right || ''), undefined, {
+      numeric: true,
+      sensitivity: 'base'
+    });
+  }
+
+  function buildRelatedUserCellView(user, titlePrefix, emptyLabel = '--') {
+    if (user) {
+      const view = buildUserAvatarView(user, titlePrefix, '--');
+      const displayName = view.displayName || emptyLabel;
+      return {
+        avatarUrl: view.avatarUrl,
+        initials: view.initials || '--',
+        displayName,
+        titleText: `${titlePrefix}: ${displayName}`
+      };
+    }
+    return {
+      avatarUrl: '',
+      initials: '--',
+      displayName: emptyLabel,
+      titleText: `${titlePrefix}: ${emptyLabel}`
+    };
+  }
+
+  function normalizeChildrenSortState(sort) {
+    return {
+      column: ['type', 'key', 'status', 'assignee'].includes(sort?.column)
+        ? sort.column
+        : 'key',
+      direction: sort?.direction === 'desc'
+        ? 'desc'
+        : 'asc'
+    };
+  }
+
+  function normalizePullRequestsSortState(sort) {
+    return {
+      column: ['title', 'author', 'branch', 'status'].includes(sort?.column)
+        ? sort.column
+        : 'title',
+      direction: sort?.direction === 'desc'
+        ? 'desc'
+        : 'asc'
+    };
+  }
+
+  function buildRelatedTableSortHeader(sort, column, label, sortLabel = label) {
+    const isActive = sort.column === column;
+    const isAscendingActive = isActive && sort.direction === 'asc';
+    const isDescendingActive = isActive && sort.direction === 'desc';
+    const nextDirection = isActive && sort.direction === 'asc' ? 'desc' : 'asc';
+    return {
+      column,
+      label,
+      ariaSort: isActive
+        ? (sort.direction === 'asc' ? 'ascending' : 'descending')
+        : 'none',
+      isActive,
+      isAscendingActive,
+      isDescendingActive,
+      title: `Sort by ${String(sortLabel || label).toLowerCase()} ${nextDirection === 'asc' ? 'ascending' : 'descending'}`
+    };
+  }
+
+  function compareChildrenRows(left, right, column, direction) {
+    let result = 0;
+    switch (column) {
+      case 'type':
+        result = compareNaturalText(left?.issueTypeName, right?.issueTypeName);
+        break;
+      case 'status':
+        result = compareNaturalText(left?.statusText, right?.statusText);
+        break;
+      case 'assignee':
+        result = compareNaturalText(left?.assigneeView?.displayName, right?.assigneeView?.displayName);
+        break;
+      case 'key':
+      default:
+        result = compareNaturalText(left?.issueKey, right?.issueKey);
+        break;
+    }
+    if (result !== 0) {
+      return direction === 'desc' ? result * -1 : result;
+    }
+    return compareNaturalText(left?.issueKey, right?.issueKey);
+  }
+
+  function comparePullRequestRows(left, right, column, direction) {
+    let result = 0;
+    switch (column) {
+      case 'author':
+        result = compareNaturalText(left?.authorView?.displayName, right?.authorView?.displayName);
+        break;
+      case 'branch':
+        result = compareNaturalText(left?.branchText, right?.branchText);
+        break;
+      case 'status':
+        result = compareNaturalText(left?.statusText, right?.statusText);
+        break;
+      case 'title':
+      default:
+        result = compareNaturalText(left?.sortTitleText, right?.sortTitleText);
+        break;
+    }
+    if (result !== 0) {
+      return direction === 'desc' ? result * -1 : result;
+    }
+    return compareNaturalText(left?.title, right?.title);
+  }
+
   async function buildPopupDisplayData(state) {
     const {
       key,
       issueData,
+      children,
+      childrenError,
+      childrenSort,
+      commentSortOrder,
       pullRequests,
+      pullRequestsSort,
       actionLoadingKey,
       actionError,
       lastActionSuccess,
@@ -206,7 +324,13 @@ export function createContentDisplayHelpers(options) {
       attachmentLookup: descriptionAttachmentLookup,
       imageMaxHeight: 180
     });
-    const commentsForDisplay = await buildCommentsForDisplay(issueData, state.commentSession, state.commentReactionState);
+    const normalizedCommentSortOrder = normalizeCommentSortOrder(commentSortOrder);
+    const commentsForDisplay = await buildCommentsForDisplay(
+      issueData,
+      state.commentSession,
+      state.commentReactionState,
+      normalizedCommentSortOrder
+    );
     const fixVersions = issueData.fields.fixVersions || [];
     const affectsVersions = issueData.fields.versions || [];
     const sprints = readSprintsFromIssue(issueData);
@@ -409,10 +533,49 @@ export function createContentDisplayHelpers(options) {
     const issueUrl = instanceUrl + 'browse/' + key;
     const showDescription = displayFields.description !== false;
     const showAttachments = layoutContentBlocks.includes('attachments');
+    const showChildren = layoutContentBlocks.includes('children');
     const showComments = layoutContentBlocks.includes('comments');
     const showTimeTracking = layoutContentBlocks.includes('timeTracking');
     const visibleCommentsTotal = showComments ? commentsTotal : 0;
     const visibleAttachments = showAttachments ? previewAttachments : [];
+    const normalizedChildrenSort = normalizeChildrenSortState(childrenSort);
+    const normalizedPullRequestsSort = normalizePullRequestsSortState(pullRequestsSort);
+    const childIssues = Array.isArray(children) ? children.filter(Boolean) : [];
+    const childRows = childIssues
+      .map(child => {
+        const issueKey = String(child?.key || '').trim();
+        const summary = String(child?.fields?.summary || issueKey || '');
+        const url = issueKey ? `${instanceUrl}browse/${issueKey}` : '';
+        return {
+          id: child?.id || issueKey,
+          issueKey,
+          summary,
+          issueUrl: url,
+          issueLinkTitle: issueKey
+            ? buildLinkHoverTitle('Open issue in Jira', `[${issueKey}] ${summary}`, url)
+            : '',
+          issueTypeIconUrl: child?.fields?.issuetype?.iconUrl || '',
+          issueTypeName: child?.fields?.issuetype?.name || '--',
+          issueTypeTitle: `Issue type: ${child?.fields?.issuetype?.name || '--'}`,
+          statusText: child?.fields?.status?.name || '--',
+          assigneeView: buildRelatedUserCellView(child?.fields?.assignee, 'Assignee', 'Unassigned')
+        };
+      })
+      .filter(row => row.issueKey)
+      .sort((left, right) => compareChildrenRows(left, right, normalizedChildrenSort.column, normalizedChildrenSort.direction));
+    const childSectionError = String(childrenError || '').trim();
+    const childrenSortHeaders = [
+      buildRelatedTableSortHeader(normalizedChildrenSort, 'type', 'Type'),
+      buildRelatedTableSortHeader(normalizedChildrenSort, 'key', 'Key / Summary', 'key'),
+      buildRelatedTableSortHeader(normalizedChildrenSort, 'status', 'Status'),
+      buildRelatedTableSortHeader(normalizedChildrenSort, 'assignee', 'Assignee')
+    ];
+    const prSortHeaders = [
+      buildRelatedTableSortHeader(normalizedPullRequestsSort, 'title', 'Title'),
+      buildRelatedTableSortHeader(normalizedPullRequestsSort, 'author', 'Author'),
+      buildRelatedTableSortHeader(normalizedPullRequestsSort, 'branch', 'Branch'),
+      buildRelatedTableSortHeader(normalizedPullRequestsSort, 'status', 'Status')
+    ];
     const quickActionData = buildQuickActionViewData(actionsOpen, actionLoadingKey, quickActions);
     const reporterView = displayFields.reporter && issueData.fields.reporter
       ? buildUserAvatarView(issueData.fields.reporter, 'Reporter', '--')
@@ -478,7 +641,14 @@ export function createContentDisplayHelpers(options) {
       copyUrl: issueUrl,
       copyTicket: key,
       copyTitle: issueData.fields.summary,
+      childrenRows: [],
+      childrenSortHeaders,
+      childrenErrorText: childSectionError,
+      hasChildrenError: !!childSectionError,
+      hasChildrenRows: childRows.length > 0,
+      showChildrenSection: showChildren && (childRows.length > 0 || !!childSectionError),
       prs: [],
+      prSortHeaders,
       description: showDescription ? normalizedDescription : '',
       descriptionSection,
       hasBodyContent: true,
@@ -487,6 +657,13 @@ export function createContentDisplayHelpers(options) {
         : '',
       attachments,
       previewAttachments: visibleAttachments,
+      commentSortToggleAriaPressed: normalizedCommentSortOrder === 'newest' ? 'true' : 'false',
+      commentSortToggleLabel: normalizedCommentSortOrder === 'newest' ? 'Newest first' : 'Oldest first',
+      commentSortToggleIsNewest: normalizedCommentSortOrder === 'newest',
+      commentSortToggleIsOldest: normalizedCommentSortOrder !== 'newest',
+      commentSortToggleTitle: normalizedCommentSortOrder === 'newest'
+        ? 'Switch to oldest comments first'
+        : 'Switch to newest comments first',
       commentsForDisplay: showComments ? commentsForDisplay : [],
       showCommentsSection: showComments || commentsForDisplay.length > 0,
       showCommentComposer: showComments,
@@ -535,18 +712,25 @@ export function createContentDisplayHelpers(options) {
     if (issueData.fields.comment?.comments?.[0]?.id) {
       displayData.commentUrl = `${displayData.url}#comment-${issueData.fields.comment.comments[0].id}`;
     }
+    if (displayData.showChildrenSection) {
+      displayData.childrenRows = childRows;
+    }
     if (showPullRequests && Array.isArray(pullRequests) && pullRequests.length) {
       const filteredPullRequests = pullRequests.filter(pr => pr && pr.url !== location.href);
-      displayData.prs = filteredPullRequests.map(pr => ({
-        id: pr.id,
-        url: pr.url,
-        linkUrl: pr.url,
-        linkTitle: buildLinkHoverTitle('Open pull request', formatPullRequestTitle(pr), pr.url),
-        title: formatPullRequestTitle(pr),
-        status: pr.status,
-        authorName: formatPullRequestAuthor(pr),
-        branchText: formatPullRequestBranch(pr)
-      }));
+      displayData.prs = filteredPullRequests
+        .map(pr => ({
+          id: pr.id,
+          url: pr.url,
+          linkUrl: pr.url,
+          linkTitle: buildLinkHoverTitle('Open pull request', formatPullRequestTitle(pr), pr.url),
+          title: formatPullRequestTitle(pr),
+          sortTitleText: pr?.name || pr?.title || formatPullRequestTitle(pr),
+          status: pr.status,
+          statusText: pr.status || '--',
+          authorView: buildRelatedUserCellView(pr?.author, 'Author', formatPullRequestAuthor(pr)),
+          branchText: formatPullRequestBranch(pr)
+        }))
+        .sort((left, right) => comparePullRequestRows(left, right, normalizedPullRequestsSort.column, normalizedPullRequestsSort.direction));
     }
     displayData.activityIndicators = buildActivityIndicators();
     displayData.hasRow1Meta = !!displayData.watchersTrigger || displayData.activityIndicators.length > 0;

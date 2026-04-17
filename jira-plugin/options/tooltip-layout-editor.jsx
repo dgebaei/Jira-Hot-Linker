@@ -42,6 +42,7 @@ const CONTENT_BLOCK_KEYS = [
   { key: 'description', label: 'Description', required: true },
   { key: 'attachments', label: 'Attachments' },
   { key: 'comments', label: 'Comments' },
+  { key: 'children', label: 'Children' },
   { key: 'pullRequests', label: 'Pull Requests' },
   { key: 'timeTracking', label: 'Time Tracking' }
 ];

@@ -54,7 +54,7 @@ test('keeps core issue rendering when pull request endpoints fail', async ({exte
   const {page, target: resolvedTarget} = await openPopup(extensionApp, servers, target);
   const popup = page.locator('._JX_container');
   await expect(popup).toContainText(resolvedTarget.primaryIssueKey);
-  await expect(page.locator('._JX_related_pr')).toHaveCount(0);
+  await expect(page.locator('._JX_related_table_pr')).toHaveCount(0);
   await page.close();
 });
 
@@ -70,6 +70,22 @@ test('keeps the popup usable when pull request payloads are malformed', async ({
   const {page, target: resolvedTarget} = await openPopup(extensionApp, servers, target);
   const popup = page.locator('._JX_container');
   await expect(popup).toContainText(resolvedTarget.primaryIssueKey);
+  await page.close();
+});
+
+test('shows a Children block error when child issue lookup fails', async ({extensionApp, optionsPage, servers}) => {
+  const target = requireJiraTestTarget(test, servers, {requireAuth: process.env.MOCK === 'false'});
+  if (target.mode === 'mock') {
+    await servers.jira.setScenario('child-issues-fail');
+  } else {
+    await failWithJson(extensionApp.context, target.instanceUrl, '/rest/api/(?:2/search|3/search/jql|latest/search)(?:\\?.*)?$', 500, {errorMessages: ['Could not load child issues']});
+  }
+  await configureExtension(optionsPage, baseConfig(servers, target));
+
+  const {page, target: resolvedTarget} = await openPopup(extensionApp, servers, target);
+  const popup = page.locator('._JX_container');
+  await expect(popup).toContainText(resolvedTarget.primaryIssueKey);
+  await expect(page.locator('[data-content-block="children"]')).toContainText(/Could not load child issues|HTTP 500/);
   await page.close();
 });
 

@@ -4,7 +4,7 @@ import debounce from 'lodash/debounce';
 import regexEscape from 'escape-string-regexp';
 import Mustache from 'mustache';
 import {waitForDocument} from 'src/utils';
-import {sendMessage, storageGet, storageSet} from 'src/chrome';
+import {sendMessage, storageGet, storageSet, storageLocalGet, storageLocalSet} from 'src/chrome';
 import {snackBar} from 'src/snack';
 import {createContentAttachmentHelpers} from 'src/content-attachment-helpers';
 import {createContentFieldCapabilityHelpers} from 'src/content-field-capability-helpers';
@@ -21,7 +21,7 @@ import {positionMentionMenuAtCaret} from 'src/mention-menu-positioning';
 import {createPopupEditing} from 'src/popup-editing';
 import {createPopupQuickActions} from 'src/popup-quick-actions';
 import {createPopupCommentComposer} from 'src/popup-comment-composer';
-import {isEpicLinkField, isSprintField} from 'src/jira-issue-helpers';
+import {buildJiraSearchRequestUrls, isEpicLinkField, isParentLinkField, isSprintField} from 'src/jira-issue-helpers';
 import config from 'options/config.js';
 import {DEFAULT_THEME_MODE, syncDocumentTheme} from 'src/theme';
 const {
@@ -66,6 +66,83 @@ function getEpicLinkFieldIds(instanceUrl) {
   return getFieldIdsByFilter(instanceUrl, isEpicLinkField);
 }
 
+function getParentLinkFieldIds(instanceUrl) {
+  return getFieldIdsByFilter(instanceUrl, isParentLinkField);
+}
+
+const DEFAULT_CHILDREN_SORT = Object.freeze({
+  column: 'key',
+  direction: 'asc'
+});
+
+const DEFAULT_PULL_REQUESTS_SORT = Object.freeze({
+  column: 'title',
+  direction: 'asc'
+});
+
+const DEFAULT_COMMENT_SORT_ORDER = 'oldest';
+const COMMENT_SORT_ORDER_STORAGE_KEY = 'jqv.commentSortOrder';
+
+function normalizeChildrenSort(sort) {
+  const column = ['type', 'key', 'status', 'assignee'].includes(sort?.column)
+    ? sort.column
+    : DEFAULT_CHILDREN_SORT.column;
+  const direction = sort?.direction === 'desc'
+    ? 'desc'
+    : DEFAULT_CHILDREN_SORT.direction;
+  return {column, direction};
+}
+
+function toggleChildrenSort(sort, column) {
+  const currentSort = normalizeChildrenSort(sort);
+  if (currentSort.column === column) {
+    return {
+      column,
+      direction: currentSort.direction === 'asc' ? 'desc' : 'asc'
+    };
+  }
+  return {
+    column,
+    direction: 'asc'
+  };
+}
+
+function normalizePullRequestsSort(sort) {
+  const column = ['title', 'author', 'branch', 'status'].includes(sort?.column)
+    ? sort.column
+    : DEFAULT_PULL_REQUESTS_SORT.column;
+  const direction = sort?.direction === 'desc'
+    ? 'desc'
+    : DEFAULT_PULL_REQUESTS_SORT.direction;
+  return {column, direction};
+}
+
+function togglePullRequestsSort(sort, column) {
+  const currentSort = normalizePullRequestsSort(sort);
+  if (currentSort.column === column) {
+    return {
+      column,
+      direction: currentSort.direction === 'asc' ? 'desc' : 'asc'
+    };
+  }
+  return {
+    column,
+    direction: 'asc'
+  };
+}
+
+function normalizeCommentSortOrder(sortOrder) {
+  return sortOrder === 'newest'
+    ? 'newest'
+    : DEFAULT_COMMENT_SORT_ORDER;
+}
+
+function toggleCommentSortOrder(sortOrder) {
+  return normalizeCommentSortOrder(sortOrder) === 'newest'
+    ? 'oldest'
+    : 'newest';
+}
+
 // ── Jira Key Matching ───────────────────────────────────────────
 
 function buildRegexMatcher(regex) {
@@ -103,6 +180,16 @@ function buildJiraKeyMatcher(projectKeys) {
 
 function buildFallbackJiraKeyMatcher() {
   return buildRegexMatcher(new RegExp(FALLBACK_JIRA_KEY_PATTERN, 'g'));
+}
+
+function normalizeJiraProjectsResponse(response) {
+  if (Array.isArray(response)) {
+    return response;
+  }
+  if (Array.isArray(response?.values)) {
+    return response.values;
+  }
+  return [];
 }
 
 // ── Tips & Notifications ────────────────────────────────────────
@@ -253,6 +340,14 @@ async function mainAsyncLocal() {
 
   const config = await getConfig();
   const INSTANCE_URL = config.instanceUrl;
+  const storedCommentSortState = await storageLocalGet({
+    [COMMENT_SORT_ORDER_STORAGE_KEY]: DEFAULT_COMMENT_SORT_ORDER
+  }).catch(() => ({
+    [COMMENT_SORT_ORDER_STORAGE_KEY]: DEFAULT_COMMENT_SORT_ORDER
+  }));
+  let commentSortOrderPreference = normalizeCommentSortOrder(
+    storedCommentSortState[COMMENT_SORT_ORDER_STORAGE_KEY]
+  );
   if (window.top === window && !window.__JX_pageDiagnosticsLogged) {
     window.__JX_pageDiagnosticsLogged = true;
     const extensionVersion = chrome.runtime?.getManifest?.()?.version || '';
@@ -292,6 +387,7 @@ async function mainAsyncLocal() {
     attachments: false,
     comments: true,
     description: true,
+    children: true,
     reporter: true,
     assignee: true,
     pullRequests: true,
@@ -302,15 +398,16 @@ async function mainAsyncLocal() {
     row1: ['issueType', 'status', 'priority'],
     row2: ['epicParent', 'sprint', 'affects', 'fixVersions'],
     row3: ['environment', 'labels'],
-    contentBlocks: ['description', 'timeTracking', 'pullRequests', 'comments'],
+    contentBlocks: ['description', 'timeTracking', 'children', 'pullRequests', 'comments'],
     people: ['reporter', 'assignee']
   };
-  const defaultContentBlocks = ['description', 'timeTracking', 'pullRequests', 'comments'];
+  const defaultContentBlocks = ['description', 'timeTracking', 'children', 'pullRequests', 'comments'];
   const layoutContentBlocks = (tooltipLayout.contentBlocks || defaultContentBlocks)
     .filter(k => displayFields[k] !== false);
   if (displayFields.description !== false && !layoutContentBlocks.includes('description')) {
     layoutContentBlocks.unshift('description');
   }
+  const showChildren = layoutContentBlocks.includes('children');
   const showPullRequests = layoutContentBlocks.includes('pullRequests');
   const hoverDepth = config.hoverDepth || 'exact';
   const hoverModifierKey = config.hoverModifierKey || 'any';
@@ -329,7 +426,7 @@ async function mainAsyncLocal() {
   });
 
   try {
-    jiraProjects = await get(await getInstanceUrl() + 'rest/api/2/project');
+    jiraProjects = normalizeJiraProjectsResponse(await get(await getInstanceUrl() + 'rest/api/2/project'));
   } catch (ex) {
     // Keep hover support alive offline; only notify on explicit hover fetch failures.
   }
@@ -345,6 +442,7 @@ async function mainAsyncLocal() {
   const imageProxyCache = {};
   const cacheTtlMs = 60 * 1000;
   const issueCache = new Map();
+  const childIssueCache = new Map();
   const pullRequestCache = new Map();
   const changelogCache = new Map();
   const fieldOptionsCache = new Map();
@@ -568,6 +666,7 @@ async function mainAsyncLocal() {
     normalizeIssueAttachmentImage,
     normalizeIssueImages,
     normalizePullRequests,
+    normalizePullRequestImages,
     pullRequestCache,
     renderIssuePopup,
     resolveQuickActions,
@@ -635,13 +734,11 @@ async function mainAsyncLocal() {
 
   const {
     applyCommentMentionSelection,
-    buildOptimisticCommentBodyHtml,
     captureCommentComposerDraft,
     clearCommentUploads,
     discardCommentComposerDraft,
     getClipboardImageFiles,
     getCommentComposerElements,
-    getUploadedCommentAttachments,
     hasCommentUploadInFlight,
     moveCommentMentionSelection,
     renderCommentMentionSuggestions,
@@ -865,39 +962,46 @@ async function mainAsyncLocal() {
     return attachment;
   }
 
+  function queueAvatarNormalization(imageLoads, field) {
+    const avatarUrl = field?.avatarUrls?.['48x48'] || field?.avatarUrl || '';
+    if (!avatarUrl) {
+      return;
+    }
+    imageLoads.push(
+      getDisplayImageUrl(avatarUrl).then(src => {
+        if (!field || typeof field !== 'object') {
+          return;
+        }
+        field.avatarUrls = field.avatarUrls || {};
+        field.avatarUrls['48x48'] = src;
+        field.avatarUrl = src;
+      })
+    );
+  }
+
+  function queueIconNormalization(imageLoads, field) {
+    if (!field?.iconUrl) {
+      return;
+    }
+    imageLoads.push(
+      getDisplayImageUrl(field.iconUrl).then(src => {
+        field.iconUrl = src;
+      })
+    );
+  }
+
   async function normalizeIssueImages(issueData) {
     const imageLoads = [];
 
-    const maybeNormalizeAvatar = field => {
-      const avatarUrl = field && field.avatarUrls && field.avatarUrls['48x48'];
-      if (avatarUrl) {
-        imageLoads.push(
-          getDisplayImageUrl(avatarUrl).then(src => {
-            field.avatarUrls['48x48'] = src;
-          })
-        );
-      }
-    };
-
-    const maybeNormalizeIcon = field => {
-      if (field && field.iconUrl) {
-        imageLoads.push(
-          getDisplayImageUrl(field.iconUrl).then(src => {
-            field.iconUrl = src;
-          })
-        );
-      }
-    };
-
-    maybeNormalizeAvatar(issueData.fields.reporter);
-    maybeNormalizeAvatar(issueData.fields.assignee);
-    maybeNormalizeIcon(issueData.fields.issuetype);
-    maybeNormalizeIcon(issueData.fields.status);
-    maybeNormalizeIcon(issueData.fields.priority);
+    queueAvatarNormalization(imageLoads, issueData.fields.reporter);
+    queueAvatarNormalization(imageLoads, issueData.fields.assignee);
+    queueIconNormalization(imageLoads, issueData.fields.issuetype);
+    queueIconNormalization(imageLoads, issueData.fields.status);
+    queueIconNormalization(imageLoads, issueData.fields.priority);
 
     // Normalize comment author avatars
     (issueData.fields.comment?.comments || []).forEach(comment => {
-      maybeNormalizeAvatar(comment.author);
+      queueAvatarNormalization(imageLoads, comment.author);
     });
 
     // Normalize custom field user avatars
@@ -907,12 +1011,12 @@ async function mainAsyncLocal() {
       }
       const fieldValue = issueData.fields[fieldKey];
       if (fieldValue && typeof fieldValue === 'object' && fieldValue.avatarUrls) {
-        maybeNormalizeAvatar(fieldValue);
+        queueAvatarNormalization(imageLoads, fieldValue);
       }
       if (Array.isArray(fieldValue)) {
         fieldValue.forEach(entry => {
           if (entry && typeof entry === 'object' && entry.avatarUrls) {
-            maybeNormalizeAvatar(entry);
+            queueAvatarNormalization(imageLoads, entry);
           }
         });
       }
@@ -922,6 +1026,23 @@ async function mainAsyncLocal() {
       imageLoads.push(normalizeIssueAttachmentImage(attachment));
     });
 
+    await Promise.all(imageLoads);
+  }
+
+  async function normalizeChildIssueImages(childIssues) {
+    const imageLoads = [];
+    (Array.isArray(childIssues) ? childIssues : []).forEach(issue => {
+      queueIconNormalization(imageLoads, issue?.fields?.issuetype);
+      queueAvatarNormalization(imageLoads, issue?.fields?.assignee);
+    });
+    await Promise.all(imageLoads);
+  }
+
+  async function normalizePullRequestImages(pullRequests) {
+    const imageLoads = [];
+    (Array.isArray(pullRequests) ? pullRequests : []).forEach(pr => {
+      queueAvatarNormalization(imageLoads, pr?.author);
+    });
     await Promise.all(imageLoads);
   }
 
@@ -1740,10 +1861,20 @@ async function mainAsyncLocal() {
 
   // ── Comments ──────────────────────────────────────────────
 
-  async function buildCommentsForDisplay(issueData, commentSession = null, reactionState = popupState?.commentReactionState) {
+  async function buildCommentsForDisplay(
+    issueData,
+    commentSession = null,
+    reactionState = popupState?.commentReactionState,
+    commentSortOrder = popupState?.commentSortOrder
+  ) {
     const issueKey = issueData?.key || '';
+    const normalizedCommentSortOrder = normalizeCommentSortOrder(commentSortOrder);
     const comments = [...(issueData.fields.comment?.comments || [])].sort((a, b) => {
-      return new Date(a.created).getTime() - new Date(b.created).getTime();
+      const leftTimestamp = new Date(a.created).getTime();
+      const rightTimestamp = new Date(b.created).getTime();
+      return normalizedCommentSortOrder === 'newest'
+        ? rightTimestamp - leftTimestamp
+        : leftTimestamp - rightTimestamp;
     });
     const renderedById = {};
     const attachmentLookup = buildHistoryAttachmentLookup(issueData?.fields?.attachment || []);
@@ -1950,18 +2081,6 @@ async function mainAsyncLocal() {
   }
 
 
-  function updateCommentActivityCount(delta) {
-    const activityItem = container.find('._JX_activity_item').eq(1);
-    if (!activityItem.length) {
-      return;
-    }
-    const countNode = activityItem.find('strong');
-    const currentCount = Number(countNode.text()) || 0;
-    const nextCount = Math.max(0, currentCount + delta);
-    countNode.text(String(nextCount));
-    activityItem.attr('title', `${nextCount} comments`);
-  }
-
   function setCommentReactionEntry(commentId, emojiId, changes) {
     if (!popupState) {
       return;
@@ -2099,76 +2218,6 @@ async function mainAsyncLocal() {
     }
   }
 
-  async function appendCommentToPopup(savedComment, commentText, uploadedAttachments = []) {
-    const commentsRoot = container.find('._JX_comments');
-    if (!commentsRoot.length) {
-      return;
-    }
-
-    commentsRoot.find('._JX_comments_empty').remove();
-    container.find('._JX_empty_body').remove();
-    const issueKey = activeCommentContext?.issueKey || popupState?.issueData?.key || '';
-    const issueSummary = popupState?.issueData?.fields?.summary || '';
-    const currentUser = await getCurrentUserInfo().catch(() => ({displayName: 'You'}));
-    const bodyHtml = await buildOptimisticCommentBodyHtml(commentText || '', uploadedAttachments);
-    const commentId = String(savedComment?.id || '');
-    const commentPermalink = buildCommentPermalink(issueKey, commentId);
-    const commentLinkTitleText = `[${issueKey}] ${issueSummary}`.trim();
-    const reactionUi = buildCommentReactionUi(commentId);
-    const authorUser = savedComment?.author || currentUser;
-    const authorView = buildUserView(authorUser);
-    const authorAvatarHtml = authorView.avatarUrl
-      ? `<img class="_JX_comment_author_avatar" src="${escapeHtml(authorView.avatarUrl)}" alt="">`
-      : `<span class="_JX_comment_author_avatar _JX_comment_author_avatar_placeholder">${escapeHtml(authorView.initials)}</span>`;
-    const commentHtml = `
-      <div class="_JX_comment" data-comment-id="${escapeHtml(commentId)}">
-        <div class="_JX_comment_meta">
-          <span class="_JX_comment_meta_main">${authorAvatarHtml}<span class="_JX_comment_author">${escapeHtml(authorView.displayName || 'You')}</span> | <a class="_JX_comment_time" href="${escapeHtml(commentPermalink)}" target="_blank" rel="noopener noreferrer" title="${escapeHtml(buildLinkHoverTitle('Open comment in Jira', commentLinkTitleText, commentPermalink))}">Just now</a><button class="_JX_comment_meta_icon_button _JX_copy_link" type="button" title="${escapeHtml(buildLinkHoverTitle('Copy comment link', commentLinkTitleText, commentPermalink))}" aria-label="${escapeHtml(buildLinkHoverTitle('Copy comment link', commentLinkTitleText, commentPermalink))}" data-url="${escapeHtml(commentPermalink)}" data-ticket="${escapeHtml(issueKey)}" data-title="${escapeHtml(commentLinkTitleText)}"><svg width="14" height="14" viewBox="0 0 24 24" focusable="false" role="presentation"><g fill="currentColor"><path d="M10 19h8V8h-8v11zM8 7.992C8 6.892 8.902 6 10.009 6h7.982C19.101 6 20 6.893 20 7.992v11.016c0 1.1-.902 1.992-2.009 1.992H10.01A2.001 2.001 0 0 1 8 19.008V7.992z"></path><path d="M5 16V4.992C5 3.892 5.902 3 7.009 3H15v13H5zm2 0h8V5H7v11z"></path></g></svg></button></span>
-          <span class="_JX_comment_meta_actions">
-            <button class="_JX_comment_meta_button _JX_comment_edit_button" type="button" data-comment-id="${escapeHtml(commentId)}">Edit</button>
-            <button class="_JX_comment_meta_button _JX_comment_delete_button" type="button" data-comment-id="${escapeHtml(commentId)}">Delete</button>
-          </span>
-          ${reactionUi.hasReactionOptions ? `
-            <div class="_JX_comment_reactions">
-              <div class="_JX_comment_reaction_bar">
-                ${reactionUi.reactionPills.map(pill => `
-                  <button class="_JX_comment_reaction_pill${pill.reacted ? ' is-reacted' : ''}${pill.pending ? ' is-pending' : ''}" type="button" data-comment-id="${escapeHtml(pill.commentId)}" data-emoji-id="${escapeHtml(pill.emojiId)}" title="${escapeHtml(pill.title)}" aria-label="${escapeHtml(pill.title)}" ${pill.disabledAttr}>
-                    <span class="_JX_comment_reaction_emoji" aria-hidden="true">${escapeHtml(pill.emoji)}</span>
-                    <span class="_JX_comment_reaction_count">${pill.count}</span>
-                  </button>
-                `).join('')}
-                <details class="_JX_comment_reaction_dropdown">
-                  <summary class="_JX_comment_reaction_more" aria-label="Add reaction" title="Add reaction">
-                    <svg class="_JX_comment_reaction_more_icon" width="16" height="16" viewBox="0 0 24 24" focusable="false" aria-hidden="true">
-                      <path fill="currentColor" d="M12 2.75c5.11 0 9.25 4.14 9.25 9.25S17.11 21.25 12 21.25 2.75 17.11 2.75 12 6.89 2.75 12 2.75zm0 1.5A7.75 7.75 0 1 0 19.75 12 7.75 7.75 0 0 0 12 4.25zm-2.5 6.5a1.1 1.1 0 1 1 0 2.2 1.1 1.1 0 0 1 0-2.2zm5 0a1.1 1.1 0 1 1 0 2.2 1.1 1.1 0 0 1 0-2.2zm-5.04 4.03a.75.75 0 0 1 1.05.11 1.93 1.93 0 0 0 2.98 0 .75.75 0 0 1 1.16.95 3.43 3.43 0 0 1-5.3 0 .75.75 0 0 1 .11-1.06z"></path>
-                      <path fill="currentColor" d="M18.5 4.5a.75.75 0 0 1 .75.75V7h1.75a.75.75 0 0 1 0 1.5h-1.75v1.75a.75.75 0 0 1-1.5 0V8.5H16a.75.75 0 0 1 0-1.5h1.75V5.25a.75.75 0 0 1 .75-.75z"></path>
-                    </svg>
-                  </summary>
-                  <div class="_JX_comment_reaction_menu">
-                    ${reactionUi.menuReactionOptions.map(option => `
-                      <button class="_JX_comment_reaction_button${option.isReacted ? ' is-reacted' : ''}${option.isPending ? ' is-pending' : ''}" type="button" data-comment-id="${escapeHtml(option.commentId)}" data-emoji-id="${escapeHtml(option.emojiId)}" title="${escapeHtml(option.title)}" aria-label="${escapeHtml(option.title)}" ${option.disabledAttr}>
-                        <span class="_JX_comment_reaction_emoji" aria-hidden="true">${escapeHtml(option.emoji)}</span>
-                      </button>
-                    `).join('')}
-                  </div>
-                </details>
-              </div>
-            </div>
-          ` : ''}
-        </div>
-        <div class="_JX_comment_body">${bodyHtml}</div>
-      </div>
-    `;
-
-    const commentList = commentsRoot.find('._JX_comment_list');
-    if (commentList.length) {
-      commentList.append(commentHtml);
-    } else {
-      commentsRoot.append(`<div class="_JX_comment_list">${commentHtml}</div>`);
-    }
-    updateCommentActivityCount(1);
-  }
-
   function addSavedCommentToPopupState(savedComment, commentText, fallbackAuthor = null) {
     if (!popupState?.issueData?.fields) {
       return;
@@ -2228,7 +2277,6 @@ async function mainAsyncLocal() {
     syncCommentComposerState();
 
     try {
-      const uploadedAttachments = getUploadedCommentAttachments();
       const currentUser = await getCurrentUserInfo().catch(() => ({displayName: 'You'}));
       const requestBody = restoreEditableCommentMentions(commentText, commentComposerMentionMappings);
       const savedComment = await requestJson('POST', `${INSTANCE_URL}rest/api/2/issue/${commentIssueKey}/comment`, {
@@ -2239,17 +2287,16 @@ async function mainAsyncLocal() {
       if (isSameIssueStillVisible) {
         addSavedCommentToPopupState(savedComment, requestBody, currentUser);
         setCachedValue(issueCache, commentIssueKey, popupState?.issueData);
-        await appendCommentToPopup(savedComment, requestBody, uploadedAttachments);
         elements.input.val('');
+        elements.root.attr('data-saving', 'false');
         commentComposerDraftValue = '';
         commentComposerMentionMappings = [];
         commentComposerHadFocus = false;
         commentComposerSelectionStart = 0;
         commentComposerSelectionEnd = 0;
         await clearCommentUploads({deleteUploaded: false});
-        elements.root.attr('data-saving', 'false');
         setCommentComposerError('');
-        syncCommentComposerState();
+        await renderIssuePopup(popupState);
       } else {
         issueCache.delete(commentIssueKey);
       }
@@ -2665,6 +2712,116 @@ async function mainAsyncLocal() {
 
   function getPullRequestSummaryData(issueId) {
     return get(`${INSTANCE_URL}rest/dev-status/1.0/issue/summary?issueId=${issueId}`);
+  }
+
+  function encodeChildIssueJqlValue(value) {
+    return `"${String(value || '').replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
+  }
+
+  function buildCustomFieldIssueSearchClause(fieldId, issueKey) {
+    const match = String(fieldId || '').match(/^customfield_(\d+)$/i);
+    if (!match?.[1]) {
+      return '';
+    }
+    return `cf[${match[1]}] = ${encodeChildIssueJqlValue(issueKey)}`;
+  }
+
+  async function searchIssuesByJql(jql, fields = []) {
+    let response = null;
+    let lastError = null;
+    const requestUrls = buildJiraSearchRequestUrls(INSTANCE_URL, {
+      maxResults: 100,
+      fields,
+      jql,
+    });
+
+    for (const requestUrl of requestUrls) {
+      try {
+        response = await get(requestUrl);
+        break;
+      } catch (error) {
+        lastError = error;
+      }
+    }
+
+    if (!response) {
+      throw lastError || new Error('Issue search failed');
+    }
+
+    return Array.isArray(response?.issues)
+      ? response.issues.filter(Boolean)
+      : [];
+  }
+
+  function dedupeIssuesByKey(issues) {
+    const seenKeys = new Set();
+    return (Array.isArray(issues) ? issues : []).filter(issue => {
+      const issueKey = String(issue?.key || '').trim();
+      if (!issueKey || seenKeys.has(issueKey)) {
+        return false;
+      }
+      seenKeys.add(issueKey);
+      return true;
+    });
+  }
+
+  async function getChildIssues(issueData) {
+    const issueKey = String(issueData?.key || '').trim();
+    if (!issueKey) {
+      return [];
+    }
+
+    return getCachedValue(childIssueCache, issueKey, async () => {
+      const searchFields = ['summary', 'issuetype', 'status', 'assignee'];
+      let directSearchError = null;
+      let directChildren = [];
+
+      try {
+        directChildren = await searchIssuesByJql(`parent = ${encodeChildIssueJqlValue(issueKey)}`, searchFields);
+      } catch (error) {
+        directSearchError = error;
+      }
+
+      if (directChildren.length) {
+        return dedupeIssuesByKey(directChildren);
+      }
+
+      const [epicLinkFieldIds, parentLinkFieldIds] = await Promise.all([
+        getEpicLinkFieldIds(INSTANCE_URL).catch(() => []),
+        getParentLinkFieldIds(INSTANCE_URL).catch(() => []),
+      ]);
+      const fallbackJqls = [...epicLinkFieldIds, ...parentLinkFieldIds]
+        .map(fieldId => buildCustomFieldIssueSearchClause(fieldId, issueKey))
+        .filter(Boolean);
+
+      if (!fallbackJqls.length) {
+        if (directSearchError) {
+          throw directSearchError;
+        }
+        return [];
+      }
+
+      const fallbackChildren = [];
+      let fallbackSearchError = null;
+      let fallbackSucceeded = false;
+      for (const jql of fallbackJqls) {
+        try {
+          fallbackChildren.push(...(await searchIssuesByJql(jql, searchFields)));
+          fallbackSucceeded = true;
+        } catch (error) {
+          fallbackSearchError = error;
+        }
+      }
+
+      if (!fallbackSucceeded && directSearchError) {
+        throw directSearchError;
+      }
+      if (!fallbackSucceeded && fallbackSearchError) {
+        throw fallbackSearchError;
+      }
+
+      return dedupeIssuesByKey(fallbackChildren);
+    });
   }
 
   async function probeDevStatusEndpoints(issueId) {
@@ -4693,6 +4850,7 @@ async function mainAsyncLocal() {
     instanceUrl: INSTANCE_URL,
     layoutContentBlocks,
     loaderGifUrl,
+    normalizeCommentSortOrder,
     normalizeIssueTypeOptions,
     normalizeRichHtml,
     readSprintsFromIssue,
@@ -5557,6 +5715,7 @@ async function mainAsyncLocal() {
           try {
             const pullRequestResponse = await getPullRequestDataCached(refreshedIssueData.id);
             refreshedPullRequests = normalizePullRequests(pullRequestResponse);
+            await normalizePullRequestImages(refreshedPullRequests).catch(() => {});
           } catch (ex) {
             refreshedPullRequests = [];
           }
@@ -5625,7 +5784,7 @@ async function mainAsyncLocal() {
   }
   new draggable({
     handle: '._JX_title, ._JX_status',
-    cancel: 'a, button, input, textarea, img, ._JX_description, ._JX_comments, ._JX_comment_body, ._JX_description_text, ._JX_related_pr, ._JX_history_flyout, ._JX_watchers_panel'
+    cancel: 'a, button, input, textarea, img, ._JX_description, ._JX_comments, ._JX_comment_body, ._JX_description_text, ._JX_related_table, ._JX_history_flyout, ._JX_watchers_panel'
   }, container);
   
   // ── Clipboard & Copy ──────────────────────────────────────
@@ -5747,6 +5906,51 @@ async function mainAsyncLocal() {
       actionsOpen: !popupState.actionsOpen
     };
     renderIssuePopup(popupState).catch(() => {});
+  });
+
+  $(document.body).on('click', '._JX_children_sort', function (e) {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!popupState) {
+      return;
+    }
+    const column = e.currentTarget.getAttribute('data-sort-column') || '';
+    popupState = {
+      ...popupState,
+      childrenSort: toggleChildrenSort(popupState.childrenSort, column)
+    };
+    renderIssuePopup(popupState).catch(() => {});
+  });
+
+  $(document.body).on('click', '._JX_pr_sort', function (e) {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!popupState) {
+      return;
+    }
+    const column = e.currentTarget.getAttribute('data-sort-column') || '';
+    popupState = {
+      ...popupState,
+      pullRequestsSort: togglePullRequestsSort(popupState.pullRequestsSort, column)
+    };
+    renderIssuePopup(popupState).catch(() => {});
+  });
+
+  $(document.body).on('click', '._JX_comment_sort_toggle', function (e) {
+    e.preventDefault();
+    e.stopPropagation();
+    const nextCommentSortOrder = toggleCommentSortOrder(popupState?.commentSortOrder);
+    commentSortOrderPreference = nextCommentSortOrder;
+    if (popupState) {
+      popupState = {
+        ...popupState,
+        commentSortOrder: nextCommentSortOrder
+      };
+      renderIssuePopup(popupState).catch(() => {});
+    }
+    storageLocalSet({
+      [COMMENT_SORT_ORDER_STORAGE_KEY]: nextCommentSortOrder
+    }).catch(() => {});
   });
 
   $(document.body).on('click', '._JX_watchers_trigger', function (e) {
@@ -6709,11 +6913,26 @@ async function mainAsyncLocal() {
     (async function (cancelToken) {
       const issueData = await getIssueMetaData(key);
       await normalizeIssueImages(issueData);
+      let children = [];
+      let childrenError = '';
+      if (showChildren) {
+        try {
+          children = await getChildIssues(issueData);
+          await normalizeChildIssueImages(children).catch(() => {});
+        } catch (ex) {
+          console.log('[Jira QuickView] Child issue fetch failed', {
+            issueKey: key,
+            error: ex?.message || String(ex)
+          });
+          childrenError = buildEditFieldError(ex);
+        }
+      }
       let pullRequests = [];
       if (showPullRequests) {
         try {
           const pullRequestResponse = await getPullRequestDataCached(issueData.id);
           pullRequests = normalizePullRequests(pullRequestResponse);
+          await normalizePullRequestImages(pullRequests).catch(() => {});
         } catch (ex) {
           console.log('[Jira QuickView] Pull request fetch failed', {
             issueKey: key,
@@ -6749,6 +6968,11 @@ async function mainAsyncLocal() {
       await renderUpdatedPopupState({
         key,
         issueData,
+        children,
+        childrenError,
+        childrenSort: DEFAULT_CHILDREN_SORT,
+        commentSortOrder: commentSortOrderPreference,
+        pullRequestsSort: DEFAULT_PULL_REQUESTS_SORT,
         pullRequests,
         pointerX,
         pointerY,

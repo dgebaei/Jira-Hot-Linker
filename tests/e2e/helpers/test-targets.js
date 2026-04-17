@@ -88,6 +88,7 @@ function buildExtensionConfig(servers, overrides = {}, target = getJiraTestTarge
       attachments: true,
       comments: true,
       description: true,
+      children: true,
       reporter: true,
       assignee: true,
       pullRequests: true,

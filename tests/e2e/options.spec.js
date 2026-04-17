@@ -272,6 +272,7 @@ test('persists reordered content blocks through the options page', async ({optio
   await optionsPage.reload();
   await openAdvancedSettings(optionsPage);
 
+  await expect(contentBlockItem(optionsPage, 'children')).toBeVisible();
   await expect(contentBlockItem(optionsPage, 'pullRequests')).toBeVisible();
   await optionsPage.evaluate(() => {
     window.__JHL_TEST_API__.moveContentBlock('pullRequests', 1);
@@ -316,6 +317,7 @@ test('exports the current settings as JSON', async ({optionsPage, servers}) => {
   expect(exported.settings.instanceUrl).toBe('https://example.atlassian.net/');
   expect(exported.settings.hoverDepth).toBe('deep');
   expect(exported.settings.hoverModifierKey).toBe('shift');
+  expect(exported.settings.tooltipLayout.contentBlocks).toContain('children');
   expect(exported.settings.tooltipLayout.contentBlocks).toContain('pullRequests');
 });
 

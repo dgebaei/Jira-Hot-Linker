@@ -65,7 +65,7 @@ export function createContentPeopleHelpers(options) {
 
   function buildUserView(user) {
     const displayName = user?.displayName || user?.name || user?.username || user?.emailAddress || '';
-    const rawAvatarUrl = user?.avatarUrls?.['48x48'] || '';
+    const rawAvatarUrl = user?.avatarUrls?.['48x48'] || user?.avatarUrl || '';
     const useInitials = isLikelyDefaultAvatar(user, rawAvatarUrl);
     return {
       displayName,

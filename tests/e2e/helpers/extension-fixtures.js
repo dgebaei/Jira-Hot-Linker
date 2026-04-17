@@ -124,7 +124,7 @@ async function configureExtension(optionsPage, config) {
     row1: ['issueType', 'status', 'priority', 'epicParent'],
     row2: ['sprint', 'affects', 'fixVersions'],
     row3: ['environment', 'labels'],
-    contentBlocks: ['description', 'attachments', 'comments', 'pullRequests'],
+    contentBlocks: ['description', 'attachments', 'children', 'comments', 'pullRequests'],
     people: ['reporter', 'assignee']
   };
 
